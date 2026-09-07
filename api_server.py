@@ -10,12 +10,12 @@ Endpoints:
   GET  /v1/agents                    — list all tracked agents
   GET  /stats                        — usage counters
 """
-import json, os, sys, time
+import json, os, sys, time, hmac, hashlib
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ledger_engine import track, set_budget, get_budget, report, list_agents
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
@@ -138,6 +138,55 @@ def llms_txt():
 @app.get("/status", response_class=HTMLResponse)
 def status_page():
     return (Path(__file__).parent / "status.html").read_text()
+
+# ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
+CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
+
+def _append_customer(rec: dict):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CUSTOMERS_FILE, "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Fulfillment: checkout.session.completed -> customers.jsonl (HMAC-verified)."""
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET_AL", "")
+    if secret:
+        try:
+            parts = dict(p.split("=", 1) for p in sig.split(","))
+            expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
+            if not parts.get("t") or not hmac.compare_digest(parts.get("v1", ""), expected):
+                raise HTTPException(400, "bad signature")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(400, "signature verification failed")
+    event = json.loads(payload)
+    if event.get("type") != "checkout.session.completed":
+        return {"received": True, "ignored": event.get("type")}
+    sess = event["data"]["object"]
+    email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
+    if not email:
+        return {"registered": False, "reason": "no email on session"}
+    amount = sess.get("amount_total") or 0
+    plan = "pro" if amount == 1900 else "unknown"
+    _append_customer({"ts": time.time(), "email": email, "plan": plan,
+                      "amount_total": amount, "stripe_session": sess.get("id", ""),
+                      "status": "active", "authority": "confirmed-at-checkout"})
+    return {"registered": True, "email": email, "plan": plan}
+
+@app.get("/v1/billing/{email}")
+def billing_status(email: str):
+    for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
+        try:
+            r = json.loads(line)
+            if r.get("email", "").lower() == email.lower() and r.get("status") == "active":
+                return {"email": email, "plan": r.get("plan"), "status": "active"}
+        except Exception:
+            continue
+    return {"email": email, "plan": "beta", "status": "free_during_beta"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8761))
