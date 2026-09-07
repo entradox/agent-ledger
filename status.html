@@ -67,7 +67,7 @@ autonomous agent moves.
 </div>
 
 <div class="note">
-<b>Free during beta.</b> All rails, budgets, alerts, and the MCP integration are free while AgentLedger is in beta. GA pricing: <b>Pro $19/mo</b> — unlimited tracked agents + full history + alerts: <a href="https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e" target="_blank" rel="noopener" style="color:#D4AF37">Get Pro — $19/mo</a>. Contact: entradox@icloud.com
+<b>Free during beta (up to 3 agents).</b> All rails, budgets, alerts, and the MCP integration are free while AgentLedger is in beta. GA pricing: <b>Pro $19/mo</b> — unlimited tracked agents + full history + alerts: <a href="https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e" target="_blank" rel="noopener" style="color:#D4AF37">Get Pro — $19/mo</a>. Contact: entradox@icloud.com
 </div>
 
 <div class="mut">
@@ -76,7 +76,8 @@ AgentLedger · operated as an independent software service · registry: io.githu
 
 </div>
 <script>
-fetch("https://agent-ledger-production-0ff8.up.railway.app/stats").then(r=>r.json()).then(d=>{
+const _lc = new AbortController(); setTimeout(()=>_lc.abort(), 8000);
+fetch("https://agent-ledger-production-0ff8.up.railway.app/stats", {signal: _lc.signal}).then(r=>r.json()).then(d=>{
   document.getElementById("ts").textContent = new Date().toLocaleString();
   const box = document.getElementById("live-box");
   const events = Object.entries(d.events || {}).map(([k,v])=>
@@ -84,7 +85,7 @@ fetch("https://agent-ledger-production-0ff8.up.railway.app/stats").then(r=>r.jso
   box.innerHTML =
     '<div class="s-line"><span>Tracked agents</span><span class="tag up">'+d.tracked_agents+'</span></div>' +
     (events || '<div class="s-line"><span>Events</span><span>—</span></div>');
-}).catch(()=>{
+}).catch(()=>{ document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live stats unavailable right now</span><span>—</span></div>';
   document.getElementById("ts").textContent = new Date().toLocaleString();
   document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live fetch failed</span><span>—</span></div>';
 });

@@ -48,9 +48,17 @@ class BudgetRequest(BaseModel):
 def health():
     return {"ok": True, "service": "agent-ledger", "version": "0.1.0"}
 
+BETA_AGENT_CAP = 3  # beta: 3 tracked agents free; Pro ($19/mo) unlimited
+
 @app.post("/v1/track")
 def create_track(req: TrackRequest):
     _log_event("track")
+    tracked = {a["agent_id"] for a in list_agents()}
+    if req.agent_id not in tracked and len(tracked) >= BETA_AGENT_CAP:
+        raise HTTPException(402, (
+            f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
+            "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
+            "— or contact entradox@icloud.com"))
     entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
     return entry.to_dict()
 
@@ -175,6 +183,12 @@ async def stripe_webhook(request: Request):
     _append_customer({"ts": time.time(), "email": email, "plan": plan,
                       "amount_total": amount, "stripe_session": sess.get("id", ""),
                       "status": "active", "authority": "confirmed-at-checkout"})
+    try:
+        from send_onboarding_email import send_onboarding_email
+        send_onboarding_email(email, plan)
+    except Exception as e:
+        import logging
+        logging.warning(f"onboarding email skipped: {e}")
     return {"registered": True, "email": email, "plan": plan}
 
 @app.get("/v1/billing/{email}")
