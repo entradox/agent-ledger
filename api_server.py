@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ledger_engine import track, set_budget, get_budget, report, list_agents
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
 import uvicorn
 
@@ -90,6 +91,67 @@ def stats():
                 continue
     return {"tracked_agents": len(list_agents()), "events": dict(c)}
 
+LLMS_TXT = """# AgentLedger
+
+Per-agent spend management — the Datadog for agent spending. Track spend
+across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
+
+## Endpoints
+
+GET  /health                       — liveness
+POST /v1/track                     — record a spend entry
+     body: {"agent_id": str, "rail": str, "amount_cents": int, "service": str}
+POST /v1/budget                    — set budget caps
+     body: {"agent_id": str, "monthly_cents": int, "daily_cents": int (optional)}
+GET  /v1/report/{agent_id}         — spend report (query: days=30)
+GET  /v1/alerts/{agent_id}         — alerts for agent
+GET  /v1/agents                    — list all tracked agents
+GET  /stats                        — usage counters
+
+## MCP
+
+Registry: io.github.entradox/agent-ledger
+Remote:   https://agent-ledger-production-0ff8.up.railway.app/mcp/
+
+Tools exposed at POST /mcp/:
+  ledger_track          — record a spend entry
+  ledger_set_budget     — set a budget cap
+  ledger_report         — get a spend report
+  ledger_alerts         — get alerts for an agent
+  ledger_list_agents    — list all tracked agents
+
+Free during beta. Contact: entradox@icloud.com
+"""
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+def llms_txt():
+    return LLMS_TXT
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page():
+    return (Path(__file__).parent / "status.html").read_text()
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8761))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+# --- hosted MCP (streamable-http) mount for agent-marketplace remotes ---
+try:
+    from contextlib import asynccontextmanager
+    from al_mcp_http import mcp as al_mcp, get_asgi_app  # noqa
+
+    _al_asgi = get_asgi_app()
+    _mcp_lifespan = _al_asgi.lifespan  # fastmcp 3.x: ASGI app carries its own session-manager lifespan
+    _base_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _combined_lifespan(app):
+        async with _base_lifespan(app):
+            async with _mcp_lifespan(app):
+                yield
+
+    app.router.lifespan_context = _combined_lifespan
+    app.mount("/mcp", _al_asgi)
+except Exception as _e:  # MCP optional — API keeps working without it
+    import logging
+    logging.warning(f"MCP mount skipped: {_e}")

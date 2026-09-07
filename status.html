@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentLedger — Status</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--red:#f85149;--blu:#58a6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;padding:28px 14px;line-height:1.55}
+.w{max-width:720px;margin:0 auto}
+h1{font-size:24px}h1 span{color:var(--g)}
+.sub{color:var(--m);font-size:13px;margin:4px 0 20px}
+h2{font-size:16px;color:var(--g);margin:20px 0 10px}
+.stat{background:#161b22;border:1px solid var(--b);border-radius:10px;padding:14px;margin:8px 0}
+.s-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #21262d;font-size:13px}
+.s-line:last-child{border:0}
+.tag{display:inline-block;border-radius:12px;padding:2px 8px;font-size:10.5px}
+.up{background:#0d2818;color:var(--grn);border:1px solid #1a3a2a}
+.note{background:#0a1628;border:1px solid var(--g);border-radius:10px;padding:12px 14px;margin:16px 0;font-size:12.5px}
+.mut{color:var(--m);font-size:11px;margin-top:20px;border-top:1px solid var(--b);padding-top:10px}
+pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px 12px;font-size:11.5px;overflow-x:auto;color:#79c0ff;margin:6px 0 14px;white-space:pre-wrap;word-break:break-word}
+</style></head><body><div class="w">
+
+<h1>AgentLedger — <span>Status</span></h1>
+<div class="sub">Per-agent spend management · Last updated: <span id="ts">loading…</span></div>
+
+<h2>What AgentLedger does</h2>
+<div class="stat">
+<p style="color:#8b949e;font-size:12.5px;line-height:1.6">
+<b style="color:#e6edf3">AgentLedger is the Datadog for agent spending.</b> Track spend across
+x402, MPP, and API-key payment rails from one place, set budget caps per agent, get
+anomaly alerts when spend spikes, and keep a full audit trail of every dollar an
+autonomous agent moves.
+</p>
+</div>
+
+<h2>Live sample (this instance)</h2>
+<div class="stat" id="live-box">
+<div class="s-line"><span>Fetching…</span><span>—</span></div>
+</div>
+
+<h2>MCP integration</h2>
+<div class="stat">
+<div class="s-line"><span>Registry name</span><span><b>io.github.entradox/agent-ledger</b></span></div>
+<div class="s-line"><span>Remote URL</span><span style="word-break:break-all">https://agent-ledger-production-0ff8.up.railway.app/mcp/</span></div>
+<p style="font-size:12.5px;color:#8b949e;margin:10px 0 6px"><b>Claude / Cursor MCP config</b> — paste into your MCP config file:</p>
+<pre class="cmd">{
+  "mcpServers": {
+    "agent-ledger": {
+      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+    }
+  }
+}</pre>
+<p style="font-size:12.5px;color:#8b949e">Exposes tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>.</p>
+</div>
+
+<h2>Getting started</h2>
+<div class="stat">
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>1. Track a spend event</b></p>
+<pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search"}'</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>2. Set a monthly budget cap</b></p>
+<pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"my-agent","monthly_cents":5000}'</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>3. Pull a spend report</b></p>
+<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent</pre>
+</div>
+
+<div class="note">
+<b>Free during beta.</b> All rails, budgets, alerts, and the MCP integration are free while AgentLedger is in beta. Contact: entradox@icloud.com
+</div>
+
+<div class="mut">
+AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger
+</div>
+
+</div>
+<script>
+fetch("https://agent-ledger-production-0ff8.up.railway.app/stats").then(r=>r.json()).then(d=>{
+  document.getElementById("ts").textContent = new Date().toLocaleString();
+  const box = document.getElementById("live-box");
+  const events = Object.entries(d.events || {}).map(([k,v])=>
+    '<div class="s-line"><span>'+k+'</span><span>'+v+'</span></div>').join("");
+  box.innerHTML =
+    '<div class="s-line"><span>Tracked agents</span><span class="tag up">'+d.tracked_agents+'</span></div>' +
+    (events || '<div class="s-line"><span>Events</span><span>—</span></div>');
+}).catch(()=>{
+  document.getElementById("ts").textContent = new Date().toLocaleString();
+  document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live fetch failed</span><span>—</span></div>';
+});
+</script>
+</body></html>
