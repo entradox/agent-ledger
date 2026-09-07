@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ledger_engine import track, set_budget, get_budget, report, list_agents
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse, HTMLResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
@@ -122,6 +122,14 @@ Tools exposed at POST /mcp/:
 
 Free during beta. Contact: entradox@icloud.com
 """
+
+@app.get("/.well-known/glama.json")
+def glama_claim():
+    """Glama HTTP-challenge ownership verification file."""
+    return JSONResponse(content={
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "claim": "glama_claim_waz6O2PC6GoDz7HpLpGshyVk0UGWUo9i",
+    }, media_type="application/json")
 
 @app.get("/llms.txt", response_class=PlainTextResponse)
 def llms_txt():
