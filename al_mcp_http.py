@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """AgentLedger MCP server — hosted streamable-http mode for Railway.
 
-Same tools as mcp_server.py (stdio variant), exposed as a hosted
-streamable-http ASGI app that api_server.py mounts at /mcp.
-This is what the Official MCP Registry 'remotes' field points at.
+TDQS-optimized tool definitions: full descriptions, parameter docs, and
+behavioral annotations for registry scoring and agent routing.
 """
 import os
 from fastmcp import FastMCP
@@ -11,13 +10,18 @@ from fastmcp import FastMCP
 mcp = FastMCP("agent-ledger")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"title": "Track Agent Spend", "readOnlyHint": False,
+                        "destructiveHint": False, "idempotentHint": False})
 def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> dict:
-    """Record a spend entry for an agent.
+    """Record a spend entry for an AI agent on any payment rail.
+
+    Every call appends to the agent's ledger and re-checks budget state.
+    Use after every paid agent action to build the audit trail. Returns the
+    persisted entry with timestamp.
 
     Args:
-        agent_id: unique agent identifier
-        rail: payment rail used ("mpp", "x402", "api_key", "manual")
+        agent_id: unique agent identifier (e.g. "research-agent-v2")
+        rail: payment rail used — one of "mpp", "x402", "api_key", "manual"
         amount_cents: spend amount in cents (100 = $1.00)
         service: what was purchased (e.g. "search_query", "data_export")
     """
@@ -26,9 +30,14 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> d
     return entry.to_dict()
 
 
-@mcp.tool()
+@mcp.tool(annotations={"title": "Set Agent Budget", "readOnlyHint": False,
+                        "destructiveHint": True, "idempotentHint": True})
 def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0) -> dict:
-    """Set an agent's budget caps.
+    """Set spending caps for an agent. Warns at 80%, blocks spend when exceeded.
+
+    Monthly cap is required; daily cap is optional (0 = no daily limit).
+    Overwrites any existing budget for the agent. Subsequent ledger_track
+    calls enforce these caps. Destructive in that it replaces prior budget state.
 
     Args:
         agent_id: unique agent identifier
@@ -40,13 +49,17 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0) -
     return b.to_dict()
 
 
-@mcp.tool()
+@mcp.tool(annotations={"title": "Agent Spend Report", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
 def ledger_report(agent_id: str, days: int = 30) -> dict:
-    """Spend report for an agent: totals, by rail, by service, budget status, anomalies.
+    """Spend report for an agent over a rolling window.
+
+    Returns total spend, breakdown by rail and by service, budget status
+    (ok/warning/exceeded), detected anomalies, and entry count.
 
     Args:
         agent_id: unique agent identifier
-        days: report window in days
+        days: report window in days (default 30)
     """
     from ledger_engine import report
     r = report(agent_id, days)
@@ -56,9 +69,10 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
             "anomalies": r.anomalies, "entry_count": r.entry_count}
 
 
-@mcp.tool()
+@mcp.tool(annotations={"title": "Agent Budget Alerts", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
 def ledger_alerts(agent_id: str) -> dict:
-    """Alerts for an agent (budget warnings, spending spikes)."""
+    """Alert history for an agent: budget warnings (80% threshold) and spending spikes."""
     import json as _json
     from ledger_engine import _alerts_path
     p = _alerts_path(agent_id)
@@ -73,9 +87,10 @@ def ledger_alerts(agent_id: str) -> dict:
     return {"alerts": alerts}
 
 
-@mcp.tool()
+@mcp.tool(annotations={"title": "List Tracked Agents", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
 def ledger_list_agents() -> dict:
-    """List all tracked agents."""
+    """List every agent with tracked spend in this ledger. Read-only."""
     from ledger_engine import list_agents
     return {"agents": list_agents()}
 
