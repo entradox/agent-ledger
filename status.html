@@ -59,12 +59,13 @@ autonomous agent moves.
 <pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}'</pre>
+<p style="font-size:11.5px;color:#8b949e;margin:-8px 0 12px"><b style="color:#D4AF37">No signup, but not open-write either:</b> the first call for a new <code>agent_id</code> returns an <code>agent_secret</code> in the response. Save it — every later write to that same <code>agent_id</code> (track or budget) must include <code>"agent_secret":"..."</code> in the body, or it's rejected. Reads (report/tokens/alerts) stay open, no secret needed.</p>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Token burn report</b> — see exactly what each agent burns on:</p>
 <pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/tokens/my-agent</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>2. Set a monthly budget cap</b></p>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>2. Set a monthly budget cap</b> — enforced: a track() call that would cross it gets blocked (402), not just logged</p>
 <pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
   -H "Content-Type: application/json" \
-  -d '{"agent_id":"my-agent","monthly_cents":5000}'</pre>
+  -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>3. Pull a spend report</b></p>
 <pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent</pre>
 </div>

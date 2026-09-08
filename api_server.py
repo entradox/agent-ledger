@@ -12,12 +12,17 @@ Endpoints:
 """
 import json, os, sys, time, hmac, hashlib
 from pathlib import Path
+from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ledger_engine import track, set_budget, get_budget, report, list_agents, _ledger_path
+from ledger_engine import (
+    track, set_budget, get_budget, report, list_agents, _ledger_path,
+    ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
+    AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
+)
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 
 app = FastAPI(title="AgentLedger API", version="0.1.0")
@@ -36,76 +41,73 @@ def _log_event(kind):
 class TrackRequest(BaseModel):
     agent_id: str
     rail: str
-    amount_cents: int
+    amount_cents: int = Field(ge=0, le=MAX_AMOUNT_CENTS)
     service: str
-    tokens_in: int = 0
-    tokens_out: int = 0
+    tokens_in: int = Field(default=0, ge=0)
+    tokens_out: int = Field(default=0, ge=0)
     model: str = ""
+    agent_secret: Optional[str] = None
 
 class BudgetRequest(BaseModel):
     agent_id: str
-    monthly_cents: int
-    daily_cents: int = 0
+    monthly_cents: int = Field(ge=0)
+    daily_cents: int = Field(default=0, ge=0)
+    agent_secret: Optional[str] = None
 
 @app.get("/health")
 def health():
     return {"ok": True, "service": "agent-ledger", "version": "0.1.0"}
 
-BETA_AGENT_CAP = 3  # beta: 3 tracked agents free; Pro ($19/mo) unlimited
-
-# ── scalability: never walk the full agents tree per-request ─────────────────
-# list_agents() reads every ledger row (O(agents × rows)); at 10K agents that is
-# 500K+ parses per call. The beta-cap check only needs (a) does THIS agent exist
-# — O(1) filesystem check — and (b) how many agents exist — a dir-name count,
-# cached with a short TTL and rebuilt under a lock.
 import threading as _threading
 import time as _time
 
-_agents_count_cache = {"ts": 0.0, "count": 0}
-_agents_cache_lock = _threading.Lock()
-AGENTS_CACHE_TTL = 30.0  # seconds; beta cap staleness window
-
-def _cached_agent_count() -> int:
-    now = _time.time()
-    if now - _agents_count_cache["ts"] < AGENTS_CACHE_TTL:
-        return _agents_count_cache["count"]
-    with _agents_cache_lock:
-        if now - _agents_count_cache["ts"] < AGENTS_CACHE_TTL:
-            return _agents_count_cache["count"]
-        agents_dir = DATA_DIR / "agents"
-        count = 0
-        if agents_dir.exists():
-            for d in agents_dir.iterdir():
-                if d.is_dir() and (d / "ledger.jsonl").exists():
-                    count += 1
-        _agents_count_cache["count"] = count
-        _agents_count_cache["ts"] = _time.time()
-        return count
+def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
+    """Shared auth gate for every write endpoint. Mints a secret on first use
+    of a new agent_id (no signup), verifies it on every later write, and
+    enforces the beta agent-slot cap. Raises HTTPException on failure."""
+    try:
+        return ensure_agent_secret(agent_id, provided_secret)
+    except AuthError as e:
+        raise HTTPException(401, str(e))
+    except BetaCapExceededError as e:
+        raise HTTPException(402, str(e))
 
 @app.post("/v1/track")
 def create_track(req: TrackRequest):
     _log_event("track")
-    # O(1) membership: an agent is "tracked" iff its ledger file exists
-    if not _ledger_path(req.agent_id).exists():
-        if _cached_agent_count() >= BETA_AGENT_CAP:
-            raise HTTPException(402, (
-                f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
-                "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
-                "— or contact entradox@icloud.com"))
-    entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
+    try:
+        entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    except BudgetExceededError as e:
+        raise HTTPException(402, str(e))
     # token dimension: token counts stored SEPARATELY from the dollar ledger
-    # (never mixed — token counts are not cents) via meta on the entry
+    # (never mixed — token counts are not cents) via meta on the entry.
+    # rail="tokens" rows are 0-cent bookkeeping, exempt from budget/amount checks,
+    # and ride on the ownership already verified above for the main entry.
     if req.tokens_in or req.tokens_out:
         tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
         if req.model:
             tok_meta["model"] = req.model
         track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
-    return entry.to_dict()
+    result = entry.to_dict()
+    if created:
+        result["agent_secret"] = secret
+        result["_note"] = ("Save this agent_secret — required for every future write "
+                            "to this agent_id (track/budget). It will not be shown again.")
+    return result
 
 @app.post("/v1/budget")
 def create_budget(req: BudgetRequest):
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
-    return b.to_dict()
+    result = b.to_dict()
+    if created:
+        result["agent_secret"] = secret
+        result["_note"] = ("Save this agent_secret — required for every future write "
+                            "to this agent_id (track/budget). It will not be shown again.")
+    return result
 
 @app.get("/v1/report/{agent_id}")
 def get_report(agent_id: str, days: int = 30):
@@ -124,7 +126,13 @@ def get_alerts(agent_id: str):
     return {"count": len(alerts), "alerts": alerts}
 
 @app.get("/v1/agents")
-def get_agents():
+def get_agents(request: Request):
+    """Portfolio-wide listing across every agent_id ever claimed — owner-only.
+    (Per-agent data stays open-read at GET /v1/report/{agent_id} and
+    /v1/tokens/{agent_id}; this endpoint is the full cross-tenant dump.)"""
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+        raise HTTPException(401, "owner only")
     return {"agents": list_agents()}
 
 # /stats is fetched by the status page on EVERY page view — cache it so viral
@@ -154,7 +162,7 @@ def stats():
                     c[json.loads(line).get("kind", "?")] += 1
                 except (json.JSONDecodeError, KeyError):
                     continue
-        payload = {"tracked_agents": _cached_agent_count(), "events": dict(c)}
+        payload = {"tracked_agents": claimed_agent_count(), "events": dict(c)}
         _stats_cache["payload"] = payload
         _stats_cache["ts"] = _time.time()
         return payload
@@ -167,18 +175,33 @@ across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status
 
+## Ownership (no signup — but not open-write either)
+
+The first write (POST /v1/track or /v1/budget) to a new agent_id mints an
+`agent_secret` and returns it once, e.g. {"agent_secret": "...", "_note": "..."}.
+Save it — every later write to that same agent_id must include it in the body
+as "agent_secret", or the request is rejected with 401. Reads
+(/v1/report, /v1/tokens, /v1/alerts) stay open — no secret required.
+Beta caps total claimed agents at 3 site-wide; a 4th new agent_id gets 402
+until upgrading. Amounts per entry are capped at $100,000 and must be >= 0.
+Setting a budget makes it enforced going forward: a track() entry that would
+cross the monthly/daily cap is rejected with 402, not just logged.
+
 ## Endpoints
 
 GET  /health                       — liveness
-POST /v1/track                     — record a spend entry
-     body: {"agent_id": str, "rail": str, "amount_cents": int, "service": str,
-            "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional)}
-POST /v1/budget                    — set budget caps
-     body: {"agent_id": str, "monthly_cents": int, "daily_cents": int (optional)}
-GET  /v1/report/{agent_id}         — spend report (query: days=30)
-GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30)
-GET  /v1/alerts/{agent_id}         — alerts for agent
-GET  /v1/agents                    — list all tracked agents
+POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
+     body: {"agent_id": str, "rail": str, "amount_cents": int (0-10000000), "service": str,
+            "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional),
+            "agent_secret": str (required after the first call for this agent_id)}
+POST /v1/budget                    — set budget caps (mints/verifies agent_secret); once set,
+                                      track() blocks entries that would cross the cap
+     body: {"agent_id": str, "monthly_cents": int, "daily_cents": int (optional),
+            "agent_secret": str (required after the first call for this agent_id)}
+GET  /v1/report/{agent_id}         — spend report (query: days=30) — open read
+GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — open read
+GET  /v1/alerts/{agent_id}         — alerts for agent — open read
+GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
 
 ## MCP
@@ -187,11 +210,11 @@ Registry: io.github.entradox/agent-ledger
 Remote:   https://agent-ledger-production-0ff8.up.railway.app/mcp/
 
 Tools exposed at POST /mcp/:
-  ledger_track          — record a spend entry
-  ledger_set_budget     — set a budget cap
-  ledger_report         — get a spend report
-  ledger_alerts         — get alerts for an agent
-  ledger_list_agents    — list all tracked agents
+  ledger_track          — record a spend entry (agent_secret param, same rules as above)
+  ledger_set_budget     — set a budget cap (agent_secret param, same rules as above)
+  ledger_report         — get a spend report (open read)
+  ledger_alerts         — get alerts for an agent (open read)
+  ledger_list_agents    — owner-only (admin_secret param)
 
 Free during beta. Contact: entradox@icloud.com
 """

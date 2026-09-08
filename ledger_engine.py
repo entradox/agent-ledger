@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,6 +16,31 @@ from pathlib import Path
 from typing import Optional
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
+
+# beta: free tier caps total claimed agents site-wide; Pro ($19/mo) unlimited
+BETA_AGENT_CAP = 3
+# sanity ceiling on a single entry — blocks fat-finger / abuse-sized amounts
+MAX_AMOUNT_CENTS = 10_000_000  # $100,000
+
+
+class LedgerError(Exception):
+    """Base class for engine-level rejections (translated to HTTP by callers)."""
+
+
+class AuthError(LedgerError):
+    """agent_id is already claimed and the provided secret didn't match."""
+
+
+class ValidationError(LedgerError):
+    """Malformed or out-of-range spend data."""
+
+
+class BudgetExceededError(LedgerError):
+    """This entry would push the agent over its monthly/daily cap — blocked."""
+
+
+class BetaCapExceededError(LedgerError):
+    """Beta agent-slot cap reached."""
 
 
 @dataclass
@@ -72,14 +98,90 @@ def _alerts_path(agent_id: str) -> Path:
     return _agent_dir(agent_id) / "alerts.jsonl"
 
 
+def _secret_path(agent_id: str) -> Path:
+    return _agent_dir(agent_id) / "secret.txt"
+
+
+def agent_exists(agent_id: str) -> bool:
+    """An agent is 'claimed' once it has a minted secret (may predate any spend)."""
+    return _secret_path(agent_id).exists()
+
+
+def claimed_agent_count() -> int:
+    agents_dir = DATA_DIR / "agents"
+    if not agents_dir.exists():
+        return 0
+    return sum(1 for d in agents_dir.iterdir() if d.is_dir() and (d / "secret.txt").exists())
+
+
+def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
+                         *, check_cap: bool = True) -> tuple[str, bool]:
+    """Claim-or-verify ownership of agent_id. No signup required — the first
+    write to a new agent_id mints a secret and returns it; every later write
+    to that same agent_id must present it. Returns (secret, created).
+
+    Raises AuthError if agent_id is already claimed and the secret doesn't
+    match, or BetaCapExceededError if this would be a new agent past the
+    free-tier slot cap.
+    """
+    path = _secret_path(agent_id)
+    if path.exists():
+        real = path.read_text().strip()
+        if not provided_secret or not secrets.compare_digest(provided_secret, real):
+            raise AuthError(
+                f"agent_id '{agent_id}' is already claimed — pass its agent_secret "
+                "(returned when the agent_id was first used) to write to it")
+        return real, False
+    if check_cap and claimed_agent_count() >= BETA_AGENT_CAP:
+        raise BetaCapExceededError(
+            f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
+            "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
+            "— or contact entradox@icloud.com")
+    new_secret = secrets.token_urlsafe(24)
+    _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
+    path.write_text(new_secret)
+    return new_secret, True
+
+
 def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> SpendEntry:
+    """Append a spend entry. Ownership (ensure_agent_secret) must already be
+    verified by the caller — this function is also used by the trusted local
+    CLI, which has no notion of secrets. Validates amount and blocks entries
+    that would cross a set budget cap (rail=="tokens" rows are 0-cent burn
+    bookkeeping and are exempt from both checks).
+    """
+    if rail != "tokens":
+        if amount_cents < 0:
+            raise ValidationError("amount_cents must be >= 0")
+        if amount_cents > MAX_AMOUNT_CENTS:
+            raise ValidationError(
+                f"amount_cents exceeds the per-entry ceiling of {MAX_AMOUNT_CENTS} "
+                f"(${MAX_AMOUNT_CENTS/100:,.0f})")
+        budget = get_budget(agent_id)
+        if budget:
+            if budget.monthly_cap_cents > 0:
+                projected = _month_spend(agent_id) + amount_cents
+                if projected > budget.monthly_cap_cents:
+                    raise BudgetExceededError(
+                        f"blocked: this ${amount_cents/100:.2f} spend would put "
+                        f"{agent_id} at ${projected/100:.2f}, over its monthly cap "
+                        f"of ${budget.monthly_cap_cents/100:.2f}")
+            if budget.daily_cap_cents > 0:
+                projected_daily = _today_spend(agent_id) + amount_cents
+                if projected_daily > budget.daily_cap_cents:
+                    raise BudgetExceededError(
+                        f"blocked: this ${amount_cents/100:.2f} spend would put "
+                        f"{agent_id} at ${projected_daily/100:.2f} today, over its "
+                        f"daily cap of ${budget.daily_cap_cents/100:.2f}")
+
     entry = SpendEntry(agent_id=agent_id, rail=rail, amount_cents=amount_cents,
                        service=service, meta=meta)
     agent_dir = _agent_dir(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     with open(_ledger_path(agent_id), "a") as f:
         f.write(json.dumps(entry.to_dict()) + "\n")
-    _check_budget(agent_id)
+    if rail != "tokens":
+        _check_budget(agent_id)
     return entry
 
 

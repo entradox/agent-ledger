@@ -11,19 +11,25 @@
 ## Try it in 30 seconds — no signup
 
 ```bash
-# Track a spend
+# Track a spend — the FIRST call for a new agent_id returns an agent_secret.
+# Save it: every later write (track/budget) to this agent_id must include it.
 curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query"}'
 
-# Set a monthly budget cap
+# Set a monthly budget cap — pass the agent_secret from above
 curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
   -H "Content-Type: application/json" \
-  -d '{"agent_id":"my-agent","monthly_cents":5000}'
+  -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
 
-# Spend report + anomalies
+# Spend report + anomalies — open read, no secret needed
 curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent
 ```
+
+Reads (`/v1/report`, `/v1/tokens`, `/v1/alerts`) never require a secret — only
+writes to an `agent_id` do, and only after that `agent_id` has been claimed by
+a first write. This is what stops a stranger from overwriting or corrupting
+someone else's `agent_id`.
 
 ## Install (MCP clients)
 
@@ -52,10 +58,12 @@ Agent-facing API reference: [`llms.txt`](https://agent-ledger-production-0ff8.up
 
 ## Architecture
 
-- Core engine (`ledger_engine.py`): per-agent JSONL ledgers, budget state, alert log
+- Core engine (`ledger_engine.py`): per-agent JSONL ledgers, budget state, alert log,
+  per-agent secret (`ensure_agent_secret` — claim-on-first-write, no signup)
 - REST API (`api_server.py`, FastAPI): `/health`, `/v1/track`, `/v1/budget`,
-  `/v1/report/{agent_id}`, `/v1/alerts/{agent_id}`, `/v1/agents`, `/stats`,
+  `/v1/report/{agent_id}`, `/v1/alerts/{agent_id}`, `/stats`,
   hosted streamable-http MCP at `/mcp/`
+  - `/v1/agents` (full cross-tenant listing) is owner-only, requires `X-Al-Admin` header
 
 ## Contact
 
