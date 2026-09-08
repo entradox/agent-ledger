@@ -406,7 +406,16 @@ def token_report(agent_id: str, days: int = 30):
             "total_tokens": tin + tout, "by_model": by_model, "entries": entries}
 
 @app.get("/v1/billing/{email}")
-def billing_status(email: str):
+def billing_status(email: str, token: str = ""):
+    """Customer plan lookup — OWNER-ONLY (Opus audit round 3: was an open
+    email-enumeration oracle). Token = HMAC-SHA256("billing:<email>",
+    AL_ADMIN_SECRET), truncated to 32 hex chars; the operator computes it,
+    customers never see billing state of other emails."""
+    import hashlib as _h
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    expected_token = _h.sha256(f"billing:{email.lower()}:{admin_secret}".encode()).hexdigest()[:32] if admin_secret else ""
+    if not (admin_secret and token and expected_token and token == expected_token):
+        raise HTTPException(401, "owner only (billing status is not public)")
     for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
         try:
             r = json.loads(line)

@@ -125,7 +125,11 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
 def ledger_alerts(agent_id: str) -> dict:
     """Alert history for an agent: budget warnings (80% threshold) and spending spikes."""
     import json as _json
-    from ledger_engine import _alerts_path
+    from ledger_engine import _alerts_path, validate_agent_id, ValidationError
+    try:
+        validate_agent_id(agent_id)  # REST/MCP parity — same guard as GET /v1/alerts
+    except ValidationError as e:
+        return {"error": str(e)}
     p = _alerts_path(agent_id)
     if not p.exists():
         return {"alerts": []}
