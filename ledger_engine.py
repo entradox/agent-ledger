@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import statistics
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,8 @@ DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent
 BETA_AGENT_CAP = 3
 # sanity ceiling on a single entry — blocks fat-finger / abuse-sized amounts
 MAX_AMOUNT_CENTS = 10_000_000  # $100,000
+# payment rails accepted on the ledger — anything else is a typo/abuse vector
+VALID_RAILS = frozenset({"mpp", "x402", "api_key", "manual"})
 
 
 class LedgerError(Exception):
@@ -107,6 +110,19 @@ def agent_exists(agent_id: str) -> bool:
     return _secret_path(agent_id).exists()
 
 
+# agent_id is a path component under DATA_DIR/agents/ — a bad one must never
+# escape that directory (../ traversal, absolute paths, hidden/system names).
+AGENT_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,63})$")
+
+
+def validate_agent_id(agent_id: str):
+    """Raise ValidationError if agent_id is not a safe single path component."""
+    if not isinstance(agent_id, str) or not AGENT_ID_RE.match(agent_id or ""):
+        raise ValidationError(
+            "agent_id must be 1-64 chars: letters, digits, '.', '_', '-' "
+            "(must start alphanumeric; no '/', no '..')")
+
+
 def claimed_agent_count() -> int:
     agents_dir = DATA_DIR / "agents"
     if not agents_dir.exists():
@@ -122,8 +138,9 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
 
     Raises AuthError if agent_id is already claimed and the secret doesn't
     match, or BetaCapExceededError if this would be a new agent past the
-    free-tier slot cap.
+    free-tier slot cap (skipped when Pro is active).
     """
+    validate_agent_id(agent_id)
     path = _secret_path(agent_id)
     if path.exists():
         real = path.read_text().strip()
@@ -132,7 +149,7 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 f"agent_id '{agent_id}' is already claimed — pass its agent_secret "
                 "(returned when the agent_id was first used) to write to it")
         return real, False
-    if check_cap and claimed_agent_count() >= BETA_AGENT_CAP:
+    if check_cap and not pro_active() and claimed_agent_count() >= BETA_AGENT_CAP:
         raise BetaCapExceededError(
             f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
             "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
@@ -143,14 +160,43 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     return new_secret, True
 
 
+# ── Pro tier state ──────────────────────────────────────────────────────────
+# The Stripe webhook (checkout.session.completed, plan=pro) flips this flag on
+# the persistent volume; AL_PRO_ACTIVE=1 is an operator override. Until then
+# the free-tier agent cap is enforced for everyone — Pro must DO something.
+
+def _pro_flag_path() -> Path:
+    return DATA_DIR / "pro.flag"
+
+
+def pro_active() -> bool:
+    if os.environ.get("AL_PRO_ACTIVE", "").strip() == "1":
+        return True
+    return _pro_flag_path().exists()
+
+
+def activate_pro() -> None:
+    """Mark this instance Pro-active (idempotent)."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _pro_flag_path().write_text(datetime.now(timezone.utc).isoformat())
+
+
 def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> SpendEntry:
     """Append a spend entry. Ownership (ensure_agent_secret) must already be
     verified by the caller — this function is also used by the trusted local
     CLI, which has no notion of secrets. Validates amount and blocks entries
     that would cross a set budget cap (rail=="tokens" rows are 0-cent burn
-    bookkeeping and are exempt from both checks).
+    bookkeeping and are exempt from budget checks; amount bounds still apply).
     """
-    if rail != "tokens":
+    validate_agent_id(agent_id)
+    if rail == "tokens":
+        if amount_cents != 0:
+            raise ValidationError("rail 'tokens' rows must carry amount_cents=0 — "
+                                  "token burn is bookkeeping, not spend")
+    else:
+        if rail not in VALID_RAILS:
+            raise ValidationError(
+                f"rail must be one of {sorted(VALID_RAILS)} (got '{rail}')")
         if amount_cents < 0:
             raise ValidationError("amount_cents must be >= 0")
         if amount_cents > MAX_AMOUNT_CENTS:
@@ -186,6 +232,11 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> 
 
 
 def set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0, alert_pct: int = 80) -> Budget:
+    validate_agent_id(agent_id)
+    if monthly_cents < 0 or daily_cents < 0:
+        raise ValidationError("budget caps must be >= 0")
+    if monthly_cents > MAX_AMOUNT_CENTS or daily_cents > MAX_AMOUNT_CENTS:
+        raise ValidationError(f"budget caps exceed the ceiling of {MAX_AMOUNT_CENTS} cents")
     budget = Budget(agent_id=agent_id, monthly_cap_cents=monthly_cents,
                     daily_cap_cents=daily_cents, alert_threshold_pct=alert_pct)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
@@ -261,6 +312,7 @@ def _log_alert(agent_id: str, alert_type: str, message: str):
 
 
 def report(agent_id: str, days: int = 30) -> SpendReport:
+    validate_agent_id(agent_id)
     ledger = _ledger_path(agent_id)
     entries = []
     if ledger.exists():

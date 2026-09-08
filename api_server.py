@@ -25,7 +25,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-app = FastAPI(title="AgentLedger API", version="0.2.0-secfix")
+app = FastAPI(title="AgentLedger API", version="0.2.1-hardening")
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
@@ -70,7 +70,12 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
     except AuthError as e:
         raise HTTPException(401, str(e))
     except BetaCapExceededError as e:
+        # Pro exemption is handled inside ensure_agent_secret(); anything that
+        # still reaches here is a genuinely free-tier cap hit.
         raise HTTPException(402, str(e))
+    except ValidationError as e:
+        # malformed agent_id (traversal, bad charset) — 422, not a 500
+        raise HTTPException(422, str(e))
 
 @app.post("/v1/track")
 def create_track(req: TrackRequest):
@@ -101,7 +106,10 @@ def create_track(req: TrackRequest):
 @app.post("/v1/budget")
 def create_budget(req: BudgetRequest):
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
-    b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
+    try:
+        b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
     result = b.to_dict()
     if created:
         result["agent_secret"] = secret
@@ -119,6 +127,11 @@ def get_report(agent_id: str, days: int = 30):
 
 @app.get("/v1/alerts/{agent_id}")
 def get_alerts(agent_id: str):
+    from ledger_engine import validate_agent_id
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
     alerts_path = DATA_DIR / "agents" / agent_id / "alerts.jsonl"
     if not alerts_path.exists():
         return {"count": 0, "alerts": []}
@@ -187,6 +200,16 @@ until upgrading. Amounts per entry are capped at $100,000 and must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
 cross the monthly/daily cap is rejected with 402, not just logged.
 
+## Validation rules (enforced on every write)
+
+- agent_id: 1-64 chars, letters/digits/./_/-, must start alphanumeric.
+  Path traversal ("../", "/", leading dot) is rejected with 422.
+- rail: exactly one of "mpp", "x402", "api_key", "manual" (other values → 422).
+  The special rail value "tokens" is reserved for internal token-burn
+  bookkeeping rows: amount_cents must be 0.
+- amount_cents: integer 0-10000000 ($0-$100,000 per entry).
+- monthly_cents / daily_cents (budget): integers 0-10000000.
+
 ## Endpoints
 
 GET  /health                       — liveness
@@ -196,7 +219,7 @@ POST /v1/track                     — record a spend entry (mints/verifies agen
             "agent_secret": str (required after the first call for this agent_id)}
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret); once set,
                                       track() blocks entries that would cross the cap
-     body: {"agent_id": str, "monthly_cents": int, "daily_cents": int (optional),
+     body: {"agent_id": str, "monthly_cents": int (0-10000000), "daily_cents": int (optional, 0-10000000),
             "agent_secret": str (required after the first call for this agent_id)}
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — open read
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — open read
@@ -265,7 +288,11 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     secret = os.environ.get("STRIPE_WEBHOOK_SECRET_AL", "")
-    if secret:
+    if not secret:
+        # Fail closed: an unsigned/unverifiable webhook must never mutate state
+        # (customers.jsonl, pro.flag). Missing secret on the service = config
+        # error, and silently accepting the event would be an open write path.
+        raise HTTPException(500, "webhook secret not configured — event rejected")
         try:
             parts = dict(p.split("=", 1) for p in sig.split(","))
             expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
@@ -287,6 +314,9 @@ async def stripe_webhook(request: Request):
     _append_customer({"ts": time.time(), "email": email, "plan": plan,
                       "amount_total": amount, "stripe_session": sess.get("id", ""),
                       "status": "active", "authority": "confirmed-at-checkout"})
+    if plan == "pro":
+        from ledger_engine import activate_pro
+        activate_pro()
     try:
         from send_onboarding_email import send_onboarding_email
         send_onboarding_email(email, plan)
@@ -299,9 +329,14 @@ async def stripe_webhook(request: Request):
 def delete_agent(agent_id: str, request: Request):
     """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
     are per-product, so the operator can clear test/demo agents to free slots."""
+    from ledger_engine import validate_agent_id
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
     if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
         raise HTTPException(401, "owner only")
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
     import shutil
     agent_dir = DATA_DIR / "agents" / agent_id
     if not agent_dir.exists():
@@ -313,6 +348,11 @@ def delete_agent(agent_id: str, request: Request):
 def token_report(agent_id: str, days: int = 30):
     """Token burn report: totals in/out, by model, per period. Separate from
     dollar spend — answers 'what is this agent burning on?'"""
+    from ledger_engine import validate_agent_id
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
     from ledger_engine import _ledger_path
     p = _ledger_path(agent_id)
     if not p.exists():

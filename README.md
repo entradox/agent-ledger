@@ -64,6 +64,12 @@ Agent-facing API reference: [`llms.txt`](https://agent-ledger-production-0ff8.up
   `/v1/report/{agent_id}`, `/v1/alerts/{agent_id}`, `/stats`,
   hosted streamable-http MCP at `/mcp/`
   - `/v1/agents` (full cross-tenant listing) is owner-only, requires `X-Al-Admin` header
+- Input validation: agent_id restricted to `[A-Za-z0-9._-]{1,64}` (path-traversal safe),
+  rail whitelisted to mpp/x402/api_key/manual, amount + budget caps bounded [0, $100k]
+- Stripe webhook is fail-closed: events are rejected unless the HMAC signature
+  verifies against `STRIPE_WEBHOOK_SECRET_AL`; a verified `pro` checkout sets
+  `pro.flag` on the data volume, which lifts the free-tier agent cap for that
+  instance (Pro $19/mo ⇒ unlimited agents).
 
 ## Contact
 

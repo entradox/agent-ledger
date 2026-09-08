@@ -84,11 +84,14 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
         daily_cents: daily spending cap in cents (0 = no daily cap)
         agent_secret: required for every call after the first for this agent_id
     """
-    from ledger_engine import set_budget
+    from ledger_engine import set_budget, ValidationError
     secret, created, err = _claim_or_error(agent_id, agent_secret)
     if err:
         return {"error": err}
-    b = set_budget(agent_id, monthly_cents, daily_cents)
+    try:
+        b = set_budget(agent_id, monthly_cents, daily_cents)
+    except ValidationError as e:
+        return {"error": str(e)}
     result = b.to_dict()
     if created:
         result["agent_secret"] = secret
