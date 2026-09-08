@@ -38,6 +38,9 @@ class TrackRequest(BaseModel):
     rail: str
     amount_cents: int
     service: str
+    tokens_in: int = 0
+    tokens_out: int = 0
+    model: str = ""
 
 class BudgetRequest(BaseModel):
     agent_id: str
@@ -60,6 +63,13 @@ def create_track(req: TrackRequest):
             "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
             "— or contact entradox@icloud.com"))
     entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
+    # token dimension: token counts stored SEPARATELY from the dollar ledger
+    # (never mixed — token counts are not cents) via meta on the entry
+    if req.tokens_in or req.tokens_out:
+        tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
+        if req.model:
+            tok_meta["model"] = req.model
+        track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
     return entry.to_dict()
 
 @app.post("/v1/budget")
@@ -190,6 +200,46 @@ async def stripe_webhook(request: Request):
         import logging
         logging.warning(f"onboarding email skipped: {e}")
     return {"registered": True, "email": email, "plan": plan}
+
+@app.get("/v1/tokens/{agent_id}")
+def token_report(agent_id: str, days: int = 30):
+    """Token burn report: totals in/out, by model, per period. Separate from
+    dollar spend — answers 'what is this agent burning on?'"""
+    from ledger_engine import _ledger_path
+    p = _ledger_path(agent_id)
+    if not p.exists():
+        return {"agent_id": agent_id, "days": days, "tokens_in": 0, "tokens_out": 0,
+                "total_tokens": 0, "by_model": {}, "entries": 0}
+    import time as _t
+    cutoff = _t.time() - days * 86400
+    tin = tout = 0
+    by_model = {}
+    entries = 0
+    for line in p.read_text().splitlines():
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        # token counts live at TOP level of the entry (track() promotes **meta to keys)
+        if e.get("rail") != "tokens" or "tokens_in" not in e:
+            continue
+        ts = e.get("timestamp", "")
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            if dt < cutoff:
+                continue
+        except Exception:
+            pass
+        t_in = e.get("tokens_in", 0)
+        t_out = e.get("tokens_out", 0)
+        tin += t_in
+        tout += t_out
+        entries += 1
+        m = e.get("model") or "unknown"
+        by_model[m] = by_model.get(m, 0) + t_in + t_out
+    return {"agent_id": agent_id, "days": days, "tokens_in": tin, "tokens_out": tout,
+            "total_tokens": tin + tout, "by_model": by_model, "entries": entries}
 
 @app.get("/v1/billing/{email}")
 def billing_status(email: str):
