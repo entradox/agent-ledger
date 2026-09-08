@@ -17,6 +17,10 @@ BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 
 BODY = """You're on AgentLedger Pro.
 
+Pro lifts the 3-agent cap: track as many agents as you want (the cap is
+skipped automatically on this instance from the moment your checkout
+completed).
+
 1. Track spend (any agent, any rail — x402 / mpp / api_key / manual):
 
 curl -X POST {base}/v1/track \\
@@ -24,11 +28,16 @@ curl -X POST {base}/v1/track \\
   -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query",
        "tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}}'
 
-2. Set a budget cap (warns at 80%, blocks when exceeded):
+The FIRST call for a new agent_id returns an "agent_secret" in the
+response. Save it — every later write to that agent_id must include it
+(or the write is rejected with 401). Reads (report/tokens/alerts) are
+open, no secret needed.
+
+2. Set a budget cap (warns at 80%, blocks spend that would cross it):
 
 curl -X POST {base}/v1/budget \\
   -H "Content-Type: application/json" \\
-  -d '{{"agent_id":"my-agent","monthly_cents":5000}}'
+  -d '{{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}}'
 
 3. Pull your reports:
 
@@ -48,10 +57,8 @@ MCP config file:
 }}
 
 Then just ask your agent in plain language: "Track a $3.50 spend for
-writer-bot on the mpp rail" — it calls ledger_track automatically.
-
-Note: all features are free during beta — your Pro status is recorded and
-locked in for when GA pricing activates.
+writer-bot on the mpp rail" — it calls ledger_track automatically (same
+agent_secret rules apply).
 
 Questions? entradox@icloud.com
 """
