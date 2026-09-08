@@ -13,7 +13,7 @@ Endpoints:
 import json, os, sys, time, hmac, hashlib
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ledger_engine import track, set_budget, get_budget, report, list_agents
+from ledger_engine import track, set_budget, get_budget, report, list_agents, _ledger_path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
@@ -53,15 +53,45 @@ def health():
 
 BETA_AGENT_CAP = 3  # beta: 3 tracked agents free; Pro ($19/mo) unlimited
 
+# ── scalability: never walk the full agents tree per-request ─────────────────
+# list_agents() reads every ledger row (O(agents × rows)); at 10K agents that is
+# 500K+ parses per call. The beta-cap check only needs (a) does THIS agent exist
+# — O(1) filesystem check — and (b) how many agents exist — a dir-name count,
+# cached with a short TTL and rebuilt under a lock.
+import threading as _threading
+import time as _time
+
+_agents_count_cache = {"ts": 0.0, "count": 0}
+_agents_cache_lock = _threading.Lock()
+AGENTS_CACHE_TTL = 30.0  # seconds; beta cap staleness window
+
+def _cached_agent_count() -> int:
+    now = _time.time()
+    if now - _agents_count_cache["ts"] < AGENTS_CACHE_TTL:
+        return _agents_count_cache["count"]
+    with _agents_cache_lock:
+        if now - _agents_count_cache["ts"] < AGENTS_CACHE_TTL:
+            return _agents_count_cache["count"]
+        agents_dir = DATA_DIR / "agents"
+        count = 0
+        if agents_dir.exists():
+            for d in agents_dir.iterdir():
+                if d.is_dir() and (d / "ledger.jsonl").exists():
+                    count += 1
+        _agents_count_cache["count"] = count
+        _agents_count_cache["ts"] = _time.time()
+        return count
+
 @app.post("/v1/track")
 def create_track(req: TrackRequest):
     _log_event("track")
-    tracked = {a["agent_id"] for a in list_agents()}
-    if req.agent_id not in tracked and len(tracked) >= BETA_AGENT_CAP:
-        raise HTTPException(402, (
-            f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
-            "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
-            "— or contact entradox@icloud.com"))
+    # O(1) membership: an agent is "tracked" iff its ledger file exists
+    if not _ledger_path(req.agent_id).exists():
+        if _cached_agent_count() >= BETA_AGENT_CAP:
+            raise HTTPException(402, (
+                f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
+                "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
+                "— or contact entradox@icloud.com"))
     entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
     # token dimension: token counts stored SEPARATELY from the dollar ledger
     # (never mixed — token counts are not cents) via meta on the entry
