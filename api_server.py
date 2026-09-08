@@ -201,6 +201,19 @@ async def stripe_webhook(request: Request):
         logging.warning(f"onboarding email skipped: {e}")
     return {"registered": True, "email": email, "plan": plan}
 
+@app.delete("/v1/agents/{agent_id}")
+def delete_agent(agent_id: str, request: Request):
+    """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
+    are per-product, so the operator can clear test/demo agents to free slots."""
+    if not CRON_SECRET or request.headers.get("x-aw-cron") != CRON_SECRET:
+        raise HTTPException(401, "owner only")
+    import shutil
+    agent_dir = DATA_DIR / "agents" / agent_id
+    if not agent_dir.exists():
+        raise HTTPException(404, f"agent not found: {agent_id}")
+    shutil.rmtree(agent_dir)
+    return {"deleted": agent_id}
+
 @app.get("/v1/tokens/{agent_id}")
 def token_report(agent_id: str, days: int = 30):
     """Token burn report: totals in/out, by model, per period. Separate from

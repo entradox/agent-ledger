@@ -12,21 +12,31 @@ mcp = FastMCP("agent-ledger")
 
 @mcp.tool(annotations={"title": "Track Agent Spend", "readOnlyHint": False,
                         "destructiveHint": False, "idempotentHint": False})
-def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> dict:
-    """Record a spend entry for an AI agent on any payment rail.
+def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
+                 tokens_in: int = 0, tokens_out: int = 0, model: str = "") -> dict:
+    """Record a spend entry for an AI agent on any payment rail, with optional token counts.
 
     Every call appends to the agent's ledger and re-checks budget state.
-    Use after every paid agent action to build the audit trail. Returns the
-    persisted entry with timestamp.
+    Include tokens_in/tokens_out + model on every LLM call so token burn shows
+    up in the /v1/tokens report. Use after every paid agent action to build
+    the audit trail. Returns the persisted entry with timestamp.
 
     Args:
         agent_id: unique agent identifier (e.g. "research-agent-v2")
         rail: payment rail used — one of "mpp", "x402", "api_key", "manual"
         amount_cents: spend amount in cents (100 = $1.00)
         service: what was purchased (e.g. "search_query", "data_export")
+        tokens_in: prompt tokens consumed (0 if unknown)
+        tokens_out: completion tokens consumed (0 if unknown)
+        model: model name (e.g. "gpt-4o") — token burn is reported per model
     """
     from ledger_engine import track
-    entry = track(agent_id, rail, amount_cents, service)
+    meta = {}
+    if tokens_in or tokens_out:
+        meta = {"tokens_in": tokens_in, "tokens_out": tokens_out}
+        if model:
+            meta["model"] = model
+    entry = track(agent_id, rail, amount_cents, service, **meta)
     return entry.to_dict()
 
 
