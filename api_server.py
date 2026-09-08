@@ -18,6 +18,7 @@ from ledger_engine import (
     track, set_budget, get_budget, report, list_agents, _ledger_path,
     ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
     AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
+    validate_agent_id as le_validate_agent_id,
 )
 
 from fastapi import FastAPI, HTTPException, Request
@@ -56,7 +57,7 @@ class BudgetRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "agent-ledger", "version": "0.2.0-secfix"}
+    return {"ok": True, "service": "agent-ledger", "version": "0.2.1-hardening"}
 
 import threading as _threading
 import time as _time
@@ -80,6 +81,17 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
 @app.post("/v1/track")
 def create_track(req: TrackRequest):
     _log_event("track")
+    # Validate BEFORE the claim/mint step: a garbage rail or amount must not
+    # burn a free-tier agent slot (the minted secret is only returned on a
+    # successful write, so failing after minting would squat the agent_id).
+    try:
+        le_validate_agent_id(req.agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    if req.rail != "tokens":
+        from ledger_engine import VALID_RAILS
+        if req.rail not in VALID_RAILS:
+            raise HTTPException(422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')")
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
@@ -105,6 +117,10 @@ def create_track(req: TrackRequest):
 
 @app.post("/v1/budget")
 def create_budget(req: BudgetRequest):
+    try:
+        le_validate_agent_id(req.agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
