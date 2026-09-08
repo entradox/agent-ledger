@@ -25,7 +25,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-app = FastAPI(title="AgentLedger API", version="0.1.0")
+app = FastAPI(title="AgentLedger API", version="0.2.0-secfix")
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
@@ -56,7 +56,7 @@ class BudgetRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "agent-ledger", "version": "0.1.0"}
+    return {"ok": True, "service": "agent-ledger", "version": "0.2.0-secfix"}
 
 import threading as _threading
 import time as _time
