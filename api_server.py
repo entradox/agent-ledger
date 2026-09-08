@@ -114,6 +114,9 @@ LLMS_TXT = """# AgentLedger
 Per-agent spend management — the Datadog for agent spending. Track spend
 across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
+Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
+Human/agent status page: GET /status
+
 ## Endpoints
 
 GET  /health                       — liveness
@@ -154,6 +157,22 @@ def glama_claim():
 @app.get("/llms.txt", response_class=PlainTextResponse)
 def llms_txt():
     return LLMS_TXT
+
+ROBOTS_TXT = """User-agent: *
+Allow: /
+"""
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt():
+    return ROBOTS_TXT
+
+@app.get("/server.json")
+def server_json():
+    """MCP server discovery manifest at the canonical root path."""
+    p = Path(__file__).parent / "server.json"
+    if not p.exists():
+        raise HTTPException(404, "server.json not deployed")
+    return JSONResponse(content=json.loads(p.read_text()))
 
 @app.get("/status", response_class=HTMLResponse)
 def status_page():

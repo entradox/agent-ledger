@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="AgentLedger — per-agent spend management for autonomous agents: x402/MPP/API-key rails, token burn reports, budget caps, anomaly alerts. Free during beta (3 agents), no signup. REST API + MCP.">
 <title>AgentLedger — Status</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--red:#f85149;--blu:#58a6ff}
@@ -34,7 +35,7 @@ autonomous agent moves.
 
 <h2>Live sample (this instance)</h2>
 <div class="stat" id="live-box">
-<div class="s-line"><span>Fetching…</span><span>—</span></div>
+<div class="s-line"><span>Tracked agents</span><span>see agent-ledger-production-0ff8.up.railway.app/stats (JS off: static fallback)</span></div>
 </div>
 
 <h2>MCP integration</h2>
@@ -55,7 +56,7 @@ autonomous agent moves.
 <h2>Getting started</h2>
 <div class="stat">
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>1. Track a spend event — dollars AND tokens</b></p>
-<pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
+<pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}'</pre>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Token burn report</b> — see exactly what each agent burns on:</p>
@@ -73,7 +74,8 @@ autonomous agent moves.
 </div>
 
 <div class="mut">
-AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger
+AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger<br>
+Agent-readable: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a> · <a href="/openapi.json" style="color:#8b949e">/openapi.json</a> · <a href="/server.json" style="color:#8b949e">/server.json</a> · <a href="/health" style="color:#8b949e">/health</a>
 </div>
 
 </div>
