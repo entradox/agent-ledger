@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+*.env
+.DS_Store
+logs/
+*.db
+*.sqlite*
+.pytest_cache/
+counts.jsonl
+customers.jsonl
