@@ -166,6 +166,8 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
         for line in open(ledger):
             try:
                 e = json.loads(line)
+                if e.get("rail") == "tokens":
+                    continue  # zero-cent token-count rows are burn data, not spend
                 ts = datetime.fromisoformat(e["timestamp"]).timestamp()
                 if ts >= cutoff:
                     entries.append(e)
