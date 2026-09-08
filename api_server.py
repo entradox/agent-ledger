@@ -309,15 +309,15 @@ async def stripe_webhook(request: Request):
         # (customers.jsonl, pro.flag). Missing secret on the service = config
         # error, and silently accepting the event would be an open write path.
         raise HTTPException(500, "webhook secret not configured — event rejected")
-        try:
-            parts = dict(p.split("=", 1) for p in sig.split(","))
-            expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
-            if not parts.get("t") or not hmac.compare_digest(parts.get("v1", ""), expected):
-                raise HTTPException(400, "bad signature")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(400, "signature verification failed")
+    try:
+        parts = dict(p.split("=", 1) for p in sig.split(","))
+        expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
+        if not parts.get("t") or not hmac.compare_digest(parts.get("v1", ""), expected):
+            raise HTTPException(400, "bad signature")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "signature verification failed")
     event = json.loads(payload)
     if event.get("type") != "checkout.session.completed":
         return {"received": True, "ignored": event.get("type")}
