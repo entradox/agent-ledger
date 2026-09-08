@@ -118,10 +118,12 @@ across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
 GET  /health                       — liveness
 POST /v1/track                     — record a spend entry
-     body: {"agent_id": str, "rail": str, "amount_cents": int, "service": str}
+     body: {"agent_id": str, "rail": str, "amount_cents": int, "service": str,
+            "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional)}
 POST /v1/budget                    — set budget caps
      body: {"agent_id": str, "monthly_cents": int, "daily_cents": int (optional)}
 GET  /v1/report/{agent_id}         — spend report (query: days=30)
+GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30)
 GET  /v1/alerts/{agent_id}         — alerts for agent
 GET  /v1/agents                    — list all tracked agents
 GET  /stats                        — usage counters
