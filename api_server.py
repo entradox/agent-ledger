@@ -411,10 +411,11 @@ def billing_status(email: str, token: str = ""):
     email-enumeration oracle). Token = HMAC-SHA256("billing:<email>",
     AL_ADMIN_SECRET), truncated to 32 hex chars; the operator computes it,
     customers never see billing state of other emails."""
-    import hashlib as _h
+    import hashlib as _h, secrets as _secrets, hmac as _hmac
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    expected_token = _h.sha256(f"billing:{email.lower()}:{admin_secret}".encode()).hexdigest()[:32] if admin_secret else ""
-    if not (admin_secret and token and expected_token and token == expected_token):
+    # keyed digest: sha256(secret || email) truncated to 128 bits — constant-time compare
+    expected_token = _h.sha256(admin_secret.encode() + b"billing:" + email.lower().encode()).hexdigest()[:32] if admin_secret else ""
+    if not (admin_secret and token and expected_token) or not _secrets.compare_digest(token, expected_token):
         raise HTTPException(401, "owner only (billing status is not public)")
     for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
         try:
