@@ -127,17 +127,37 @@ def get_alerts(agent_id: str):
 def get_agents():
     return {"agents": list_agents()}
 
+# /stats is fetched by the status page on EVERY page view — cache it so viral
+# reader traffic doesn't burn CPU (Railway usage pricing = CPU × traffic).
+_stats_cache = {"ts": 0.0, "payload": None}
+_stats_lock = _threading.Lock()
+STATS_CACHE_TTL = 60.0  # seconds; fine for a funnel counter
+
 @app.get("/stats")
 def stats():
-    from collections import Counter
-    c = Counter()
-    if COUNTS_FILE.exists():
-        for line in COUNTS_FILE.read_text().splitlines():
-            try:
-                c[json.loads(line).get("kind", "?")] += 1
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return {"tracked_agents": len(list_agents()), "events": dict(c)}
+    now = _time.time()
+    if _stats_cache["payload"] is not None and now - _stats_cache["ts"] < STATS_CACHE_TTL:
+        return _stats_cache["payload"]
+    with _stats_lock:
+        now = _time.time()
+        if _stats_cache["payload"] is not None and now - _stats_cache["ts"] < STATS_CACHE_TTL:
+            return _stats_cache["payload"]
+        from collections import Counter
+        c = Counter()
+        if COUNTS_FILE.exists():
+            # counts.jsonl grows one line per track call forever — read only the
+            # tail (last 50K lines) for the counter; older events have negligible
+            # effect on a funnel display and unbounded reads cost CPU on every miss
+            lines = COUNTS_FILE.read_text().splitlines()
+            for line in lines[-50000:]:
+                try:
+                    c[json.loads(line).get("kind", "?")] += 1
+                except (json.JSONDecodeError, KeyError):
+                    continue
+        payload = {"tracked_agents": _cached_agent_count(), "events": dict(c)}
+        _stats_cache["payload"] = payload
+        _stats_cache["ts"] = _time.time()
+        return payload
 
 LLMS_TXT = """# AgentLedger
 
