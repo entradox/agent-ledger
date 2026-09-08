@@ -58,6 +58,12 @@ class BudgetRequest(BaseModel):
 def health():
     return {"ok": True, "service": "agent-ledger", "version": "0.2.0-secfix"}
 
+@app.get("/deploy-canary-a91f")
+def _deploy_canary():
+    """Temporary route used only to confirm which build is actually live — safe
+    to remove once the deploy-propagation issue is resolved."""
+    return {"canary": "a91f", "note": "this route only exists in the security-fix build"}
+
 import threading as _threading
 import time as _time
 
