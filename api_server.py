@@ -205,7 +205,8 @@ async def stripe_webhook(request: Request):
 def delete_agent(agent_id: str, request: Request):
     """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
     are per-product, so the operator can clear test/demo agents to free slots."""
-    if not CRON_SECRET or request.headers.get("x-aw-cron") != CRON_SECRET:
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
         raise HTTPException(401, "owner only")
     import shutil
     agent_dir = DATA_DIR / "agents" / agent_id
