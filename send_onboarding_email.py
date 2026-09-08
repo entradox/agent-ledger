@@ -17,24 +17,38 @@ BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 
 BODY = """You're on AgentLedger Pro.
 
-Track spend (any agent, any rail — x402 / mpp / api_key / manual):
+1. Track spend (any agent, any rail — x402 / mpp / api_key / manual):
 
-curl -X POST {base}/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query"}}'
+curl -X POST {base}/v1/track \\
+  -H "Content-Type: application/json" \\
+  -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query",
+       "tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}}'
 
-Set a budget cap (warns at 80%, blocks when exceeded):
+2. Set a budget cap (warns at 80%, blocks when exceeded):
 
-curl -X POST {base}/v1/budget \
-  -H "Content-Type: application/json" \
+curl -X POST {base}/v1/budget \\
+  -H "Content-Type: application/json" \\
   -d '{{"agent_id":"my-agent","monthly_cents":5000}}'
 
-Pull a report:
+3. Pull your reports:
 
-curl {base}/v1/report/my-agent
+Dollar spend:    curl {base}/v1/report/my-agent
+Token burn:      curl {base}/v1/tokens/my-agent
+Budget alerts:   curl {base}/v1/alerts/my-agent
 
-Or wire the MCP server into any MCP client (Claude, Cursor):
-https://agent-ledger-production-0ff8.up.railway.app/mcp/
+4. Wire the MCP server into any MCP client (Claude, Cursor) — paste into your
+MCP config file:
+
+{{
+  "mcpServers": {{
+    "agent-ledger": {{
+      "url": "{base}/mcp/"
+    }}
+  }}
+}}
+
+Then just ask your agent in plain language: "Track a $3.50 spend for
+writer-bot on the mpp rail" — it calls ledger_track automatically.
 
 Note: all features are free during beta — your Pro status is recorded and
 locked in for when GA pricing activates.
