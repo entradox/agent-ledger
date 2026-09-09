@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sqlite3
 import statistics
 import re
+import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +26,41 @@ BETA_AGENT_CAP = 3
 MAX_AMOUNT_CENTS = 10_000_000  # $100,000
 # payment rails accepted on the ledger — anything else is a typo/abuse vector
 VALID_RAILS = frozenset({"mpp", "x402", "api_key", "manual"})
+
+# ── API hardening constants (launch-kit v0.3) ───────────────────────────────
+# Single source of truth for the required AL-API-Version header (REST + MCP).
+AL_API_VERSION = "2026-09-01"
+
+MAX_IDEMPOTENCY_KEY_LEN = 255
+IDEMPOTENCY_TTL_SECONDS = 24 * 3600
+# a row with no stored response older than this is treated as an abandoned
+# in-flight request (crashed process) rather than a live conflict
+IDEMPOTENCY_INFLIGHT_STALE_SECONDS = 60
+
+# typed error envelope: {"error": {"type": str, "message": str, "code": str?, "param": str?}}
+ERROR_TYPE_BY_STATUS = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    402: "budget_error",
+    403: "permission_error",
+    404: "not_found_error",
+    409: "conflict_error",
+    422: "validation_error",
+    500: "api_error",
+}
+
+
+def error_envelope(status_code: int, message: str, *, error_type: str = None,
+                    code: str = None, param: str = None) -> dict:
+    """Build the typed error envelope shared by every REST and MCP error
+    response (launch-kit v0.3, single source so both surfaces agree)."""
+    err = {"type": error_type or ERROR_TYPE_BY_STATUS.get(status_code, "api_error"),
+           "message": message}
+    if code:
+        err["code"] = code
+    if param:
+        err["param"] = param
+    return {"error": err}
 
 
 class LedgerError(Exception):
@@ -44,6 +81,14 @@ class BudgetExceededError(LedgerError):
 
 class BetaCapExceededError(LedgerError):
     """Beta agent-slot cap reached."""
+
+
+class IdempotencyKeyTooLongError(ValidationError):
+    """Idempotency-Key header exceeds MAX_IDEMPOTENCY_KEY_LEN."""
+
+
+class IdempotencyConflictError(LedgerError):
+    """Same Idempotency-Key is already in flight for this agent_id + op."""
 
 
 @dataclass
@@ -179,6 +224,121 @@ def activate_pro() -> None:
     """Mark this instance Pro-active (idempotent)."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     _pro_flag_path().write_text(datetime.now(timezone.utc).isoformat())
+
+
+# ── Idempotency-Key store (launch-kit v0.3) ─────────────────────────────────
+# SQLite alongside the JSONL ledger — additive, CREATE TABLE IF NOT EXISTS
+# only. Scoped per (id=key, agent_id, op) so the same raw key used for a
+# "track" and a "budget" call on the same agent_id never collides.
+
+def _idempotency_db_path() -> Path:
+    return DATA_DIR / "idempotency.db"
+
+
+def _idempotency_conn() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_idempotency_db_path()), timeout=5)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS idempotency (
+            id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            op TEXT NOT NULL,
+            response_json TEXT,
+            status_code INTEGER,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (id, agent_id, op)
+        )
+    """)
+    return conn
+
+
+def idempotency_begin(key: str, agent_id: str, op: str) -> tuple[str, Optional[dict]]:
+    """Start (or replay) an idempotent write.
+
+    Returns ("proceed", None) — caller should execute the write and call
+    idempotency_store() with the result.
+    Returns ("cached", {"response": ..., "status_code": ...}) — a prior
+    request with this exact key/agent_id/op already completed within the
+    24h TTL; the caller must return that cached response, not re-execute.
+
+    Raises IdempotencyKeyTooLongError if key exceeds MAX_IDEMPOTENCY_KEY_LEN.
+    Raises IdempotencyConflictError if another request with this key is
+    still in flight (row exists, no stored response yet, and it's not
+    stale enough to assume the other process crashed).
+    """
+    if key is None:
+        return "proceed", None
+    if len(key) > MAX_IDEMPOTENCY_KEY_LEN:
+        raise IdempotencyKeyTooLongError(
+            f"Idempotency-Key must be <= {MAX_IDEMPOTENCY_KEY_LEN} chars (got {len(key)})")
+    now = _time.time()
+    conn = _idempotency_conn()
+    try:
+        try:
+            conn.execute(
+                "INSERT INTO idempotency (id, agent_id, op, response_json, status_code, created_at) "
+                "VALUES (?, ?, ?, NULL, NULL, ?)",
+                (key, agent_id, op, now))
+            conn.commit()
+            return "proceed", None
+        except sqlite3.IntegrityError:
+            pass  # a row already exists for this key/agent_id/op — inspect it below
+
+        row = conn.execute(
+            "SELECT response_json, status_code, created_at FROM idempotency "
+            "WHERE id=? AND agent_id=? AND op=?", (key, agent_id, op)).fetchone()
+        if row is None:
+            # raced with a delete between the failed insert and this select —
+            # safe to just insert fresh
+            conn.execute(
+                "INSERT INTO idempotency (id, agent_id, op, response_json, status_code, created_at) "
+                "VALUES (?, ?, ?, NULL, NULL, ?)", (key, agent_id, op, now))
+            conn.commit()
+            return "proceed", None
+
+        response_json, status_code, created_at = row
+        if response_json is not None:
+            if now - created_at < IDEMPOTENCY_TTL_SECONDS:
+                return "cached", {"response": json.loads(response_json), "status_code": status_code}
+            # expired cache entry — reclaim the slot for a fresh write
+            conn.execute("DELETE FROM idempotency WHERE id=? AND agent_id=? AND op=?",
+                        (key, agent_id, op))
+            conn.execute(
+                "INSERT INTO idempotency (id, agent_id, op, response_json, status_code, created_at) "
+                "VALUES (?, ?, ?, NULL, NULL, ?)", (key, agent_id, op, now))
+            conn.commit()
+            return "proceed", None
+
+        # response_json is NULL — another request is (or was) in flight
+        if now - created_at > IDEMPOTENCY_INFLIGHT_STALE_SECONDS:
+            conn.execute("DELETE FROM idempotency WHERE id=? AND agent_id=? AND op=?",
+                        (key, agent_id, op))
+            conn.execute(
+                "INSERT INTO idempotency (id, agent_id, op, response_json, status_code, created_at) "
+                "VALUES (?, ?, ?, NULL, NULL, ?)", (key, agent_id, op, now))
+            conn.commit()
+            return "proceed", None
+        raise IdempotencyConflictError(
+            f"idempotency key already in flight for agent_id '{agent_id}' op '{op}'")
+    finally:
+        conn.close()
+
+
+def idempotency_store(key: str, agent_id: str, op: str, response: dict, status_code: int) -> None:
+    """Record the completed response for a key started with idempotency_begin.
+    No-op if key is None (idempotency wasn't requested for this write)."""
+    if key is None:
+        return
+    conn = _idempotency_conn()
+    try:
+        conn.execute(
+            "UPDATE idempotency SET response_json=?, status_code=?, created_at=? "
+            "WHERE id=? AND agent_id=? AND op=?",
+            (json.dumps(response), status_code, _time.time(), key, agent_id, op))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> SpendEntry:

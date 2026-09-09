@@ -48,11 +48,11 @@ def test_wrong_secret_records_auth_fail_and_401(client):
     tc, api_server_mod, metrics_mod = client
     body = {"agent_id": "auth-test-agent", "rail": "manual", "amount_cents": 100,
             "service": "svc"}
-    first = tc.post("/v1/track", json=body)
+    first = tc.post("/v1/track", json=body, headers={"AL-API-Version": "2026-09-01"})
     assert first.status_code == 200
 
     body_bad = dict(body, agent_secret="totally-wrong-secret")
-    second = tc.post("/v1/track", json=body_bad)
+    second = tc.post("/v1/track", json=body_bad, headers={"AL-API-Version": "2026-09-01"})
     assert second.status_code == 401
     snap = metrics_mod.snapshot()
     assert snap["totals"].get("auth_fail", 0) >= 1
@@ -65,12 +65,12 @@ def test_fourth_new_agent_over_cap_records_cap_blocked(client):
     for i in range(BETA_AGENT_CAP):
         body = {"agent_id": f"cap-agent-{i}", "rail": "manual", "amount_cents": 10,
                 "service": "svc"}
-        r = tc.post("/v1/track", json=body)
+        r = tc.post("/v1/track", json=body, headers={"AL-API-Version": "2026-09-01"})
         assert r.status_code == 200
 
     body_over = {"agent_id": "cap-agent-over", "rail": "manual", "amount_cents": 10,
                  "service": "svc"}
-    r_over = tc.post("/v1/track", json=body_over)
+    r_over = tc.post("/v1/track", json=body_over, headers={"AL-API-Version": "2026-09-01"})
     assert r_over.status_code == 402
     snap = metrics_mod.snapshot()
     assert snap["totals"].get("cap_blocked", 0) >= 1

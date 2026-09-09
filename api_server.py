@@ -19,6 +19,8 @@ from ledger_engine import (
     ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
     AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
+    AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
+    IdempotencyConflictError, idempotency_begin, idempotency_store,
 )
 import metrics
 
@@ -28,6 +30,55 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 app = FastAPI(title="AgentLedger API", version="0.2.1-hardening")
+
+
+@app.exception_handler(HTTPException)
+async def _typed_error_handler(request: Request, exc: HTTPException):
+    """Single source for the typed error envelope on every REST error path
+    (launch-kit v0.3). Raise sites that already pass an envelope dict as
+    `detail` (via error_envelope()) pass through unchanged; anything still
+    raising a plain string gets wrapped here so no path is ever untyped —
+    without changing any status code."""
+    if isinstance(exc.detail, dict) and "error" in exc.detail:
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    return JSONResponse(status_code=exc.status_code,
+                         content=error_envelope(exc.status_code, str(exc.detail)))
+
+
+def _check_api_version(request: Request):
+    """Every /v1/* write must send AL-API-Version: <current>. Missing or
+    stale/invalid value -> 400 version_header (launch-kit v0.3 item 1.2)."""
+    version = request.headers.get("AL-API-Version")
+    if version != AL_API_VERSION:
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
+        raise HTTPException(400, detail=error_envelope(
+            400, f"AL-API-Version header must be '{AL_API_VERSION}' (got {version!r})",
+            code="version_header"))
+
+
+def _idempotency_gate(request: Request, agent_id: str, op: str):
+    """Shared Idempotency-Key handling for POST endpoints. Returns a cached
+    JSONResponse to return immediately, or None if the caller should proceed
+    (and must call idempotency_store() itself once the write succeeds)."""
+    key = request.headers.get("Idempotency-Key")
+    try:
+        status, cached = idempotency_begin(key, agent_id, op)
+    except IdempotencyKeyTooLongError as e:
+        raise HTTPException(400, detail=error_envelope(
+            400, str(e), code="idempotency_key_too_long"))
+    except IdempotencyConflictError as e:
+        raise HTTPException(409, detail=error_envelope(
+            409, str(e), code="idempotency_conflict"))
+    if status == "cached":
+        try:
+            metrics.record_event("idempotency_hit")
+        except Exception:
+            pass
+        return JSONResponse(status_code=cached["status_code"], content=cached["response"])
+    return None
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
@@ -110,7 +161,7 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
             metrics.record_event("auth_fail")
         except Exception:
             pass
-        raise HTTPException(401, str(e))
+        raise HTTPException(401, detail=error_envelope(401, str(e), code="agent_secret_mismatch"))
     except BetaCapExceededError as e:
         # Pro exemption is handled inside ensure_agent_secret(); anything that
         # still reaches here is a genuinely free-tier cap hit.
@@ -118,18 +169,19 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
             metrics.record_event("cap_blocked")
         except Exception:
             pass
-        raise HTTPException(402, str(e))
+        raise HTTPException(402, detail=error_envelope(402, str(e), code="beta_cap_exceeded"))
     except ValidationError as e:
         # malformed agent_id (traversal, bad charset) — 422, not a 500
         try:
             metrics.record_event("validation_fail")
         except Exception:
             pass
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
 
 @app.post("/v1/track")
-def create_track(req: TrackRequest):
+def create_track(req: TrackRequest, request: Request):
     _log_event("track")
+    _check_api_version(request)
     # Validate BEFORE the claim/mint step: a garbage rail or amount must not
     # burn a free-tier agent slot (the minted secret is only returned on a
     # successful write, so failing after minting would squat the agent_id).
@@ -140,7 +192,7 @@ def create_track(req: TrackRequest):
             metrics.record_event("validation_fail")
         except Exception:
             pass
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
     if req.rail != "tokens":
         from ledger_engine import VALID_RAILS
         if req.rail not in VALID_RAILS:
@@ -148,7 +200,13 @@ def create_track(req: TrackRequest):
                 metrics.record_event("validation_fail")
             except Exception:
                 pass
-            raise HTTPException(422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')")
+            raise HTTPException(422, detail=error_envelope(
+                422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')",
+                code="rail_not_allowed"))
+    cached = _idempotency_gate(request, req.agent_id, "track")
+    if cached is not None:
+        return cached
+    idem_key = request.headers.get("Idempotency-Key")
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
@@ -157,9 +215,9 @@ def create_track(req: TrackRequest):
             metrics.record_event("validation_fail")
         except Exception:
             pass
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, detail=error_envelope(422, str(e)))
     except BudgetExceededError as e:
-        raise HTTPException(402, str(e))
+        raise HTTPException(402, detail=error_envelope(402, str(e)))
     # token dimension: token counts stored SEPARATELY from the dollar ledger
     # (never mixed — token counts are not cents) via meta on the entry.
     # rail="tokens" rows are 0-cent bookkeeping, exempt from budget/amount checks,
@@ -174,6 +232,7 @@ def create_track(req: TrackRequest):
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    idempotency_store(idem_key, req.agent_id, "track", result, 200)
     try:
         metrics.record_event("track_ok")
     except Exception:
@@ -181,7 +240,8 @@ def create_track(req: TrackRequest):
     return result
 
 @app.post("/v1/budget")
-def create_budget(req: BudgetRequest):
+def create_budget(req: BudgetRequest, request: Request):
+    _check_api_version(request)
     try:
         le_validate_agent_id(req.agent_id)
     except ValidationError as e:
@@ -189,7 +249,11 @@ def create_budget(req: BudgetRequest):
             metrics.record_event("validation_fail")
         except Exception:
             pass
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
+    cached = _idempotency_gate(request, req.agent_id, "budget")
+    if cached is not None:
+        return cached
+    idem_key = request.headers.get("Idempotency-Key")
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
@@ -198,12 +262,13 @@ def create_budget(req: BudgetRequest):
             metrics.record_event("validation_fail")
         except Exception:
             pass
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, detail=error_envelope(422, str(e)))
     result = b.to_dict()
     if created:
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    idempotency_store(idem_key, req.agent_id, "budget", result, 200)
     try:
         metrics.record_event("budget_set")
     except Exception:
