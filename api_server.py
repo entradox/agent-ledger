@@ -30,7 +30,8 @@ from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-app = FastAPI(title="AgentLedger API", version="0.2.1-hardening")
+APP_VERSION = "0.3.0"  # single source for /health + FastAPI metadata
+app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 
 @app.exception_handler(HTTPException)
@@ -146,7 +147,7 @@ class BudgetRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "agent-ledger", "version": "0.2.1-hardening"}
+    return {"ok": True, "service": "agent-ledger", "version": APP_VERSION}
 
 import threading as _threading
 import time as _time
