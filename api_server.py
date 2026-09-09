@@ -21,7 +21,7 @@ from ledger_engine import (
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
-    idempotency_release,
+    idempotency_release, scarcity_claims_left,
 )
 import metrics
 
@@ -304,7 +304,8 @@ def get_report(agent_id: str, days: int = 30):
     return {"agent_id": r.agent_id, "period": r.period,
             "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
             "by_service": r.by_service, "budget_status": r.budget_status,
-            "anomalies": r.anomalies, "entry_count": r.entry_count}
+            "anomalies": r.anomalies, "entry_count": r.entry_count,
+            "plan": r.plan, "pro_until": r.pro_until}
 
 @app.get("/v1/alerts/{agent_id}")
 def get_alerts(agent_id: str):
@@ -404,7 +405,8 @@ def stats():
                     c[json.loads(line).get("kind", "?")] += 1
                 except (json.JSONDecodeError, KeyError):
                     continue
-        payload = {"tracked_agents": claimed_agent_count(), "events": dict(c)}
+        payload = {"tracked_agents": claimed_agent_count(), "events": dict(c),
+                   "scarcity_claims_left": scarcity_claims_left()}
         _stats_cache["payload"] = payload
         _stats_cache["ts"] = _time.time()
         return payload

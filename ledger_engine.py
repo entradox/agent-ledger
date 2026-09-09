@@ -18,10 +18,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import metrics
+
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 
 # beta: free tier caps total claimed agents site-wide; Pro ($19/mo) unlimited
 BETA_AGENT_CAP = 3
+
+# scarcity window (v0.3.1): the first N agent_ids ever claimed get Pro free
+# for a year — a one-time launch incentive, distinct from the paid Stripe
+# Pro flag (pro_active()) which is site-wide.
+SCARCITY_PRO_CAP = 50
+SCARCITY_PRO_DURATION_SECONDS = 365 * 24 * 3600
 # sanity ceiling on a single entry — blocks fat-finger / abuse-sized amounts
 MAX_AMOUNT_CENTS = 10_000_000  # $100,000
 # payment rails accepted on the ledger — anything else is a typo/abuse vector
@@ -128,6 +136,8 @@ class SpendReport:
     entry_count: int
     budget_status: dict
     anomalies: list
+    plan: str = "free"
+    pro_until: Optional[float] = None
 
 
 def _agent_dir(agent_id: str) -> Path:
@@ -183,7 +193,12 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
 
     Raises AuthError if agent_id is already claimed and the secret doesn't
     match, or BetaCapExceededError if this would be a new agent past the
-    free-tier slot cap (skipped when Pro is active).
+    free-tier slot cap (skipped when Pro is active — site-wide Stripe Pro,
+    or this specific agent_id already holding a live scarcity-window grant).
+
+    A brand-new agent_id claimed while the all-time claimed count is still
+    under SCARCITY_PRO_CAP is stamped with a one-year pro_until (scarcity
+    window, v0.3.1) — see is_pro().
     """
     validate_agent_id(agent_id)
     path = _secret_path(agent_id)
@@ -194,7 +209,9 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 f"agent_id '{agent_id}' is already claimed — pass its agent_secret "
                 "(returned when the agent_id was first used) to write to it")
         return real, False
-    if check_cap and not pro_active() and claimed_agent_count() >= BETA_AGENT_CAP:
+    pre_claim_count = claimed_agent_count()
+    if (check_cap and not pro_active() and not is_pro(agent_id)["is_pro"]
+            and pre_claim_count >= BETA_AGENT_CAP):
         raise BetaCapExceededError(
             f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
             "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
@@ -202,6 +219,13 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
     path.write_text(new_secret)
+    if pre_claim_count < SCARCITY_PRO_CAP:
+        pro_until = _time.time() + SCARCITY_PRO_DURATION_SECONDS
+        _set_pro_until(agent_id, pro_until)
+        remaining = SCARCITY_PRO_CAP - (pre_claim_count + 1)
+        metrics.record_event("pro_scarcity_claimed", remaining=remaining)
+        if remaining == 0:
+            metrics.record_event("pro_scarcity_exhausted")
     return new_secret, True
 
 
@@ -224,6 +248,79 @@ def activate_pro() -> None:
     """Mark this instance Pro-active (idempotent)."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     _pro_flag_path().write_text(datetime.now(timezone.utc).isoformat())
+
+
+# ── Scarcity window: per-agent pro_until (v0.3.1) ───────────────────────────
+# SQLite, same additive CREATE TABLE IF NOT EXISTS pattern as the idempotency
+# store above. Also guards the case of an `agents` table that predates the
+# pro_until column (defensive — nothing ships that yet, but the check is the
+# safe way to add a column to an existing DB without a destructive migration).
+
+def _agents_db_path() -> Path:
+    return DATA_DIR / "agents.db"
+
+
+def _agents_conn() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_agents_db_path()), timeout=5)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agents (
+            agent_id TEXT PRIMARY KEY,
+            pro_until REAL
+        )
+    """)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+    if "pro_until" not in cols:
+        conn.execute("ALTER TABLE agents ADD COLUMN pro_until REAL")
+    return conn
+
+
+def _get_pro_until(agent_id: str) -> Optional[float]:
+    conn = _agents_conn()
+    try:
+        row = conn.execute("SELECT pro_until FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def _set_pro_until(agent_id: str, pro_until: float) -> None:
+    conn = _agents_conn()
+    try:
+        conn.execute(
+            "INSERT INTO agents (agent_id, pro_until) VALUES (?, ?) "
+            "ON CONFLICT(agent_id) DO UPDATE SET pro_until=excluded.pro_until",
+            (agent_id, pro_until))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def is_pro(agent_id: str) -> dict:
+    """Plan info for agent_id. Site-wide Stripe Pro (pro_active()) takes
+    precedence over a per-agent scarcity grant; an expired scarcity grant
+    reads back as free. Returns {"plan": ..., "pro_until": float|None,
+    "is_pro": bool}."""
+    if pro_active():
+        return {"plan": "pro_stripe", "pro_until": None, "is_pro": True}
+    pro_until = _get_pro_until(agent_id)
+    if pro_until is not None and pro_until > _time.time():
+        return {"plan": "pro_scarcity", "pro_until": pro_until, "is_pro": True}
+    return {"plan": "free", "pro_until": None, "is_pro": False}
+
+
+def scarcity_claims_left() -> int:
+    """Public aggregate count only — no agent_ids or emails. Counts rows with
+    a stamped pro_until regardless of whether it has since expired, since the
+    50 slots are consumed at claim time, not returned on expiry."""
+    conn = _agents_conn()
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM agents WHERE pro_until IS NOT NULL").fetchone()
+        claimed = row[0] if row else 0
+        return max(0, SCARCITY_PRO_CAP - claimed)
+    finally:
+        conn.close()
 
 
 # ── Idempotency-Key store (launch-kit v0.3) ─────────────────────────────────
@@ -534,9 +631,11 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
                          "pct_used": round(monthly / budget.monthly_cap_cents * 100, 1) if budget.monthly_cap_cents else 0,
                          "exceeded": monthly > budget.monthly_cap_cents}
 
+    plan_info = is_pro(agent_id)
     return SpendReport(agent_id=agent_id, period=f"last_{days}d", total_spend_cents=total,
                        by_rail=by_rail, by_service=by_service, entry_count=len(entries),
-                       budget_status=budget_status, anomalies=anomalies)
+                       budget_status=budget_status, anomalies=anomalies,
+                       plan=plan_info["plan"], pro_until=plan_info["pro_until"])
 
 
 def list_agents() -> list:
@@ -550,13 +649,16 @@ def list_agents() -> list:
     for d in agents_dir.iterdir():
         if not d.is_dir() or not (d / "secret.txt").exists():
             continue
+        plan_info = is_pro(d.name)
         ledger = d / "ledger.jsonl"
         if ledger.exists():
             entries = [json.loads(l) for l in open(ledger)]
             total = sum(e.get("amount_cents", 0) for e in entries)
             agents.append({"agent_id": d.name, "entries": len(entries),
-                           "total_spend_cents": total, "has_data": True})
+                           "total_spend_cents": total, "has_data": True,
+                           "plan": plan_info["plan"], "pro_until": plan_info["pro_until"]})
         else:
             agents.append({"agent_id": d.name, "entries": 0,
-                           "total_spend_cents": 0, "has_data": False})
+                           "total_spend_cents": 0, "has_data": False,
+                           "plan": plan_info["plan"], "pro_until": plan_info["pro_until"]})
     return sorted(agents, key=lambda x: x["total_spend_cents"], reverse=True)
