@@ -174,6 +174,49 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
     return {"agents": list_agents()}
 
 
+@mcp.tool(annotations={"title": "AgentLedger API Docs", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
+def ledger_api_docs(topic: str = "") -> dict:
+    """Self-serve documentation for AgentLedger — quickstart, MCP tools, REST
+    endpoints, error codes, and idempotency usage, as markdown.
+
+    Args:
+        topic: "quickstart" | "mcp" | "rest" | "errors" | "idempotency" | "all"
+               (default "" == "all"). Unknown topics fall back to the full docs.
+    """
+    from docs_content import get_api_docs, _TOPIC_ORDER
+    requested = (topic or "all").strip().lower()
+    md = get_api_docs(requested)
+    try:
+        metrics.record_event("meta_doc_call", tool="ledger_api_docs", topic=requested)
+    except Exception:
+        pass
+    _record_mcp_call()
+    return {"topic": requested if requested in _TOPIC_ORDER or requested == "all" else "all",
+            "markdown": md}
+
+
+@mcp.tool(annotations={"title": "AgentLedger Recipes", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
+def ledger_examples(pattern: str) -> dict:
+    """Complete, runnable Python recipe for a common AgentLedger integration
+    pattern.
+
+    Args:
+        pattern: "python_tracking" | "budget_enforcement" | "weekly_report" |
+                 "retry_safe_writes"
+    """
+    from docs_content import get_example
+    requested = (pattern or "").strip().lower()
+    code = get_example(requested)
+    try:
+        metrics.record_event("meta_doc_call", tool="ledger_examples", topic=requested)
+    except Exception:
+        pass
+    _record_mcp_call()
+    return {"pattern": requested, "code": code}
+
+
 def get_asgi_app():
     """Return the streamable-http ASGI app for mounting into api_server."""
     return mcp.http_app(path="/", transport="streamable-http")
