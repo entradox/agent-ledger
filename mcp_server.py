@@ -6,9 +6,17 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from ledger_engine import track, set_budget, get_budget, report, list_agents
+import metrics
 
 from fastmcp import FastMCP
 mcp = FastMCP("agent-ledger")
+
+
+def _record_mcp_call():
+    try:
+        metrics.record_event("mcp_call")
+    except Exception:
+        pass
 
 @mcp.tool()
 def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> dict:
@@ -21,6 +29,7 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> d
         service: what was purchased (e.g. "search_query", "data_export")
     """
     entry = track(agent_id, rail, amount_cents, service)
+    _record_mcp_call()
     return entry.to_dict()
 
 @mcp.tool()
@@ -33,6 +42,7 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0) -
         daily_cents: daily spending cap in cents (0 = no daily cap)
     """
     b = set_budget(agent_id, monthly_cents, daily_cents)
+    _record_mcp_call()
     return b.to_dict()
 
 @mcp.tool()
@@ -44,6 +54,7 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
         days: lookback period in days (default 30)
     """
     r = report(agent_id, days)
+    _record_mcp_call()
     return {"agent_id": r.agent_id, "period": r.period,
             "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
             "by_service": r.by_service, "budget_status": r.budget_status,
@@ -57,11 +68,13 @@ def ledger_alerts(agent_id: str) -> dict:
     if not os.path.exists(alerts_path):
         return {"count": 0, "alerts": []}
     alerts = [json.loads(l) for l in open(alerts_path)]
+    _record_mcp_call()
     return {"count": len(alerts), "alerts": alerts}
 
 @mcp.tool()
 def ledger_list_agents() -> dict:
     """List all tracked agents with spend summaries."""
+    _record_mcp_call()
     return {"agents": list_agents()}
 
 if __name__ == "__main__":

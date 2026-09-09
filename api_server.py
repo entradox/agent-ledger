@@ -18,8 +18,9 @@ from ledger_engine import (
     track, set_budget, get_budget, report, list_agents, _ledger_path,
     ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
     AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
-    validate_agent_id as le_validate_agent_id,
+    validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
 )
+import metrics
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
@@ -30,6 +31,33 @@ app = FastAPI(title="AgentLedger API", version="0.2.1-hardening")
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
+
+# reach paths tracked for unique-ip-hash "reach" telemetry
+REACH_PATHS = frozenset({"/status", "/llms.txt", "/server.json",
+                          "/.well-known/glama.json", "/stats", "/mcp/"})
+
+
+def _ip_hash(request: "Request") -> Optional[str]:
+    """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs."""
+    salt = os.environ.get("AL_METRICS_SALT", "")
+    client = request.client.host if request.client else None
+    if not client:
+        return None
+    return hashlib.sha256((client + salt).encode()).hexdigest()[:12]
+
+
+@app.middleware("http")
+async def _metrics_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        ip_bucket = f"path:{path}" if path in REACH_PATHS or path.startswith("/mcp") else None
+        metrics.record_event("http", path=path, method=request.method,
+                              status=response.status_code, ip_hash=_ip_hash(request),
+                              ip_bucket=ip_bucket)
+    except Exception:
+        pass
+    return response
 
 def _log_event(kind):
     try:
@@ -69,13 +97,25 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
     try:
         return ensure_agent_secret(agent_id, provided_secret)
     except AuthError as e:
+        try:
+            metrics.record_event("auth_fail")
+        except Exception:
+            pass
         raise HTTPException(401, str(e))
     except BetaCapExceededError as e:
         # Pro exemption is handled inside ensure_agent_secret(); anything that
         # still reaches here is a genuinely free-tier cap hit.
+        try:
+            metrics.record_event("cap_blocked")
+        except Exception:
+            pass
         raise HTTPException(402, str(e))
     except ValidationError as e:
         # malformed agent_id (traversal, bad charset) — 422, not a 500
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
         raise HTTPException(422, str(e))
 
 @app.post("/v1/track")
@@ -87,15 +127,27 @@ def create_track(req: TrackRequest):
     try:
         le_validate_agent_id(req.agent_id)
     except ValidationError as e:
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
         raise HTTPException(422, str(e))
     if req.rail != "tokens":
         from ledger_engine import VALID_RAILS
         if req.rail not in VALID_RAILS:
+            try:
+                metrics.record_event("validation_fail")
+            except Exception:
+                pass
             raise HTTPException(422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')")
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
     except ValidationError as e:
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
         raise HTTPException(422, str(e))
     except BudgetExceededError as e:
         raise HTTPException(402, str(e))
@@ -113,6 +165,10 @@ def create_track(req: TrackRequest):
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    try:
+        metrics.record_event("track_ok")
+    except Exception:
+        pass
     return result
 
 @app.post("/v1/budget")
@@ -120,17 +176,29 @@ def create_budget(req: BudgetRequest):
     try:
         le_validate_agent_id(req.agent_id)
     except ValidationError as e:
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
         raise HTTPException(422, str(e))
     secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
     except ValidationError as e:
+        try:
+            metrics.record_event("validation_fail")
+        except Exception:
+            pass
         raise HTTPException(422, str(e))
     result = b.to_dict()
     if created:
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    try:
+        metrics.record_event("budget_set")
+    except Exception:
+        pass
     return result
 
 @app.get("/v1/report/{agent_id}")
@@ -163,6 +231,54 @@ def get_agents(request: Request):
     if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
         raise HTTPException(401, "owner only")
     return {"agents": list_agents()}
+
+FUNNEL_KINDS = ("track_ok", "auth_fail", "cap_blocked", "validation_fail",
+                "budget_set", "mcp_call")
+
+@app.get("/v1/metrics")
+def get_metrics(request: Request):
+    """Owner-only telemetry: funnel counters, revenue events, and reach —
+    same X-Al-Admin guard as /v1/agents."""
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+        raise HTTPException(401, "owner only")
+    snap = metrics.snapshot()
+    totals = snap["totals"]
+    last_24h = snap["last_24h"]
+    unique_ips = snap["unique_ip_hashes"]
+    amount_sums = snap["amount_cents_sum"]
+
+    funnel = {k: {"total": totals.get(k, 0), "last_24h": last_24h.get(k, 0)}
+              for k in FUNNEL_KINDS}
+
+    checkout_funnel = {
+        "checkout_started": {"total": totals.get("checkout_started", 0),
+                              "last_24h": last_24h.get("checkout_started", 0)},
+        "checkout_completed": {"total": totals.get("checkout_completed", 0),
+                                "last_24h": last_24h.get("checkout_completed", 0)},
+        "revenue_events_completed": totals.get("checkout_completed", 0),
+        "sum_amount_cents_completed": amount_sums.get("checkout_completed", 0),
+    }
+
+    reach = {path: unique_ips.get(f"path:{path}", 0) for path in sorted(REACH_PATHS)}
+
+    agents = list_agents()
+    with_data = sum(1 for a in agents if a.get("has_data"))
+    squatted = sum(1 for a in agents if not a.get("has_data"))
+
+    return {
+        "service": "agent-ledger",
+        "version": app.version,
+        "funnel": funnel,
+        "checkout_funnel": checkout_funnel,
+        "reach": reach,
+        "agents": {
+            "claimed": claimed_agent_count(),
+            "with_data": with_data,
+            "squatted": squatted,
+            "cap": None if pro_active() else BETA_AGENT_CAP,
+        },
+    }
 
 # /stats is fetched by the status page on EVERY page view — cache it so viral
 # reader traffic doesn't burn CPU (Railway usage pricing = CPU × traffic).
@@ -319,7 +435,15 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(400, "signature verification failed")
     event = json.loads(payload)
-    if event.get("type") != "checkout.session.completed":
+    event_type = event.get("type", "")
+    if event_type.startswith("checkout.session.") and event_type != "checkout.session.completed":
+        # any non-terminal checkout.session.* event (e.g. a session just opened)
+        # counts as revenue-funnel entry — leading indicator of purchase intent.
+        try:
+            metrics.record_event("checkout_started")
+        except Exception:
+            pass
+    if event_type != "checkout.session.completed":
         return {"received": True, "ignored": event.get("type")}
     sess = event["data"]["object"]
     email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
@@ -330,6 +454,10 @@ async def stripe_webhook(request: Request):
     _append_customer({"ts": time.time(), "email": email, "plan": plan,
                       "amount_total": amount, "stripe_session": sess.get("id", ""),
                       "status": "active", "authority": "confirmed-at-checkout"})
+    try:
+        metrics.record_event("checkout_completed", amount_cents=amount)
+    except Exception:
+        pass
     if plan == "pro":
         from ledger_engine import activate_pro
         activate_pro()

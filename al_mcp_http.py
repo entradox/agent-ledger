@@ -6,8 +6,16 @@ behavioral annotations for registry scoring and agent routing.
 """
 import os
 from fastmcp import FastMCP
+import metrics
 
 mcp = FastMCP("agent-ledger")
+
+
+def _record_mcp_call():
+    try:
+        metrics.record_event("mcp_call")
+    except Exception:
+        pass
 
 
 def _claim_or_error(agent_id: str, agent_secret: str):
@@ -63,6 +71,7 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    _record_mcp_call()
     return result
 
 
@@ -97,6 +106,7 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
+    _record_mcp_call()
     return result
 
 
@@ -114,6 +124,7 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
     """
     from ledger_engine import report
     r = report(agent_id, days)
+    _record_mcp_call()
     return {"agent_id": r.agent_id, "period": r.period,
             "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
             "by_service": r.by_service, "budget_status": r.budget_status,
@@ -139,6 +150,7 @@ def ledger_alerts(agent_id: str) -> dict:
             alerts.append(_json.loads(line))
         except Exception:
             continue
+    _record_mcp_call()
     return {"alerts": alerts}
 
 
@@ -158,6 +170,7 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
     if not real_admin or admin_secret != real_admin:
         return {"error": "owner only"}
     from ledger_engine import list_agents
+    _record_mcp_call()
     return {"agents": list_agents()}
 
 

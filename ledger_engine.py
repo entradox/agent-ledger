@@ -363,16 +363,23 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
 
 
 def list_agents() -> list:
+    """Every claimed agent_id (has a minted secret), including slots that were
+    claimed but never wrote a ledger entry — "squatted" slots that burn a
+    beta cap slot invisibly unless surfaced with has_data=false."""
     agents_dir = DATA_DIR / "agents"
     if not agents_dir.exists():
         return []
     agents = []
     for d in agents_dir.iterdir():
-        if d.is_dir():
-            ledger = d / "ledger.jsonl"
-            if ledger.exists():
-                entries = [json.loads(l) for l in open(ledger)]
-                total = sum(e.get("amount_cents", 0) for e in entries)
-                agents.append({"agent_id": d.name, "entries": len(entries),
-                               "total_spend_cents": total})
+        if not d.is_dir() or not (d / "secret.txt").exists():
+            continue
+        ledger = d / "ledger.jsonl"
+        if ledger.exists():
+            entries = [json.loads(l) for l in open(ledger)]
+            total = sum(e.get("amount_cents", 0) for e in entries)
+            agents.append({"agent_id": d.name, "entries": len(entries),
+                           "total_spend_cents": total, "has_data": True})
+        else:
+            agents.append({"agent_id": d.name, "entries": 0,
+                           "total_spend_cents": 0, "has_data": False})
     return sorted(agents, key=lambda x: x["total_spend_cents"], reverse=True)
