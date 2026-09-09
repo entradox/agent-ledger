@@ -57,10 +57,18 @@ def test_same_idempotency_key_returns_cached_response(client):
     first = tc.post("/v1/track", json=body, headers=_headers(idem_key="key-abc"))
     assert first.status_code == 200
     first_json = first.json()
+    secret = first_json["agent_secret"]
 
-    second = tc.post("/v1/track", json=body, headers=_headers(idem_key="key-abc"))
+    # replays are owner-authenticated (auth precedes the gate) and the
+    # cached payload never re-serves the minted secret
+    second = tc.post("/v1/track", json=dict(body, agent_secret=secret),
+                     headers=_headers(idem_key="key-abc"))
     assert second.status_code == 200
-    assert second.json() == first_json
+    # cached payload = first response minus the secret (note text differs)
+    expect = {k: v for k, v in first_json.items()
+              if k not in ("agent_secret", "_note")}
+    assert {k: v for k, v in second.json().items() if k != "_note"} == expect
+    assert "agent_secret" not in second.json()
 
     # the write was never re-executed — only one ledger line for this agent
     ledger_path = ledger_engine_mod._ledger_path("idem-agent-1")
@@ -134,9 +142,11 @@ def test_budget_endpoint_also_enforces_version_and_idempotency(client):
 
     first = tc.post("/v1/budget", json=body, headers=_headers(idem_key="budget-key-1"))
     assert first.status_code == 200
-    second = tc.post("/v1/budget", json=body, headers=_headers(idem_key="budget-key-1"))
+    secret = first.json()["agent_secret"]
+    second = tc.post("/v1/budget", json=dict(body, agent_secret=secret),
+                     headers=_headers(idem_key="budget-key-1"))
     assert second.status_code == 200
-    assert second.json() == first.json()
+    assert "agent_secret" not in second.json()
 
 
 def test_typed_error_envelope_on_auth_and_cap_paths(client):
@@ -164,3 +174,76 @@ def test_typed_error_envelope_on_auth_and_cap_paths(client):
     r404 = tc.get("/server.json")
     if r404.status_code == 404:
         assert "error" in r404.json()
+
+
+# ── Morgan review 2026-09-09 security regressions ───────────────────────────
+
+def test_idempotency_cache_never_contains_agent_secret(client):
+    """The minted agent_secret must not be servable from an idempotent replay."""
+    tc, api, le = client
+    body = {"agent_id": "sec-agent-1", "rail": "manual", "amount_cents": 100,
+            "service": "svc"}
+    first = tc.post("/v1/track", json=body, headers=_headers(idem_key="sec-key-1"))
+    assert first.status_code == 200
+    secret = first.json()["agent_secret"]
+    assert secret  # sanity: first call did mint one
+
+    replay = tc.post("/v1/track", json=dict(body, agent_secret=secret),
+                     headers=_headers(idem_key="sec-key-1"))
+    assert replay.status_code == 200
+    assert "agent_secret" not in replay.json()
+
+
+def test_unauthenticated_caller_cannot_poison_idempotency_row(client):
+    """Auth must precede the gate: wrong secret + in-flight key = 401, and the
+    row is NOT reserved, so the legitimate owner's retry still succeeds."""
+    tc, api, le = client
+    body = {"agent_id": "sec-agent-2", "rail": "manual", "amount_cents": 100,
+            "service": "svc"}
+    first = tc.post("/v1/track", json=body, headers=_headers(idem_key="own-key"))
+    assert first.status_code == 200
+    secret = first.json()["agent_secret"]
+
+    # attacker: right key, wrong secret — must get 401 and must NOT be able
+    # to consume/poison the owner's key slot
+    attacker = tc.post("/v1/track", json=dict(body, agent_secret="wrong"),
+                       headers=_headers(idem_key="own-key"))
+    assert attacker.status_code == 401
+
+    # owner retries with the correct secret and the same key: gets the
+    # CACHED first response (200), and the attacker's 401 consumed nothing
+    owner = tc.post("/v1/track", json=dict(body, agent_secret=secret, amount_cents=200),
+                    headers=_headers(idem_key="own-key"))
+    assert owner.status_code == 200
+    assert owner.json()["amount_cents"] == 100  # cached replay, not a new write
+    lines = le._ledger_path("sec-agent-2").read_text().splitlines()
+    assert len(lines) == 1  # no second entry — replay, not re-execution
+
+
+def test_failed_write_releases_idempotency_row(client):
+    """A post-auth 402 failure must not hold the key hostage — same-key
+    retry with a valid amount re-attempts (row released, not cached)."""
+    tc, api, le = client
+    body = {"agent_id": "sec-agent-3", "rail": "manual", "amount_cents": 100,
+            "service": "svc"}
+    first = tc.post("/v1/track", json=body, headers=_headers(idem_key="fail-key"))
+    assert first.status_code == 200
+    secret = first.json()["agent_secret"]
+
+    # set a tiny budget so the next spend trips BudgetExceeded (post-auth)
+    budget = tc.post("/v1/budget", json={"agent_id": "sec-agent-3",
+                                         "monthly_cents": 400,
+                                         "agent_secret": secret},
+                     headers=_headers())
+    assert budget.status_code == 200
+
+    over = dict(body, agent_secret=secret, amount_cents=500)
+    failed = tc.post("/v1/track", json=over, headers=_headers(idem_key="fail-key-2"))
+    assert failed.status_code == 402
+
+    # same key, now a valid amount (100 + 120 = 220 < 400): must re-execute,
+    # not 409 / not replay — the failed write released the row
+    retry = tc.post("/v1/track", json=dict(body, agent_secret=secret, amount_cents=120),
+                    headers=_headers(idem_key="fail-key-2"))
+    assert retry.status_code == 200
+    assert retry.json()["amount_cents"] == 120

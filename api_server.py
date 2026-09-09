@@ -21,6 +21,7 @@ from ledger_engine import (
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
+    idempotency_release,
 )
 import metrics
 
@@ -203,20 +204,26 @@ def create_track(req: TrackRequest, request: Request):
             raise HTTPException(422, detail=error_envelope(
                 422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')",
                 code="rail_not_allowed"))
+    # SECURITY ORDER: auth (claim) runs BEFORE the idempotency gate — an
+    # unauthenticated caller must not be able to reserve/409 a legitimate
+    # retry or read the cache (Morgan review 2026-09-09). Failed writes
+    # release their in-flight row so honest retries re-attempt.
+    idem_key = request.headers.get("Idempotency-Key")
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     cached = _idempotency_gate(request, req.agent_id, "track")
     if cached is not None:
         return cached
-    idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
     except ValidationError as e:
+        idempotency_release(idem_key, req.agent_id, "track")
         try:
             metrics.record_event("validation_fail")
         except Exception:
             pass
         raise HTTPException(422, detail=error_envelope(422, str(e)))
     except BudgetExceededError as e:
+        idempotency_release(idem_key, req.agent_id, "track")
         raise HTTPException(402, detail=error_envelope(402, str(e)))
     # token dimension: token counts stored SEPARATELY from the dollar ledger
     # (never mixed — token counts are not cents) via meta on the entry.
@@ -232,7 +239,15 @@ def create_track(req: TrackRequest, request: Request):
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
                             "to this agent_id (track/budget). It will not be shown again.")
-    idempotency_store(idem_key, req.agent_id, "track", result, 200)
+    # SECURITY: the minted agent_secret must never be persisted in the
+    # idempotency cache — a replayable cached response would re-expose the
+    # secret to anyone who can name agent_id + key (Morgan review 2026-09-09).
+    # First-call clients that lose the secret re-register a new agent_id.
+    cached_payload = dict(result)
+    cached_payload.pop("agent_secret", None)
+    cached_payload["_note"] = ("agent_secret is shown once at claim time and is "
+                               "not included in cached (idempotent) replays.")
+    idempotency_store(idem_key, req.agent_id, "track", cached_payload, 200)
     try:
         metrics.record_event("track_ok")
     except Exception:
@@ -250,14 +265,17 @@ def create_budget(req: BudgetRequest, request: Request):
         except Exception:
             pass
         raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
+    # SECURITY ORDER: same as /v1/track — auth before gate; failed writes
+    # release the in-flight row. Secret never enters the cache.
+    idem_key = request.headers.get("Idempotency-Key")
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     cached = _idempotency_gate(request, req.agent_id, "budget")
     if cached is not None:
         return cached
-    idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
     try:
         b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
     except ValidationError as e:
+        idempotency_release(idem_key, req.agent_id, "budget")
         try:
             metrics.record_event("validation_fail")
         except Exception:
@@ -267,8 +285,12 @@ def create_budget(req: BudgetRequest, request: Request):
     if created:
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "
-                            "to this agent_id (track/budget). It will not be shown again.")
-    idempotency_store(idem_key, req.agent_id, "budget", result, 200)
+                           "to this agent_id (track/budget). It will not be shown again.")
+    cached_payload = dict(result)
+    cached_payload.pop("agent_secret", None)
+    cached_payload["_note"] = ("agent_secret is shown once at claim time and is "
+                               "not included in cached (idempotent) replays.")
+    idempotency_store(idem_key, req.agent_id, "budget", cached_payload, 200)
     try:
         metrics.record_event("budget_set")
     except Exception:

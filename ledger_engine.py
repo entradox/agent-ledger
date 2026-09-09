@@ -325,7 +325,7 @@ def idempotency_begin(key: str, agent_id: str, op: str) -> tuple[str, Optional[d
         conn.close()
 
 
-def idempotency_store(key: str, agent_id: str, op: str, response: dict, status_code: int) -> None:
+def idempotency_store(key: Optional[str], agent_id: str, op: str, response: dict, status_code: int) -> None:
     """Record the completed response for a key started with idempotency_begin.
     No-op if key is None (idempotency wasn't requested for this write)."""
     if key is None:
@@ -336,6 +336,23 @@ def idempotency_store(key: str, agent_id: str, op: str, response: dict, status_c
             "UPDATE idempotency SET response_json=?, status_code=?, created_at=? "
             "WHERE id=? AND agent_id=? AND op=?",
             (json.dumps(response), status_code, _time.time(), key, agent_id, op))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def idempotency_release(key: Optional[str], agent_id: str, op: str) -> None:
+    """Delete an in-flight (response-less) row after a FAILED write so a
+    retry with the same key re-attempts instead of getting 409 for the
+    stale-window. Never touches rows that already hold a stored response.
+    (Failed writes are not cached — Morgan review 2026-09-09.)"""
+    if key is None:
+        return
+    conn = _idempotency_conn()
+    try:
+        conn.execute(
+            "DELETE FROM idempotency WHERE id=? AND agent_id=? AND op=? "
+            "AND response_json IS NULL", (key, agent_id, op))
         conn.commit()
     finally:
         conn.close()
