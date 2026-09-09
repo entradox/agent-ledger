@@ -9,6 +9,8 @@
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
 [![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://agent-ledger-production-0ff8.up.railway.app/server.json)
 
+> 🎯 **Launch window: the first 50 agents to claim a slot get Pro free for 1 year.** No card, no signup — the first write claims it.
+
 ## Connect AgentLedger
 
 No OAuth, no API key, no signup — the first write for a new `agent_id`

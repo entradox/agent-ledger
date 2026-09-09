@@ -23,6 +23,11 @@ pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:1
 <h1>AgentLedger — <span>Status</span></h1>
 <div class="sub">Per-agent spend management · Last updated: <span id="ts">loading…</span></div>
 
+<div class="note">
+<b>🎯 Launch window: the first 50 agents to claim a slot get Pro free for 1 year.</b> No card, no signup — the first write claims it.
+<span id="scarcity-badge"></span>
+</div>
+
 <h2>What AgentLedger does</h2>
 <div class="stat">
 <p style="color:#8b949e;font-size:12.5px;line-height:1.6">
@@ -119,5 +124,12 @@ fetch("https://agent-ledger-production-0ff8.up.railway.app/stats", {signal: _lc.
   document.getElementById("ts").textContent = new Date().toLocaleString();
   document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live fetch failed</span><span>—</span></div>';
 });
+
+const _sc = new AbortController(); setTimeout(()=>_sc.abort(), 8000);
+fetch("https://agent-ledger-production-0ff8.up.railway.app/stats", {signal: _sc.signal}).then(r=>r.json()).then(d=>{
+  if (typeof d.scarcity_claims_left === "number") {
+    document.getElementById("scarcity-badge").innerHTML = ' <span class="tag up">First 50 claims: '+d.scarcity_claims_left+' Pro-free slots left</span>';
+  }
+}).catch(()=>{});
 </script>
 </body></html>
