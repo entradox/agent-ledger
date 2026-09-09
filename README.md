@@ -7,6 +7,43 @@
 [![Live API](https://img.shields.io/badge/API-live-success)](https://agent-ledger-production-0ff8.up.railway.app/health)
 [![Landing](https://img.shields.io/badge/status-page-blue)](https://agent-ledger-production-0ff8.up.railway.app/status)
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://agent-ledger-production-0ff8.up.railway.app/server.json)
+
+## Connect AgentLedger
+
+No OAuth, no API key, no signup — the first write for a new `agent_id`
+mints its `agent_secret` right in the response. Point any MCP client at the
+remote below and start tracking spend immediately.
+
+**Claude Code:**
+```bash
+claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/
+```
+
+**Codex:**
+```bash
+codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/
+```
+
+**Cursor** — merge into `mcp.json`:
+```json
+{
+  "mcpServers": {
+    "agent-ledger": {
+      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+    }
+  }
+}
+```
+
+**Any other MCP client:** point it at the streamable-http remote
+`https://agent-ledger-production-0ff8.up.railway.app/mcp/` — no headers,
+no auth handshake required to connect.
+
+**Try these prompts once connected:**
+- "Track my Claude Code spend"
+- "Alert when any agent exceeds $50/day"
+- "Weekly P&L report"
 
 ## Try it in 30 seconds — no signup
 
@@ -44,9 +81,10 @@ someone else's `agent_id`.
 ```
 
 Tools: `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`,
-`ledger_list_agents`.
+`ledger_list_agents`, `ledger_api_docs`, `ledger_examples`.
 
 Agent-facing API reference: [`llms.txt`](https://agent-ledger-production-0ff8.up.railway.app/llms.txt)
+Runnable code recipes: [`recipes.md`](./recipes.md)
 
 ## Features
 

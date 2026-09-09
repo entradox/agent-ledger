@@ -444,9 +444,17 @@ Tools exposed at POST /mcp/:
   ledger_report         — get a spend report (open read)
   ledger_alerts         — get alerts for an agent (open read)
   ledger_list_agents    — owner-only (admin_secret param)
+  ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|errors|idempotency|all (open read)
+  ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
+
+Every /v1/* REST request and every /mcp/ HTTP request must send
+AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
+POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
+(<=255 chars) for at-most-once retries.
 
 Free during beta. Contact: entradox@icloud.com
 """
+LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
 
 @app.get("/.well-known/glama.json")
 def glama_claim():
@@ -479,6 +487,19 @@ def server_json():
 @app.get("/status", response_class=HTMLResponse)
 def status_page():
     return (Path(__file__).parent / "status.html").read_text()
+
+@app.get("/v1/_beacon")
+def connect_beacon(event: str):
+    """Fire-and-forget telemetry beacon for static-page interactions that have
+    no natural server round-trip (launch-kit v0.3 item 4). Only the
+    status.html Connect section uses this today, hence the closed allowlist —
+    an open `event` value would let a caller write arbitrary metric kinds."""
+    if event == "connect_page_view":
+        try:
+            metrics.record_event("connect_page_view")
+        except Exception:
+            pass
+    return JSONResponse(content={"ok": True})
 
 # ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
 CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"

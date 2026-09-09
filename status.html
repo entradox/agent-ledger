@@ -38,6 +38,31 @@ autonomous agent moves.
 <div class="s-line"><span>Tracked agents</span><span>see agent-ledger-production-0ff8.up.railway.app/stats (JS off: static fallback)</span></div>
 </div>
 
+<h2>Connect AgentLedger</h2>
+<div class="stat">
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">No OAuth, no API key, no signup — the first write for a new <code>agent_id</code> mints its <code>agent_secret</code> right in the response. Point any MCP client at the remote below and start tracking spend immediately.</p>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Claude Code</b></p>
+<pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Codex</b></p>
+<pre class="cmd">codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Cursor</b> — merge into <code>mcp.json</code>:</p>
+<pre class="cmd">{
+  "mcpServers": {
+    "agent-ledger": {
+      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+    }
+  }
+}</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Generic streamable-http URL</b></p>
+<pre class="cmd">https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:4px"><b>Try it in your agent:</b></p>
+<ul style="font-size:12.5px;color:#8b949e;margin:0 0 4px 18px;padding:0">
+<li>"Track my Claude Code spend"</li>
+<li>"Alert when any agent exceeds $50/day"</li>
+<li>"Weekly P&L report"</li>
+</ul>
+</div>
+
 <h2>MCP integration</h2>
 <div class="stat">
 <div class="s-line"><span>Registry name</span><span><b>io.github.entradox/agent-ledger</b></span></div>
