@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.entradox/agent-ledger",
   "title": "AgentLedger",
-  "description": "Per-agent spend management: x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails. Tools: ledger_track, ledger_set_budget, ledger_report, ledger_alerts, ledger_list_agents, ledger_api_docs, ledger_examples.",
+  "description": "Per-agent spend management: x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.",
   "repository": {
     "url": "https://github.com/entradox/agent-ledger",
     "source": "github"
