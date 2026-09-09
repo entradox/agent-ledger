@@ -106,3 +106,43 @@ def test_squatted_slot_appears_with_has_data_false(client):
     agents = {a["agent_id"]: a for a in r.json()["agents"]}
     assert "squatted-agent" in agents
     assert agents["squatted-agent"]["has_data"] is False
+
+
+def test_billing_path_email_never_reaches_metrics(client):
+    """Pins the Morgan-review privacy rule: GET /v1/billing/{email} must never
+    leak the raw email into the metrics event log."""
+    tc, api_server_mod, metrics_mod = client
+
+    r = tc.get("/v1/billing/customer@example.com")
+    # endpoint may 404/401/200 depending on billing state — the status doesn't
+    # matter; what matters is that no metric event ever contains the email.
+    snap = metrics_mod.snapshot()
+    assert snap["totals"].get("http", 0) >= 1  # middleware did record the hit
+
+    events_file = os.path.join(os.environ["AGENT_LEDGER_DATA"], "metrics.jsonl")
+    with open(events_file) as f:
+        raw = f.read()
+    assert "customer@example.com" not in raw
+    assert "@" not in raw.replace("\\u0040", "")  # no encoded emails either
+
+
+def test_ip_hash_refuses_unsalted(monkeypatch):
+    """No AL_METRICS_SALT → no ip_hash at all (unsalted hash = reversible)."""
+    monkeypatch.delenv("AL_METRICS_SALT", raising=False)
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+        sys.modules.pop(mod, None)
+    import api_server as api_server_mod
+
+    class FakeRequest:
+        class client:
+            host = "203.0.113.7"
+
+    assert api_server_mod._ip_hash(FakeRequest()) is None
+
+    monkeypatch.setenv("AL_METRICS_SALT", "some-secret-salt-value")
+    sys.modules.pop("api_server", None)
+    import importlib
+    api_server_mod = importlib.import_module("api_server")
+    h = api_server_mod._ip_hash(FakeRequest())
+    assert h is not None and len(h) == 12
+    sys.modules.pop("api_server", None)

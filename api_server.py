@@ -38,8 +38,13 @@ REACH_PATHS = frozenset({"/status", "/llms.txt", "/server.json",
 
 
 def _ip_hash(request: "Request") -> Optional[str]:
-    """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs."""
+    """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs.
+    Refuses to hash at all when the salt is unset: an unsalted sha256 over the
+    IPv4 space is brute-forceable in seconds, which would silently degrade the
+    privacy guarantee into a reversible pseudonym (Morgan review, 2026-09-09)."""
     salt = os.environ.get("AL_METRICS_SALT", "")
+    if not salt:
+        return None
     client = request.client.host if request.client else None
     if not client:
         return None
@@ -51,6 +56,10 @@ async def _metrics_middleware(request: Request, call_next):
     response = await call_next(request)
     try:
         path = request.url.path
+        # PII redaction: /v1/billing/{email} has the customer's raw email in the
+        # path — never let it reach the metrics event log (Morgan review, 2026-09-09).
+        if path.startswith("/v1/billing/"):
+            path = "/v1/billing/<redacted>"
         ip_bucket = f"path:{path}" if path in REACH_PATHS or path.startswith("/mcp") else None
         metrics.record_event("http", path=path, method=request.method,
                               status=response.status_code, ip_hash=_ip_hash(request),
@@ -436,9 +445,12 @@ async def stripe_webhook(request: Request):
         raise HTTPException(400, "signature verification failed")
     event = json.loads(payload)
     event_type = event.get("type", "")
-    if event_type.startswith("checkout.session.") and event_type != "checkout.session.completed":
-        # any non-terminal checkout.session.* event (e.g. a session just opened)
+    if event_type.startswith("checkout.session.") and event_type not in (
+            "checkout.session.completed", "checkout.session.expired"):
+        # a checkout session that opened (and hasn't hit a terminal state)
         # counts as revenue-funnel entry — leading indicator of purchase intent.
+        # completed/expired excluded so Stripe retries and dead sessions never
+        # inflate the funnel (Morgan review, 2026-09-09).
         try:
             metrics.record_event("checkout_started")
         except Exception:
