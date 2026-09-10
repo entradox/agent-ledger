@@ -96,7 +96,8 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Budget enforcement** — warns at 80% of cap, blocks spend when exceeded
 - **Anomaly detection** — spending-spike alerts per agent
 - **Audit trails** — every entry persisted with rail, service, and timestamp
-- **Free during beta**
+- **Free during beta** (up to 3 agents; first 50 ever claimed get Pro free for 1 year regardless) —
+  GA pricing is **Pro $19/mo** for unlimited tracked agents: [Get Pro](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
 
 ## Architecture
 
