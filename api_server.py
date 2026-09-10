@@ -22,7 +22,7 @@ from ledger_engine import (
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
-    idempotency_release, scarcity_claims_left,
+    idempotency_release, scarcity_claims_left, _delete_agent_row,
 )
 import metrics
 
@@ -729,6 +729,15 @@ def delete_agent(agent_id: str, request: Request):
     agent_dir = DATA_DIR / "agents" / agent_id
     if not agent_dir.exists():
         raise HTTPException(404, f"agent not found: {agent_id}")
+    # D-819: the row goes FIRST, then the dir. A dir removed without its row
+    # is an orphan row that diverges the scarcity counter from the window
+    # gate — if the row delete fails, abort with BOTH intact rather than
+    # leaving a silent orphan behind.
+    try:
+        _delete_agent_row(agent_id)
+    except Exception as e:
+        raise HTTPException(500, detail=error_envelope(
+            500, f"could not delete agent record for '{agent_id}': {e}"))
     shutil.rmtree(agent_dir)
     return {"deleted": agent_id}
 

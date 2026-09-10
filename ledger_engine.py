@@ -313,6 +313,19 @@ def _set_pro_until(agent_id: str, pro_until: float) -> None:
         conn.close()
 
 
+def _delete_agent_row(agent_id: str) -> None:
+    """Drop agent_id's row from the agents table. Called by the owner DELETE
+    path alongside the agent-dir removal (D-819) — a dir deleted without its
+    row is an orphan row, and orphan rows diverge from the claimed-agent
+    population the scarcity counter and window gate both count."""
+    conn = _agents_conn()
+    try:
+        conn.execute("DELETE FROM agents WHERE agent_id=?", (agent_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def is_pro(agent_id: str) -> dict:
     """Plan info for agent_id. Site-wide Stripe Pro (pro_active()) takes
     precedence over a per-agent scarcity grant; an expired scarcity grant
@@ -327,16 +340,16 @@ def is_pro(agent_id: str) -> dict:
 
 
 def scarcity_claims_left() -> int:
-    """Public aggregate count only — no agent_ids or emails. Counts rows with
-    a stamped pro_until regardless of whether it has since expired, since the
-    50 slots are consumed at claim time, not returned on expiry."""
-    conn = _agents_conn()
-    try:
-        row = conn.execute("SELECT COUNT(*) FROM agents WHERE pro_until IS NOT NULL").fetchone()
-        claimed = row[0] if row else 0
-        return max(0, SCARCITY_PRO_CAP - claimed)
-    finally:
-        conn.close()
+    """Public aggregate count only — no agent_ids or emails. A slot is
+    consumed by a CLAIM (secret minted), and an agent_id can hold at most one
+    slot, so this counts the claimed-agent store — the exact population the
+    ensure_agent_secret() window gate admits against (D-819). Deliberately
+    NOT a count of SQLite pro_until rows: that population diverges from
+    claims in both directions (orphan rows left behind by a deleted agent
+    under-report; legacy pre-v0.3.1 claims with a secret dir but no row are
+    invisible), which let the gate and this counter disagree. Slots are not
+    returned when a grant expires — the 50 are all-time claimed agents."""
+    return max(0, SCARCITY_PRO_CAP - claimed_agent_count())
 
 
 # ── Idempotency-Key store (launch-kit v0.3) ─────────────────────────────────
