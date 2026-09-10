@@ -11,7 +11,7 @@ Endpoints:
   GET  /stats                        — usage counters
   GET  /.well-known/agent.json       — AEO capability manifest
 """
-import json, os, sys, time, hmac, hashlib
+import html, json, os, sys, time, hmac, hashlib
 from pathlib import Path
 from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -327,7 +327,7 @@ def get_agents(request: Request):
     (Per-agent data stays open-read at GET /v1/report/{agent_id} and
     /v1/tokens/{agent_id}; this endpoint is the full cross-tenant dump.)"""
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
         raise HTTPException(401, "owner only")
     return {"agents": list_agents()}
 
@@ -341,7 +341,7 @@ def dashboard(request: Request):
     Server-rendered, no JS — reuses list_agents() + report(), both already
     cheap at current scale (a handful of claimed agents)."""
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
         raise HTTPException(401, "owner only")
 
     rows = []
@@ -364,10 +364,17 @@ def dashboard(request: Request):
         })
 
     def row_html(row):
+        # Escape every interpolated field even though agent_id/plan are
+        # currently regex/enum-constrained — safe by construction, not by
+        # accident, so this doesn't become the unsafe precedent a future
+        # free-text column (rail/service) copies (Turing review 2026-09-10).
         flag = " ⚠️" if row["exceeded"] or row["anomalies"] or row["alerts"] else ""
         squat = " (squatted — claimed, no writes)" if not row["has_data"] else ""
-        return (f"<tr><td>{row['agent_id']}{squat}</td><td>{row['plan']}</td>"
-                f"<td>${row['spend_30d']:.2f}</td><td>{row['cap_str']}{flag}</td>"
+        agent_id = html.escape(str(row["agent_id"]))
+        plan = html.escape(str(row["plan"]))
+        cap_str = html.escape(str(row["cap_str"]))
+        return (f"<tr><td>{agent_id}{squat}</td><td>{plan}</td>"
+                f"<td>${row['spend_30d']:.2f}</td><td>{cap_str}{flag}</td>"
                 f"<td>{row['anomalies']}</td><td>{row['alerts']}</td></tr>")
 
     body_rows = "\n".join(row_html(r) for r in rows) or "<tr><td colspan=6>No agents claimed yet.</td></tr>"
@@ -393,7 +400,7 @@ def get_metrics(request: Request):
     """Owner-only telemetry: funnel counters, revenue events, and reach —
     same X-Al-Admin guard as /v1/agents."""
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
         raise HTTPException(401, "owner only")
     snap = metrics.snapshot()
     totals = snap["totals"]
@@ -698,7 +705,7 @@ def delete_agent(agent_id: str, request: Request):
     are per-product, so the operator can clear test/demo agents to free slots."""
     from ledger_engine import validate_agent_id
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
         raise HTTPException(401, "owner only")
     try:
         validate_agent_id(agent_id)
