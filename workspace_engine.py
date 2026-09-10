@@ -86,11 +86,11 @@ def create_workspace(*, owner_email: Optional[str] = None,
     if google_sub:
         existing = get_workspace_by_google_sub(google_sub)
         if existing:
-            return existing["workspace_id"], _reissue_key(existing["workspace_id"], "by_google_sub", google_sub)
+            return existing["workspace_id"], _reissue_key(existing["workspace_id"])
     if wallet_address:
         existing = get_workspace_by_wallet(wallet_address)
         if existing:
-            return existing["workspace_id"], _reissue_key(existing["workspace_id"], "by_wallet", wallet_address)
+            return existing["workspace_id"], _reissue_key(existing["workspace_id"])
 
     workspace_id = "ws_" + secrets.token_urlsafe(16)
     raw_key = "wk_live_" + secrets.token_urlsafe(32)
@@ -117,9 +117,20 @@ def create_workspace(*, owner_email: Optional[str] = None,
     return workspace_id, raw_key
 
 
-def _reissue_key(workspace_id: str, index_name: str, identity_value: str) -> str:
-    raw_key = "wk_live_" + secrets.token_urlsafe(32)
+def _reissue_key(workspace_id: str) -> str:
+    """Generate a new key and invalidate the old one by deleting its index entry."""
     record = get_workspace(workspace_id)
+    if record is None:
+        raise WorkspaceError(f"workspace not found: {workspace_id}")
+
+    # Delete old key hash index entry to invalidate the old key
+    old_key_hash = record["workspace_key_hash"]
+    old_key_hash_file = _index_dir("by_key_hash") / old_key_hash
+    if old_key_hash_file.exists():
+        old_key_hash_file.unlink()
+
+    # Generate and store new key
+    raw_key = "wk_live_" + secrets.token_urlsafe(32)
     record["workspace_key_hash"] = _hash(raw_key)
     _write_workspace(record)
     (_index_dir("by_key_hash") / _hash(raw_key)).write_text(workspace_id)

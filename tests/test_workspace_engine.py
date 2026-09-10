@@ -73,3 +73,22 @@ def test_first_50_workspaces_get_scarcity_pro(engine):
         assert engine.is_workspace_pro(ws_id) is True
     ws_51, _ = engine.create_workspace(owner_email="u51@example.com")
     assert engine.is_workspace_pro(ws_51) is False
+
+
+def test_old_key_invalidated_on_reissue(engine):
+    # Create workspace via google_sub, get the initial key
+    ws_id, old_raw_key = engine.create_workspace(google_sub="g-test-123")
+    assert engine.get_workspace_by_key(old_raw_key) is not None
+    assert engine.get_workspace_by_key(old_raw_key)["workspace_id"] == ws_id
+
+    # Re-create the same workspace (idempotent), which reissues a new key
+    ws_id2, new_raw_key = engine.create_workspace(google_sub="g-test-123")
+    assert ws_id2 == ws_id  # Same workspace
+    assert new_raw_key != old_raw_key  # Different key
+
+    # Old key must now be invalid (invalidated by reissue)
+    assert engine.get_workspace_by_key(old_raw_key) is None
+
+    # New key must work
+    assert engine.get_workspace_by_key(new_raw_key) is not None
+    assert engine.get_workspace_by_key(new_raw_key)["workspace_id"] == ws_id
