@@ -334,6 +334,60 @@ def get_agents(request: Request):
 FUNNEL_KINDS = ("track_ok", "auth_fail", "cap_blocked", "validation_fail",
                 "budget_set", "mcp_call")
 
+@app.get("/v1/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    """Owner-only dashboard: every claimed agent, its spend, and its budget
+    status in one page. Same X-Al-Admin guard as /v1/agents and /v1/metrics.
+    Server-rendered, no JS — reuses list_agents() + report(), both already
+    cheap at current scale (a handful of claimed agents)."""
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    if not admin_secret or request.headers.get("x-al-admin") != admin_secret:
+        raise HTTPException(401, "owner only")
+
+    rows = []
+    for a in list_agents():
+        r = report(a["agent_id"], days=30)
+        budget = r.budget_status or {}
+        cap = budget.get("monthly_cap_cents")
+        cap_str = f"${cap/100:.2f}/mo cap, {budget.get('pct_used', 0):.0f}% used" if cap else "no cap set"
+        alerts_path = DATA_DIR / "agents" / a["agent_id"] / "alerts.jsonl"
+        alert_count = sum(1 for _ in open(alerts_path)) if alerts_path.exists() else 0
+        rows.append({
+            "agent_id": a["agent_id"],
+            "has_data": a["has_data"],
+            "plan": a["plan"],
+            "spend_30d": r.total_spend_cents / 100,
+            "cap_str": cap_str,
+            "exceeded": bool(budget.get("exceeded")),
+            "anomalies": len(r.anomalies),
+            "alerts": alert_count,
+        })
+
+    def row_html(row):
+        flag = " ⚠️" if row["exceeded"] or row["anomalies"] or row["alerts"] else ""
+        squat = " (squatted — claimed, no writes)" if not row["has_data"] else ""
+        return (f"<tr><td>{row['agent_id']}{squat}</td><td>{row['plan']}</td>"
+                f"<td>${row['spend_30d']:.2f}</td><td>{row['cap_str']}{flag}</td>"
+                f"<td>{row['anomalies']}</td><td>{row['alerts']}</td></tr>")
+
+    body_rows = "\n".join(row_html(r) for r in rows) or "<tr><td colspan=6>No agents claimed yet.</td></tr>"
+    html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>AgentLedger — Dashboard</title>
+<style>
+body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif;padding:24px}}
+table{{border-collapse:collapse;width:100%;max-width:900px}}
+th,td{{text-align:left;padding:8px 12px;border-bottom:1px solid #30363d;font-size:13px}}
+th{{color:#8b949e;font-weight:600}}
+h1{{font-size:20px}} .sub{{color:#8b949e;font-size:12px;margin-bottom:16px}}
+</style></head><body>
+<h1>AgentLedger — Dashboard</h1>
+<div class="sub">{len(rows)} claimed agents · 30-day window · owner-only</div>
+<table><tr><th>Agent</th><th>Plan</th><th>30d spend</th><th>Budget</th><th>Anomalies</th><th>Alerts</th></tr>
+{body_rows}
+</table>
+</body></html>"""
+    return HTMLResponse(content=html)
+
 @app.get("/v1/metrics")
 def get_metrics(request: Request):
     """Owner-only telemetry: funnel counters, revenue events, and reach —
