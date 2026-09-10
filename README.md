@@ -54,11 +54,13 @@ no auth handshake required to connect.
 # Save it: every later write (track/budget) to this agent_id must include it.
 curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
+  -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query"}'
 
 # Set a monthly budget cap — pass the agent_secret from above
 curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
   -H "Content-Type: application/json" \
+  -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
 
 # Spend report + anomalies — open read, no secret needed

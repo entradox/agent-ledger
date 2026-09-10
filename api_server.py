@@ -386,7 +386,7 @@ def dashboard(request: Request):
                 f"<td>{row['anomalies']}</td><td>{row['alerts']}</td></tr>")
 
     body_rows = "\n".join(row_html(r) for r in rows) or "<tr><td colspan=6>No agents claimed yet.</td></tr>"
-    html = f"""<!doctype html><html><head><meta charset="utf-8">
+    page_html = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AgentLedger — Dashboard</title>
 <style>
 body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif;padding:24px}}
@@ -401,7 +401,7 @@ h1{{font-size:20px}} .sub{{color:#8b949e;font-size:12px;margin-bottom:16px}}
 {body_rows}
 </table>
 </body></html>"""
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=page_html)
 
 @app.get("/v1/metrics")
 def get_metrics(request: Request):
