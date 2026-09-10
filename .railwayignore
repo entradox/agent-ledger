@@ -1,0 +1,11 @@
+# Keep scratch/collateral out of the railway up build context.
+# The 9/10 incident: uncommitted noise baked into the image silently.
+deploy.sh
+.railwayignore
+*.md
+!README.md
+tests/
+.claude/
+.claude-build-prompt-*.md
+worktree-*.patch
+archive-*
