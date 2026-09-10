@@ -149,7 +149,7 @@ def test_budget_endpoint_also_enforces_version_and_idempotency(client):
     assert "agent_secret" not in second.json()
 
 
-def test_typed_error_envelope_on_auth_and_cap_paths(client):
+def test_typed_error_envelope_on_auth_and_cap_paths(client, monkeypatch):
     tc, api_server_mod, ledger_engine_mod = client
 
     # 401 — agent already claimed, wrong secret
@@ -160,8 +160,10 @@ def test_typed_error_envelope_on_auth_and_cap_paths(client):
     assert r401.status_code == 401
     assert r401.json()["error"]["code"] == "agent_secret_mismatch"
 
-    # 402 — beta agent cap
+    # 402 — beta agent cap. A claim inside the scarcity window is granted Pro
+    # rather than capped (D-818), so close the window to reach the cap path.
     from ledger_engine import BETA_AGENT_CAP
+    monkeypatch.setattr(ledger_engine_mod, "SCARCITY_PRO_CAP", 0)
     for i in range(BETA_AGENT_CAP - 1):
         b = {"agent_id": f"typed-cap-{i}", "rail": "manual", "amount_cents": 10, "service": "svc"}
         assert tc.post("/v1/track", json=b, headers=_headers()).status_code == 200

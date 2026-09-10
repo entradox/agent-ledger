@@ -93,9 +93,69 @@ def test_51st_claim_gets_no_pro_until(engine):
     assert le.scarcity_claims_left() == 0
 
 
+def test_scarcity_claims_bypass_free_cap(engine, monkeypatch):
+    """D-818 regression: the free-tier cap must not shadow the scarcity
+    window. Claims made inside the window mint their Pro grant even when the
+    cap is already blown; only claims past #50 reach the cap."""
+    le = engine
+    monkeypatch.setattr(le, "BETA_AGENT_CAP", 2)
+
+    for i in range(1, 51):
+        agent_id = f"regression-agent-{i}"
+        secret, created = le.ensure_agent_secret(agent_id)
+        assert created
+        if i == 1:
+            first_secret = secret
+        info = le.is_pro(agent_id)
+        assert info["is_pro"] is True
+        assert info["plan"] == "pro_scarcity"
+        assert info["pro_until"] > le._time.time()
+
+    assert le.scarcity_claims_left() == 0
+
+    # re-auth semantics unchanged for a scarcity claimant
+    secret_again, created_again = le.ensure_agent_secret("regression-agent-1", first_secret)
+    assert created_again is False
+    assert secret_again == first_secret
+    with pytest.raises(le.AuthError):
+        le.ensure_agent_secret("regression-agent-1", "wrong-secret")
+
+    # window exhausted — now the cap applies, and the claim is not a Pro grant
+    with pytest.raises(le.BetaCapExceededError):
+        le.ensure_agent_secret("regression-agent-51")
+    assert le.agent_exists("regression-agent-51") is False
+    assert le.is_pro("regression-agent-51")["plan"] == "free"
+
+
+def test_50th_claim_takes_last_slot_then_cap_applies(engine, monkeypatch):
+    """Boundary: claim #50 is the last scarcity grant, the public counter hits
+    0, and the 51st claim is rejected by the free cap instead of granted Pro."""
+    le = engine
+    monkeypatch.setattr(le, "BETA_AGENT_CAP", 2)
+
+    for i in range(49):
+        le.ensure_agent_secret(f"boundary-agent-{i}")
+    assert le.scarcity_claims_left() == 1
+
+    secret, created = le.ensure_agent_secret("boundary-agent-49")
+    assert created
+    info = le.is_pro("boundary-agent-49")
+    assert info["is_pro"] is True
+    assert info["plan"] == "pro_scarcity"
+    assert info["pro_until"] is not None
+    assert le.scarcity_claims_left() == 0
+
+    with pytest.raises(le.BetaCapExceededError):
+        le.ensure_agent_secret("boundary-agent-50")
+    assert le.is_pro("boundary-agent-50")["plan"] == "free"
+
+
 def test_pro_agent_beyond_free_cap_can_still_write(engine, monkeypatch):
     le = engine
     monkeypatch.setattr(le, "BETA_AGENT_CAP", 1)
+    # the free cap only governs claims made after the scarcity window closes
+    # (D-818) — close it so this test reaches the cap path it targets
+    monkeypatch.setattr(le, "SCARCITY_PRO_CAP", 1)
 
     secret, created = le.ensure_agent_secret("pro-agent-1")
     assert created

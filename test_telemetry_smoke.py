@@ -58,9 +58,14 @@ def test_wrong_secret_records_auth_fail_and_401(client):
     assert snap["totals"].get("auth_fail", 0) >= 1
 
 
-def test_fourth_new_agent_over_cap_records_cap_blocked(client):
+def test_fourth_new_agent_over_cap_records_cap_blocked(client, monkeypatch):
     tc, api_server_mod, metrics_mod = client
+    import ledger_engine
     from ledger_engine import BETA_AGENT_CAP
+
+    # a claim inside the scarcity window is granted Pro rather than capped
+    # (D-818), so close the window to reach the cap path this test targets
+    monkeypatch.setattr(ledger_engine, "SCARCITY_PRO_CAP", 0)
 
     for i in range(BETA_AGENT_CAP):
         body = {"agent_id": f"cap-agent-{i}", "rail": "manual", "amount_cents": 10,

@@ -201,7 +201,9 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     Raises AuthError if agent_id is already claimed and the secret doesn't
     match, or BetaCapExceededError if this would be a new agent past the
     free-tier slot cap (skipped when Pro is active — site-wide Stripe Pro,
-    or this specific agent_id already holding a live scarcity-window grant).
+    this specific agent_id already holding a live scarcity-window grant, or a
+    new claim that is itself inside the scarcity window, which is about to be
+    granted Pro below).
 
     A brand-new agent_id claimed while the all-time claimed count is still
     under SCARCITY_PRO_CAP is stamped with a one-year pro_until (scarcity
@@ -217,7 +219,14 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 "(returned when the agent_id was first used) to write to it")
         return real, False
     pre_claim_count = claimed_agent_count()
+    # Eligibility order is load-bearing (D-818): the scarcity window is
+    # evaluated BEFORE the free-tier cap. Checking the cap first shadowed the
+    # whole launch promise — a brand-new agent_id whose claim fell inside the
+    # window (pre_claim_count < SCARCITY_PRO_CAP) got 402 and could never mint
+    # the pro_until grant that claim was supposed to receive.
+    inside_scarcity_window = pre_claim_count < SCARCITY_PRO_CAP
     if (check_cap and not pro_active() and not is_pro(agent_id)["is_pro"]
+            and not inside_scarcity_window
             and pre_claim_count >= BETA_AGENT_CAP):
         raise BetaCapExceededError(
             f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
@@ -226,7 +235,7 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
     path.write_text(new_secret)
-    if pre_claim_count < SCARCITY_PRO_CAP:
+    if inside_scarcity_window:
         pro_until = _time.time() + SCARCITY_PRO_DURATION_SECONDS
         _set_pro_until(agent_id, pro_until)
         remaining = SCARCITY_PRO_CAP - (pre_claim_count + 1)
