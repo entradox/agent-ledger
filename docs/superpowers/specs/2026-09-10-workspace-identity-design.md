@@ -92,6 +92,67 @@ surprise regression later.
   Railway env vars: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`).
   Not something that can be automated from this side.
 
+### 3b. Getting a workspace_key — Path B: x402 self-serve (no human, no login)
+
+Google OAuth (3) assumes a human owner. x402 exists specifically so an
+autonomous agent with its own wallet never needs one — requiring login
+for Path A would make AgentLedger unusable for that entire class of
+customer, so Path B is a first-class second path, not a fallback:
+
+- `POST /v1/billing/x402` — the agent presents a real x402 payment
+  following the actual protocol (signed stablecoin transfer authorization,
+  typically USDC on Base), verified against a settlement facilitator
+  (Coinbase's reference facilitator — the one with real production
+  volume, not a custom one).
+- On confirmed settlement, the **paying wallet address becomes the
+  workspace identity** — no email, no OAuth, nothing human. This is what
+  makes isolation trivial here: two different wallets are, by
+  construction, two different workspaces. There is no shared-identity path
+  for this route to collide on.
+- The settlement transaction hash is the idempotency key: a replayed or
+  resubmitted payment can mint a workspace exactly once, never twice
+  (checked before workspace creation, not after — a payment that already
+  minted a workspace returns that workspace's existing key, not a fresh
+  one).
+- The minted workspace behaves identically to a Path A workspace from
+  that point on (same `workspace` record shape, same claim flow, same
+  agent_cap rules) — the two paths differ only in how identity is
+  established, not in what a workspace is.
+
+### 3c. Reads now require proof of workspace ownership (breaking change vs. today)
+
+Today, `/v1/report/{agent_id}`, `/v1/tokens/{agent_id}`,
+`/v1/alerts/{agent_id}`, and `/v1/report/{agent_id}/html` are open reads —
+no credential required, by design, so an owner could share a link freely.
+At real multi-tenant scale this means any two people who know or guess
+each other's `agent_id` can read each other's spend data, which stops
+being acceptable once real paying customers exist.
+
+New behavior: each read endpoint requires **either** the agent's own
+`agent_secret` **or** its workspace's `workspace_key`, passed as a header
+(`X-Agent-Secret` or `X-Workspace-Key` — not a query param, to keep
+credentials out of server/proxy access logs). Either credential is
+sufficient (mirrors the existing write-path trust model, where
+`agent_secret` alone already authorizes writes). No credential → 401.
+
+This is a real regression against today's "share a link, anyone can see
+it" pitch, made deliberately in exchange for actual data isolation
+between customers — noted here so it's a decision on record, not a
+surprise when someone's shared link stops working.
+
+### 3d. Storage stays on flat files for this phase — database migration deferred
+
+Explicit decision: workspace records use the same JSON-file-per-record
+pattern as today's agent storage, not a new database. This comfortably
+supports hundreds to low-thousands of agents/workspaces — a realistic
+ceiling for the next stage of growth, not a permanent one. A move to a
+real database (e.g. Postgres, indexed by `workspace_id`, enabling
+horizontal scaling toward "millions of agents") is real, necessary work
+for that future scale, but is explicitly **not** part of this phase — it
+gets triggered and spec'd separately when real usage approaches the flat-
+file ceiling, not built speculatively now against usage that doesn't
+exist yet.
+
 ### 4. Billing — per-workspace, not global
 
 Today: one static `buy.stripe.com/...` link, webhook flips a single global
@@ -136,14 +197,29 @@ untouched. No behavior changes for those agents; they simply gain a
   `stripe_customer_id` (noted as a gap, not solved here)
 - Multiple team members per workspace (single `owner_email` per workspace
   for now — YAGNI until a real customer asks)
-- Rate limiting per workspace (not requested, not designed here)
+- Rate limiting per workspace — a real gap at scale (one noisy workspace
+  could degrade service for others), not designed here, flagged for a
+  future phase
+- Database migration (flat files → real DB) — see 3d; future phase,
+  triggered by real usage approaching the flat-file ceiling
+- workspace_key / agent_secret rotation or revocation (e.g. after a leak)
+  — no endpoint exists for this today or in this phase; real gap, noted
+  for a future phase
+- x402 double-spend/replay edge cases beyond the single idempotency check
+  in 3b (e.g. facilitator downtime, partial settlement) — follow whatever
+  the reference facilitator's own guidance is at implementation time,
+  not re-invented here
 
-## Open risk flagged, not resolved here
+## Open risks flagged, not resolved here
 
-Removing anonymous claim-on-first-write is a real product-strategy
-tradeoff, not just an implementation detail — it trades the
-tested-well-with-a-fresh-agent frictionless discovery flow for correct
-billing isolation. Worth a Strat-gate sanity check before this ships,
-per the Workbench's own monetization-decision routing rule, since it
-changes the core growth mechanic the agent-native positioning was built
-around.
+- Removing anonymous claim-on-first-write (Path A only — Path B stays
+  frictionless for its audience) is a real product-strategy tradeoff, not
+  just an implementation detail — it trades the tested-well-with-a-fresh-
+  agent frictionless discovery flow for correct billing isolation, for
+  the human-operator segment specifically. Worth a Strat-gate sanity check
+  before this ships, per the Workbench's own monetization-decision
+  routing rule.
+- Scoping reads to workspace ownership (3c) is a breaking change to
+  today's "share a link, anyone can see it" behavior — worth confirming
+  no existing integration (dashboards, shared links already sent to
+  anyone) depends on the current open-read behavior before this ships.
