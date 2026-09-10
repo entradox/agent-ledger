@@ -33,15 +33,23 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str) -> d
     return entry.to_dict()
 
 @mcp.tool()
-def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0) -> dict:
+def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
+                      monthly_tokens: int = 0, daily_tokens: int = 0) -> dict:
     """Set an agent's budget caps.
+
+    Dollar caps (monthly_cents/daily_cents) only cover non-"tokens" rails;
+    token caps (monthly_tokens/daily_tokens) only cover rail="tokens"
+    bookkeeping rows. Independent dimensions — set both if the agent uses both.
 
     Args:
         agent_id: unique agent identifier
         monthly_cents: monthly spending cap in cents
         daily_cents: daily spending cap in cents (0 = no daily cap)
+        monthly_tokens: monthly token-burn cap (0 = no cap)
+        daily_tokens: daily token-burn cap (0 = no cap)
     """
-    b = set_budget(agent_id, monthly_cents, daily_cents)
+    b = set_budget(agent_id, monthly_cents, daily_cents,
+                   monthly_tokens=monthly_tokens, daily_tokens=daily_tokens)
     _record_mcp_call()
     return b.to_dict()
 
@@ -81,10 +89,10 @@ def ledger_list_agents() -> dict:
 @mcp.tool()
 def ledger_api_docs(topic: str = "") -> dict:
     """Self-serve documentation for AgentLedger — quickstart, MCP tools, REST
-    endpoints, error codes, and idempotency usage, as markdown.
+    endpoints, budget caps, error codes, and idempotency usage, as markdown.
 
     Args:
-        topic: "quickstart" | "mcp" | "rest" | "errors" | "idempotency" | "all"
+        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "all"
                (default "" == "all"). Unknown topics fall back to the full docs.
     """
     from docs_content import get_api_docs, _TOPIC_ORDER

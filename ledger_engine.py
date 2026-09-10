@@ -120,10 +120,17 @@ class Budget:
     monthly_cap_cents: int
     daily_cap_cents: int
     alert_threshold_pct: int = 80
+    # token-volume caps (2026-09-10): dollar caps above are a no-op for
+    # rail="tokens" rows, since those are always 0-cent bookkeeping — a
+    # token-metered agent had no hard-cap mechanism at all until this. 0
+    # means "no cap set", same convention as the cent caps.
+    monthly_token_cap: int = 0
+    daily_token_cap: int = 0
 
     def to_dict(self) -> dict:
         return {"agent_id": self.agent_id, "monthly_cap_cents": self.monthly_cap_cents,
-                "daily_cap_cents": self.daily_cap_cents, "alert_threshold_pct": self.alert_threshold_pct}
+                "daily_cap_cents": self.daily_cap_cents, "alert_threshold_pct": self.alert_threshold_pct,
+                "monthly_token_cap": self.monthly_token_cap, "daily_token_cap": self.daily_token_cap}
 
 
 @dataclass
@@ -467,6 +474,24 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> 
         if amount_cents != 0:
             raise ValidationError("rail 'tokens' rows must carry amount_cents=0 — "
                                   "token burn is bookkeeping, not spend")
+        total_tokens = meta.get("tokens_in", 0) + meta.get("tokens_out", 0)
+        if total_tokens > 0:
+            budget = get_budget(agent_id)
+            if budget:
+                if budget.monthly_token_cap > 0:
+                    projected = _month_tokens(agent_id) + total_tokens
+                    if projected > budget.monthly_token_cap:
+                        raise BudgetExceededError(
+                            f"blocked: this {total_tokens}-token entry would put "
+                            f"{agent_id} at {projected} tokens this month, over its "
+                            f"monthly token cap of {budget.monthly_token_cap}")
+                if budget.daily_token_cap > 0:
+                    projected_daily = _today_tokens(agent_id) + total_tokens
+                    if projected_daily > budget.daily_token_cap:
+                        raise BudgetExceededError(
+                            f"blocked: this {total_tokens}-token entry would put "
+                            f"{agent_id} at {projected_daily} tokens today, over its "
+                            f"daily token cap of {budget.daily_token_cap}")
     else:
         if rail not in VALID_RAILS:
             raise ValidationError(
@@ -502,17 +527,23 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> 
         f.write(json.dumps(entry.to_dict()) + "\n")
     if rail != "tokens":
         _check_budget(agent_id)
+    else:
+        _check_token_budget(agent_id)
     return entry
 
 
-def set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0, alert_pct: int = 80) -> Budget:
+def set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0, alert_pct: int = 80,
+               monthly_tokens: int = 0, daily_tokens: int = 0) -> Budget:
     validate_agent_id(agent_id)
     if monthly_cents < 0 or daily_cents < 0:
         raise ValidationError("budget caps must be >= 0")
     if monthly_cents > MAX_AMOUNT_CENTS or daily_cents > MAX_AMOUNT_CENTS:
         raise ValidationError(f"budget caps exceed the ceiling of {MAX_AMOUNT_CENTS} cents")
+    if monthly_tokens < 0 or daily_tokens < 0:
+        raise ValidationError("token budget caps must be >= 0")
     budget = Budget(agent_id=agent_id, monthly_cap_cents=monthly_cents,
-                    daily_cap_cents=daily_cents, alert_threshold_pct=alert_pct)
+                    daily_cap_cents=daily_cents, alert_threshold_pct=alert_pct,
+                    monthly_token_cap=monthly_tokens, daily_token_cap=daily_tokens)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
     json.dump(budget.to_dict(), open(_budget_path(agent_id), "w"), indent=2)
     return budget
@@ -555,6 +586,60 @@ def _today_spend(agent_id: str) -> int:
         except (KeyError, ValueError):
             continue
     return total
+
+
+def _month_tokens(agent_id: str) -> int:
+    if not _ledger_path(agent_id).exists():
+        return 0
+    now = datetime.now(timezone.utc)
+    total = 0
+    for line in open(_ledger_path(agent_id)):
+        try:
+            entry = json.loads(line)
+            if entry.get("rail") != "tokens":
+                continue
+            entry_dt = datetime.fromisoformat(entry["timestamp"])
+            if entry_dt.year == now.year and entry_dt.month == now.month:
+                total += entry.get("tokens_in", 0) + entry.get("tokens_out", 0)
+        except (KeyError, ValueError):
+            continue
+    return total
+
+
+def _today_tokens(agent_id: str) -> int:
+    if not _ledger_path(agent_id).exists():
+        return 0
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    total = 0
+    for line in open(_ledger_path(agent_id)):
+        try:
+            entry = json.loads(line)
+            if entry.get("rail") != "tokens":
+                continue
+            if entry["timestamp"].startswith(today):
+                total += entry.get("tokens_in", 0) + entry.get("tokens_out", 0)
+        except (KeyError, ValueError):
+            continue
+    return total
+
+
+def _check_token_budget(agent_id: str):
+    budget = get_budget(agent_id)
+    if not budget or budget.monthly_token_cap <= 0:
+        return
+    monthly = _month_tokens(agent_id)
+    pct = monthly / budget.monthly_token_cap * 100
+    alerts_path = _alerts_path(agent_id)
+    existing = []
+    if alerts_path.exists():
+        existing = [json.loads(l) for l in open(alerts_path)]
+    types = set(a.get("type") for a in existing)
+    if pct >= 100 and "token_budget_exceeded" not in types:
+        _log_alert(agent_id, "token_budget_exceeded",
+                   f"Monthly token budget exceeded: {monthly} of {budget.monthly_token_cap} tokens")
+    elif pct >= budget.alert_threshold_pct and "token_budget_warning" not in types:
+        _log_alert(agent_id, "token_budget_warning",
+                   f"Monthly token budget {pct:.0f}% used: {monthly} of {budget.monthly_token_cap} tokens")
 
 
 def _check_budget(agent_id: str):
@@ -630,6 +715,15 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
                          "monthly_spend_cents": monthly,
                          "pct_used": round(monthly / budget.monthly_cap_cents * 100, 1) if budget.monthly_cap_cents else 0,
                          "exceeded": monthly > budget.monthly_cap_cents}
+        if budget.monthly_token_cap > 0 or budget.daily_token_cap > 0:
+            monthly_tokens = _month_tokens(agent_id)
+            budget_status["monthly_token_cap"] = budget.monthly_token_cap
+            budget_status["daily_token_cap"] = budget.daily_token_cap
+            budget_status["monthly_tokens_used"] = monthly_tokens
+            budget_status["token_pct_used"] = (round(monthly_tokens / budget.monthly_token_cap * 100, 1)
+                                               if budget.monthly_token_cap else 0)
+            budget_status["token_exceeded"] = (budget.monthly_token_cap > 0
+                                               and monthly_tokens > budget.monthly_token_cap)
 
     plan_info = is_pro(agent_id)
     return SpendReport(agent_id=agent_id, period=f"last_{days}d", total_spend_cents=total,

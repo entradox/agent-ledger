@@ -67,11 +67,13 @@ def cmd_budget(args):
             print("--agent-secret required for a remote budget write", file=sys.stderr)
             sys.exit(1)
         body = {"agent_id": args.agent_id, "agent_secret": args.agent_secret,
-                 "monthly_cents": args.monthly_cents, "daily_cents": args.daily_cents}
+                 "monthly_cents": args.monthly_cents, "daily_cents": args.daily_cents,
+                 "monthly_tokens": args.monthly_tokens, "daily_tokens": args.daily_tokens}
         print(json.dumps(_remote_request(base, "POST", "/v1/budget", body), indent=2))
         return
     from ledger_engine import set_budget
-    b = set_budget(args.agent_id, args.monthly_cents, args.daily_cents)
+    b = set_budget(args.agent_id, args.monthly_cents, args.daily_cents,
+                   monthly_tokens=args.monthly_tokens, daily_tokens=args.daily_tokens)
     print(json.dumps(b.to_dict(), indent=2))
 
 
@@ -142,6 +144,8 @@ def main():
     b.add_argument("--agent-id", required=True)
     b.add_argument("--monthly-cents", type=int, required=True)
     b.add_argument("--daily-cents", type=int, default=0)
+    b.add_argument("--monthly-tokens", type=int, default=0, help="monthly token-burn cap (rail=tokens agents)")
+    b.add_argument("--daily-tokens", type=int, default=0, help="daily token-burn cap (rail=tokens agents)")
     b.add_argument("--agent-secret", help="required for remote writes")
     b.set_defaults(fn=cmd_budget)
 

@@ -78,11 +78,17 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
 @mcp.tool(annotations={"title": "Set Agent Budget", "readOnlyHint": False,
                         "destructiveHint": True, "idempotentHint": True})
 def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
+                      monthly_tokens: int = 0, daily_tokens: int = 0,
                       agent_secret: str = "") -> dict:
     """Set spending caps for an agent. Warns at 80%, blocks spend when exceeded
     — enforced: a ledger_track call that would cross the cap is rejected.
 
-    Monthly cap is required; daily cap is optional (0 = no daily limit).
+    Dollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/
+    daily_tokens) are independent dimensions: dollar caps only cover
+    non-"tokens" rails, token caps only cover rail="tokens" bookkeeping rows
+    (tokens_in/tokens_out). Set both if the agent uses both.
+
+    Monthly cap is required; the rest are optional (0 = no limit).
     Overwrites any existing budget for the agent. No signup: the first call
     for a new agent_id mints an agent_secret (returned once — save it); later
     calls for that agent_id must pass it back.
@@ -91,6 +97,8 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
         agent_id: unique agent identifier
         monthly_cents: monthly spending cap in cents
         daily_cents: daily spending cap in cents (0 = no daily cap)
+        monthly_tokens: monthly token-burn cap (0 = no cap)
+        daily_tokens: daily token-burn cap (0 = no cap)
         agent_secret: required for every call after the first for this agent_id
     """
     from ledger_engine import set_budget, ValidationError
@@ -98,7 +106,8 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
     if err:
         return {"error": err}
     try:
-        b = set_budget(agent_id, monthly_cents, daily_cents)
+        b = set_budget(agent_id, monthly_cents, daily_cents,
+                       monthly_tokens=monthly_tokens, daily_tokens=daily_tokens)
     except ValidationError as e:
         return {"error": str(e)}
     result = b.to_dict()
@@ -178,10 +187,10 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
                         "destructiveHint": False, "idempotentHint": True})
 def ledger_api_docs(topic: str = "") -> dict:
     """Self-serve documentation for AgentLedger — quickstart, MCP tools, REST
-    endpoints, error codes, and idempotency usage, as markdown.
+    endpoints, budget caps, error codes, and idempotency usage, as markdown.
 
     Args:
-        topic: "quickstart" | "mcp" | "rest" | "errors" | "idempotency" | "all"
+        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "all"
                (default "" == "all"). Unknown topics fall back to the full docs.
     """
     from docs_content import get_api_docs, _TOPIC_ORDER

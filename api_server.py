@@ -144,6 +144,8 @@ class BudgetRequest(BaseModel):
     agent_id: str
     monthly_cents: int = Field(ge=0)
     daily_cents: int = Field(default=0, ge=0)
+    monthly_tokens: int = Field(default=0, ge=0)
+    daily_tokens: int = Field(default=0, ge=0)
     agent_secret: Optional[str] = None
 
 @app.get("/health")
@@ -215,8 +217,20 @@ def create_track(req: TrackRequest, request: Request):
     cached = _idempotency_gate(request, req.agent_id, "track")
     if cached is not None:
         return cached
+    # token dimension: token counts stored SEPARATELY from the dollar ledger
+    # (never mixed — token counts are not cents) via meta on the entry. When
+    # rail="tokens" IS the primary write, tok_meta rides on that single entry;
+    # a dollar-rail write that also reports token burn gets a second, separate
+    # 0-cent "tokens" row below. Attaching it twice for a tokens-primary call
+    # would leave a duplicate, metadata-less garbage row behind.
+    tok_meta = {}
+    if req.tokens_in or req.tokens_out:
+        tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
+        if req.model:
+            tok_meta["model"] = req.model
+    primary_meta = tok_meta if req.rail == "tokens" else {}
     try:
-        entry = track(req.agent_id, req.rail, req.amount_cents, req.service)
+        entry = track(req.agent_id, req.rail, req.amount_cents, req.service, **primary_meta)
     except ValidationError as e:
         idempotency_release(idem_key, req.agent_id, "track")
         try:
@@ -227,14 +241,7 @@ def create_track(req: TrackRequest, request: Request):
     except BudgetExceededError as e:
         idempotency_release(idem_key, req.agent_id, "track")
         raise HTTPException(402, detail=error_envelope(402, str(e)))
-    # token dimension: token counts stored SEPARATELY from the dollar ledger
-    # (never mixed — token counts are not cents) via meta on the entry.
-    # rail="tokens" rows are 0-cent bookkeeping, exempt from budget/amount checks,
-    # and ride on the ownership already verified above for the main entry.
-    if req.tokens_in or req.tokens_out:
-        tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
-        if req.model:
-            tok_meta["model"] = req.model
+    if req.rail != "tokens" and tok_meta:
         track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
     result = entry.to_dict()
     if created:
@@ -275,7 +282,8 @@ def create_budget(req: BudgetRequest, request: Request):
     if cached is not None:
         return cached
     try:
-        b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents)
+        b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents,
+                       monthly_tokens=req.monthly_tokens, daily_tokens=req.daily_tokens)
     except ValidationError as e:
         idempotency_release(idem_key, req.agent_id, "budget")
         try:
@@ -492,6 +500,11 @@ Beta caps total claimed agents at 3 site-wide; a 4th new agent_id gets 402
 until upgrading. Amounts per entry are capped at $100,000 and must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
 cross the monthly/daily cap is rejected with 402, not just logged.
+Dollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/
+daily_tokens) are independent: dollar caps only cover non-"tokens" rails;
+token caps only cover rail="tokens" bookkeeping rows. A token-metered agent
+(flat-rate billing, no dollar amount per call) needs a token cap set —
+a dollar cap alone does not protect it. See ledger_api_docs("budget").
 
 ## Validation rules (enforced on every write)
 
@@ -513,6 +526,7 @@ POST /v1/track                     — record a spend entry (mints/verifies agen
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret); once set,
                                       track() blocks entries that would cross the cap
      body: {"agent_id": str, "monthly_cents": int (0-10000000), "daily_cents": int (optional, 0-10000000),
+            "monthly_tokens": int (optional, token-burn cap), "daily_tokens": int (optional, token-burn cap),
             "agent_secret": str (required after the first call for this agent_id)}
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — open read
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — open read
@@ -531,7 +545,7 @@ Tools exposed at POST /mcp/:
   ledger_report         — get a spend report (open read)
   ledger_alerts         — get alerts for an agent (open read)
   ledger_list_agents    — owner-only (admin_secret param)
-  ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|errors|idempotency|all (open read)
+  ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
 Every /v1/* REST request and every /mcp/ HTTP request must send
