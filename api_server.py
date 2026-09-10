@@ -496,8 +496,11 @@ The first write (POST /v1/track or /v1/budget) to a new agent_id mints an
 Save it — every later write to that same agent_id must include it in the body
 as "agent_secret", or the request is rejected with 401. Reads
 (/v1/report, /v1/tokens, /v1/alerts) stay open — no secret required.
-Beta caps total claimed agents at 3 site-wide; a 4th new agent_id gets 402
-until upgrading. Amounts per entry are capped at $100,000 and must be >= 0.
+Launch window: the first 50 agent_ids ever claimed get Pro free for 1 year
+(no action needed — claiming inside the window mints the grant automatically).
+After that window closes, beta caps total non-Pro claimed agents at 3
+site-wide; a 4th new non-Pro agent_id then gets 402 until upgrading ($19/mo,
+unlimited agents). Amounts per entry are capped at $100,000 and must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
 cross the monthly/daily cap is rejected with 402, not just logged.
 Dollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/
@@ -548,8 +551,10 @@ Tools exposed at POST /mcp/:
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
-Every /v1/* REST request and every /mcp/ HTTP request must send
+Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
 AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
+The /mcp/ endpoint itself does not require this header (MCP tool calls are
+not version-gated); reads (/v1/report, /v1/tokens, /v1/alerts) are unaffected too.
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
