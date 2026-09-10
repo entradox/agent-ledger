@@ -105,12 +105,36 @@ same key while the first is still being processed gets 409
 `idempotency_conflict`. The header is optional — omit it for fire-and-forget
 writes where at-most-once isn't required."""
 
-_TOPIC_ORDER = ("quickstart", "mcp", "rest", "errors", "idempotency")
+BUDGET_MD = """## Budget Caps
+
+`POST /v1/budget` takes two independent cap dimensions — set either, both, or
+neither:
+
+- `monthly_cents` / `daily_cents` — dollar caps. Enforced against every
+  non-`tokens` rail (`mpp`, `x402`, `api_key`, `manual`): a `POST /v1/track`
+  write that would cross the cap is blocked with 402 `budget_exceeded`
+  **before** it's recorded.
+- `monthly_tokens` / `daily_tokens` — token-volume caps. Enforced only
+  against `rail="tokens"` bookkeeping rows (the `tokens_in`/`tokens_out`
+  counters attached to a `track` call, or a call to `/v1/track` with
+  `rail: "tokens"` directly). A token-metered agent with no dollar amount
+  per call — the common shape for a subscription/flat-rate LLM account —
+  gets no protection from the dollar caps at all; set a token cap if that's
+  how the agent is billed.
+
+These are separate budgets, not one converted into the other: an agent that
+mixes dollar-rail spend and token-burn bookkeeping needs both caps set to be
+covered on both dimensions. `GET /v1/report/{agent_id}` returns both under
+`budget_status` (`monthly_token_cap`, `monthly_tokens_used`,
+`token_pct_used`, `token_exceeded` — present only once a token cap is set)."""
+
+_TOPIC_ORDER = ("quickstart", "mcp", "rest", "budget", "errors", "idempotency")
 
 DOCS_TOPICS = {
     "quickstart": QUICKSTART_MD,
     "mcp": MCP_TOOLS_MD,
     "rest": REST_ENDPOINTS_MD,
+    "budget": BUDGET_MD,
     "errors": ERROR_CODES_MD,
     "idempotency": IDEMPOTENCY_MD,
 }
