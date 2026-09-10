@@ -9,6 +9,7 @@ Endpoints:
   GET  /v1/alerts/{agent_id}         — alerts for agent
   GET  /v1/agents                    — list all tracked agents
   GET  /stats                        — usage counters
+  GET  /.well-known/agent.json       — AEO capability manifest
 """
 import json, os, sys, time, hmac, hashlib
 from pathlib import Path
@@ -508,6 +509,51 @@ def server_json():
     if not p.exists():
         raise HTTPException(404, "server.json not deployed")
     return JSONResponse(content=json.loads(p.read_text()))
+
+AGENT_JSON = {
+    "schema_version": "1.0",
+    "name": "AgentLedger",
+    "description": "Per-agent spend management: track spend across x402/MPP/API-key "
+                    "rails, set budget caps, get anomaly alerts, keep an audit trail.",
+    "url": "https://agent-ledger-production-0ff8.up.railway.app",
+    "api_base": "https://agent-ledger-production-0ff8.up.railway.app/v1",
+    "openapi": "https://agent-ledger-production-0ff8.up.railway.app/openapi.json",
+    "auth": {
+        "type": "self_issued_secret",
+        "field": "agent_secret",
+        "description": "No signup. The first POST /v1/track or /v1/budget for a new "
+                        "agent_id mints an agent_secret in the response body — save it, "
+                        "every later write to that agent_id must include it. Reads "
+                        "(report/alerts/tokens) need no auth.",
+    },
+    "pricing": {
+        "model": "freemium",
+        "amount_usd": 19.00,
+        "description": "Free during beta. Pro is $19/mo for unlimited agents "
+                        "(free tier is capped). Launch window: first 50 agents to "
+                        "claim a slot get Pro free for 1 year.",
+    },
+    "capabilities": [
+        {"id": "track_spend", "description": "Record a spend entry for an agent",
+         "endpoint": "/v1/track", "method": "POST", "free": True},
+        {"id": "set_budget", "description": "Set monthly/daily budget caps for an agent",
+         "endpoint": "/v1/budget", "method": "POST", "free": True},
+        {"id": "get_report", "description": "Spend report — totals, by rail, by service, anomalies",
+         "endpoint": "/v1/report/{agent_id}", "method": "GET", "free": True},
+        {"id": "get_alerts", "description": "Anomaly alerts for an agent",
+         "endpoint": "/v1/alerts/{agent_id}", "method": "GET", "free": True},
+        {"id": "get_tokens", "description": "Token burn report — in/out totals by model",
+         "endpoint": "/v1/tokens/{agent_id}", "method": "GET", "free": True},
+    ],
+    "contact": "entradox@icloud.com",
+    "legal": "Parmanand LLC. Beta software, provided as-is.",
+}
+
+@app.get("/.well-known/agent.json")
+def agent_json():
+    """AEO capability manifest — agents discover what this product does,
+    pricing, auth, and how to call it (rules/agent-native-standard.md)."""
+    return JSONResponse(content=AGENT_JSON)
 
 @app.get("/status", response_class=HTMLResponse)
 def status_page():
