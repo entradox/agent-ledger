@@ -1,10 +1,10 @@
 # Workspace Identity & Per-Customer Billing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Execute via Command Code (`command-code -p ... --auto-accept`), not Claude Code CLI** — this is the Workbench's default coding executor as of 2026-09-10. Run tasks 1-3 sequentially (each depends on the last); tasks 4, 5, and 6 are independent of each other once Task 3 lands and may run as parallel Command Code subagents. **Every task, before being marked done, gets a separate red-team/security pass** (see "Required Review Per Task" below) — this is not optional given the auth/payments surface.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Execute via Command Code (`command-code -p ... --auto-accept`), not Claude Code CLI** — this is the Workbench's default coding executor as of 2026-09-10. Tasks 1-4 are strictly sequential (each depends on the last, including the Task 3 mechanical file split that Task 4 lands directly into). Tasks 5, 6, and 7 are logically independent of each other, but this skill's own process forbids parallel implementer dispatch on a shared file (they all touch `routes_billing.py`/`routes_auth.py` in sequence, Task 7 literally extending the router Task 6 creates) — run them sequentially, each as its own fresh subagent. Task 8 (`ARCHITECTURE.md`/`features.json`) comes after 1-7 so it describes the system as it actually landed. Task 9 (migration) is last. **Every task, before being marked done, gets a separate red-team/security pass** (see "Required Review Per Task" below) — this is not optional given the auth/payments surface.
 
-**Goal:** Replace AgentLedger's single global free-cap/pro-flag with per-workspace identity and billing — Google OAuth for human operators, x402 self-serve for autonomous agents with no human owner, and workspace-scoped reads so customers can't see each other's data.
+**Goal:** Replace AgentLedger's single global free-cap/pro-flag with per-workspace identity and billing — Google OAuth for human operators, x402 self-serve for autonomous agents with no human owner, and workspace-scoped reads so customers can't see each other's data — built as a legible system (one shared identity module, responsibility-scoped files, a living architecture map) rather than four bolted-on auth checks.
 
-**Architecture:** A new `workspace_engine.py` module owns workspace records (flat JSON files, same pattern as today's per-agent storage — no new database this phase). `ledger_engine.ensure_agent_secret()` gains a `workspace_key` precondition on brand-new claims only; already-claimed agents keep authenticating with their existing `agent_secret`, unchanged. `api_server.py` gains OAuth/session/dashboard routes, a per-workspace Stripe Checkout flow, and an x402 payment endpoint. Read endpoints gain an ownership check.
+**Architecture:** `workspace_engine.py` owns workspace records (flat JSON files, same pattern as today's per-agent storage — no new database this phase). `identity.py` is the single module every gate resolves callers through. `ledger_engine.ensure_agent_secret()` gains a `workspace_key` precondition on brand-new claims only, resolved via `identity.py`; already-claimed agents keep authenticating with their existing `agent_secret`, unchanged. `api_server.py` is decomposed into `routes_agents.py` / `routes_billing.py` / `routes_auth.py`, each a responsibility-scoped router, leaving `api_server.py` as a thin app-assembly file. Read endpoints gain an ownership check via `identity.authorize_agent_access`. `ARCHITECTURE.md` + `features.json` close the phase as the system's kept-current map.
 
 **Tech Stack:** FastAPI (existing), stdlib `urllib.request`/`hmac`/`hashlib`/`secrets` only — no new dependencies (matches the project's existing zero-extra-dependency style; Google OAuth, Stripe Checkout Session creation, and x402 facilitator verification are all plain REST calls, not SDK-dependent).
 
@@ -287,19 +287,147 @@ git commit -m "feat: workspace engine — per-customer identity, replaces global
 
 ---
 
-## Task 2: Claim-flow gating — workspace_key required on new claims
+## Task 2: `identity.py` + claim-flow gating — workspace_key required on new claims
 
 **Files:**
+- Create: `identity.py` (the one module every gate — this task's and Task 4's — resolves callers through; see spec section 0)
 - Modify: `ledger_engine.py` (function `ensure_agent_secret`, ~line 195)
 - Modify: `api_server.py` (`TrackRequest`/`BudgetRequest` models, `create_track`/`create_budget` handlers)
-- Test: `tests/test_workspace_claim_gate.py`
+- Test: `tests/test_identity.py`, `tests/test_workspace_claim_gate.py`
 
 **Interfaces:**
 - Consumes: `workspace_engine.get_workspace_by_key(raw_key) -> dict | None`, `workspace_engine.WORKSPACE_FREE_AGENT_CAP`
+- Produces: `identity.resolve_workspace_key(raw_key: str | None) -> str | None` (returns `workspace_id` or `None` — thin wrapper over `workspace_engine.get_workspace_by_key`, exists so every caller resolves workspace keys through one function, not a direct `workspace_engine` call each time)
+- Produces: `identity.resolve_agent_secret(agent_id: str, provided_secret: str | None) -> bool`
+- Produces: `identity.authorize_agent_access(agent_id: str, *, agent_secret: str | None = None, workspace_key: str | None = None) -> bool` (used by Task 4's read gate, not this task's claim gate — claiming and authorizing an already-claimed agent are different operations, but both resolve identity through this module)
 - Produces: `ensure_agent_secret(agent_id, provided_secret=None, *, workspace_key=None, check_cap=True) -> tuple[str, bool]` (adds `workspace_key` kwarg; raises `WorkspaceKeyRequiredError` — new exception class — when a NEW claim has no valid workspace_key)
 - Produces: agent records gain a sibling file `workspace_id.txt` next to `secret.txt` in `DATA_DIR/agents/{agent_id}/`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing tests for identity.py**
+
+```python
+# tests/test_identity.py
+import os, shutil, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import pytest
+
+
+@pytest.fixture
+def mod(monkeypatch):
+    tmp = tempfile.mkdtemp()
+    monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
+    import importlib
+    import workspace_engine, ledger_engine, identity
+    importlib.reload(workspace_engine)
+    importlib.reload(ledger_engine)
+    importlib.reload(identity)
+    yield identity, workspace_engine, ledger_engine
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_resolve_workspace_key_valid(mod):
+    identity, ws, _ = mod
+    _, raw_key = ws.create_workspace(owner_email="a@example.com")
+    assert identity.resolve_workspace_key(raw_key) is not None
+
+
+def test_resolve_workspace_key_invalid(mod):
+    identity, ws, _ = mod
+    assert identity.resolve_workspace_key("bad-key") is None
+    assert identity.resolve_workspace_key(None) is None
+
+
+def test_resolve_agent_secret_true_and_false(mod):
+    identity, ws, ledger_engine = mod
+    secret, _ = ledger_engine.ensure_agent_secret("agent-x", workspace_key=ws.create_workspace(owner_email="a@example.com")[1])
+    assert identity.resolve_agent_secret("agent-x", secret) is True
+    assert identity.resolve_agent_secret("agent-x", "wrong") is False
+    assert identity.resolve_agent_secret("no-such-agent", "anything") is False
+
+
+def test_authorize_agent_access_either_credential(mod):
+    identity, ws, ledger_engine = mod
+    _, raw_key = ws.create_workspace(owner_email="a@example.com")
+    secret, _ = ledger_engine.ensure_agent_secret("agent-y", workspace_key=raw_key)
+    assert identity.authorize_agent_access("agent-y", agent_secret=secret) is True
+    assert identity.authorize_agent_access("agent-y", workspace_key=raw_key) is True
+    assert identity.authorize_agent_access("agent-y", agent_secret="wrong", workspace_key="wrong") is False
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `/opt/miniconda3/bin/python3 -m pytest tests/test_identity.py -v`
+Expected: FAIL, `ModuleNotFoundError: No module named 'identity'`
+
+- [ ] **Step 3: Implement identity.py**
+
+```python
+#!/usr/bin/env python3
+"""The one place every gate resolves 'who is this caller' through. Claim
+gating (ledger_engine.ensure_agent_secret), read authorization
+(routes_agents.py), and later session/billing checks (routes_auth.py,
+routes_billing.py) all call into this module instead of each
+reimplementing agent_secret/workspace_key comparison. See
+docs/superpowers/specs/2026-09-10-workspace-identity-design.md section 0.
+"""
+import secrets as _secrets
+from pathlib import Path
+from typing import Optional
+
+
+def resolve_workspace_key(raw_key: Optional[str]) -> Optional[str]:
+    """Returns the workspace_id a raw workspace_key resolves to, or None."""
+    if not raw_key:
+        return None
+    import workspace_engine
+    workspace = workspace_engine.get_workspace_by_key(raw_key)
+    return workspace["workspace_id"] if workspace else None
+
+
+def resolve_agent_secret(agent_id: str, provided_secret: Optional[str]) -> bool:
+    """True if provided_secret matches agent_id's real, persisted secret."""
+    if not agent_id or not provided_secret:
+        return False
+    from ledger_engine import _secret_path
+    path = _secret_path(agent_id)
+    if not path.exists():
+        return False
+    return _secrets.compare_digest(provided_secret, path.read_text().strip())
+
+
+def resolve_session(cookie_value: Optional[str]) -> Optional[str]:
+    """Returns the workspace_id a signed session cookie resolves to, or None."""
+    if not cookie_value:
+        return None
+    from session_auth import verify_session
+    return verify_session(cookie_value)
+
+
+def authorize_agent_access(agent_id: str, *, agent_secret: Optional[str] = None,
+                            workspace_key: Optional[str] = None) -> bool:
+    """True if EITHER credential proves the caller may access agent_id's
+    data — used for read authorization (Task 4). Not used for claiming a
+    brand-new agent_id (that's ensure_agent_secret's workspace_key
+    precondition, a different operation: claiming vs. accessing)."""
+    if resolve_agent_secret(agent_id, agent_secret):
+        return True
+    if workspace_key:
+        workspace_id = resolve_workspace_key(workspace_key)
+        if workspace_id:
+            from ledger_engine import DATA_DIR
+            ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
+            if ws_file.exists() and ws_file.read_text().strip() == workspace_id:
+                return True
+    return False
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `/opt/miniconda3/bin/python3 -m pytest tests/test_identity.py -v`
+Expected: PASS (4 tests)
+
+- [ ] **Step 5: Write the failing tests**
 
 ```python
 # tests/test_workspace_claim_gate.py
@@ -375,12 +503,12 @@ def test_free_workspace_agent_cap_enforced(client):
     assert r4.status_code == 402
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 6: Run tests to verify they fail**
 
 Run: `/opt/miniconda3/bin/python3 -m pytest tests/test_workspace_claim_gate.py -v`
 Expected: FAIL (400/422 instead of the expected 401/200/402 — workspace_key not yet wired)
 
-- [ ] **Step 3: Add `WorkspaceKeyRequiredError` and wire the gate in ledger_engine.py**
+- [ ] **Step 7: Add `WorkspaceKeyRequiredError` and wire the gate in ledger_engine.py**
 
 Add near the other error classes (~line 90, after `BetaCapExceededError`):
 
@@ -408,8 +536,12 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     # NEW claim from here — requires a valid workspace_key (D-<next>: workspace
     # identity, 2026-09-10). The site-wide BETA_AGENT_CAP/scarcity-by-agent-id
     # logic that used to live here is retired in favor of per-workspace caps.
+    # Resolved via identity.py (not workspace_engine directly) so every
+    # caller across the codebase goes through the same resolution function.
+    import identity
     import workspace_engine
-    workspace = workspace_engine.get_workspace_by_key(workspace_key) if workspace_key else None
+    workspace_id = identity.resolve_workspace_key(workspace_key)
+    workspace = workspace_engine.get_workspace(workspace_id) if workspace_id else None
     if workspace is None:
         raise WorkspaceKeyRequiredError(
             "a new agent_id requires a valid workspace_key — sign up at "
@@ -442,7 +574,7 @@ per-agent scarcity path along with it (their tests in
 `tests/test_scarcity_window.py` are superseded by this task's tests and
 should be removed in this same commit — leaving them would test dead code).
 
-- [ ] **Step 4: Wire `workspace_key` through the API layer**
+- [ ] **Step 8: Wire `workspace_key` through the API layer**
 
 In `api_server.py`, add `workspace_key: Optional[str] = None` to both
 `TrackRequest` and `BudgetRequest` pydantic models, and pass it through in
@@ -451,29 +583,112 @@ Catch `WorkspaceKeyRequiredError` alongside the existing `AuthError`/
 `BetaCapExceededError` handling and translate to
 `error_envelope(401, str(e), code="workspace_key_required")`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 9: Run tests to verify they pass**
 
 Run: `/opt/miniconda3/bin/python3 -m pytest -q`
-Expected: PASS, full suite (existing scarcity-by-agent-id tests removed per Step 3 note, replaced by this task's + Task 1's new tests)
+Expected: PASS, full suite (existing scarcity-by-agent-id tests removed per Step 7 note, replaced by this task's + Task 1's new tests)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add ledger_engine.py api_server.py tests/test_workspace_claim_gate.py tests/test_scarcity_window.py
-git commit -m "feat: require workspace_key on new agent claims, retire global scarcity-by-agent-id"
+git add identity.py ledger_engine.py api_server.py tests/test_identity.py tests/test_workspace_claim_gate.py tests/test_scarcity_window.py
+git commit -m "feat: identity.py + require workspace_key on new agent claims, retire global scarcity-by-agent-id"
 ```
 
 ---
 
-## Task 3: Workspace-scoped reads
+## Task 3: Decompose `api_server.py` — extract routes_agents.py (mechanical, no behavior change)
+
+**Why this task exists:** Tasks 4-7 each add new routes (read auth, OAuth/dashboard, Stripe, x402). Left alone, they'd all pile onto the already-multi-responsibility `api_server.py`. This task does the extraction FIRST, with zero behavior change, so every later task lands directly in the right file instead of inline in `api_server.py`. See spec's "System legibility" section.
 
 **Files:**
-- Modify: `api_server.py` (`get_report`, `get_report_html`, `get_alerts`, `get_tokens` if present)
+- Create: `routes_agents.py`
+- Modify: `api_server.py` (remove the extracted functions, add `app.include_router(agents_router)`)
+- Test: existing test suite must pass unchanged — this task adds no new tests, it must not change behavior
+
+**Interfaces:**
+- Consumes: nothing new — this relocates existing functions verbatim
+- Produces: `routes_agents.py` exports `router = APIRouter()` with the routes below mounted on it; `api_server.py` imports and includes it
+
+- [ ] **Step 1: Create routes_agents.py and move the agent-facing endpoints into it verbatim**
+
+Move these functions from `api_server.py` to a new `routes_agents.py`, changing only `@app.` decorators to `@router.` and adding the necessary imports (the functions' bodies, including all their existing logic, must be byte-identical otherwise):
+
+- `create_track` (`POST /v1/track`) and its `TrackRequest` model
+- `create_budget` (`POST /v1/budget`) and its `BudgetRequest` model
+- `get_report` (`GET /v1/report/{agent_id}`)
+- `get_report_html` (`GET /v1/report/{agent_id}/html`)
+- `get_alerts` (`GET /v1/alerts/{agent_id}`)
+- the token-burn report endpoint (`GET /v1/tokens/{agent_id}`) — find its current function name in `api_server.py` and move it the same way
+
+```python
+# routes_agents.py (skeleton — the moved functions' bodies go here unchanged)
+#!/usr/bin/env python3
+"""Agent-facing REST endpoints: track spend, set budgets, read reports.
+Extracted from api_server.py (2026-09-10) so this file has one
+responsibility an agent (or a human) can hold fully in context, instead
+of it living inside the app's every-endpoint monolith."""
+import html
+import json
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+
+from ledger_engine import (
+    track, set_budget, get_budget, report, DATA_DIR,
+    AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
+    WorkspaceKeyRequiredError, error_envelope, AL_API_VERSION,
+    IdempotencyKeyTooLongError, IdempotencyConflictError,
+    idempotency_begin, idempotency_store, idempotency_release,
+)
+import metrics
+
+router = APIRouter()
+
+# ... TrackRequest, BudgetRequest, create_track, create_budget,
+#     get_report, get_report_html, get_alerts, and the tokens endpoint
+#     go here, moved verbatim from api_server.py (decorators changed
+#     from @app. to @router.) ...
+```
+
+Do NOT rewrite the logic of any moved function — copy it exactly, only changing the decorator and adjusting imports. This is a pure relocation; behavior must be identical before and after.
+
+- [ ] **Step 2: Wire the router into api_server.py**
+
+In `api_server.py`, remove the functions/models moved in Step 1, and add near the top (after `app = FastAPI(...)`):
+
+```python
+from routes_agents import router as agents_router
+app.include_router(agents_router)
+```
+
+- [ ] **Step 3: Run the full test suite — must pass unchanged, zero new failures, zero new tests**
+
+Run: `/opt/miniconda3/bin/python3 -m pytest -q`
+Expected: PASS, same test count as before this task (this task adds no tests — it is a pure relocation, and the existing tests for these endpoints prove nothing broke)
+
+If any test fails, the relocation introduced a behavior change — find and fix the discrepancy (likely a missed import or a decorator left as `@app.` instead of `@router.`) rather than modifying the test.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add routes_agents.py api_server.py
+git commit -m "refactor: extract routes_agents.py from api_server.py (no behavior change)"
+```
+
+---
+
+## Task 4: Workspace-scoped reads
+
+**Files:**
+- Modify: `routes_agents.py` (`get_report`, `get_report_html`, `get_alerts`, the tokens endpoint — all relocated here by Task 3)
 - Test: `tests/test_workspace_read_scoping.py`
 
 **Interfaces:**
-- Consumes: `workspace_engine.get_workspace_by_key`, existing `agent_secret` file at `DATA_DIR/agents/{agent_id}/secret.txt`
-- Produces: a shared dependency function `_authorize_agent_read(agent_id, request) -> None` (raises `HTTPException(401, ...)` if neither `X-Agent-Secret` nor `X-Workspace-Key` header matches)
+- Consumes: `identity.authorize_agent_access(agent_id, *, agent_secret=None, workspace_key=None) -> bool` (from Task 2 — this task does NOT reimplement credential checking, it calls the shared function)
+- Produces: a thin wrapper `_authorize_agent_read(agent_id, request) -> None` in `routes_agents.py` that pulls the two headers and raises `HTTPException(401, ...)` if `identity.authorize_agent_access(...)` returns `False` — the wrapper exists only to extract headers from `Request` and translate the bool to an HTTP error; all real logic lives in `identity.py`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -492,9 +707,11 @@ def client(monkeypatch):
     tmp = tempfile.mkdtemp()
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
     import importlib
-    import ledger_engine, workspace_engine, api_server
+    import ledger_engine, workspace_engine, identity, routes_agents, api_server
     importlib.reload(workspace_engine)
     importlib.reload(ledger_engine)
+    importlib.reload(identity)
+    importlib.reload(routes_agents)
     importlib.reload(api_server)
     from fastapi.testclient import TestClient
     tc = TestClient(api_server.app)
@@ -544,30 +761,24 @@ def test_html_report_also_scoped(client):
 Run: `/opt/miniconda3/bin/python3 -m pytest tests/test_workspace_read_scoping.py -v`
 Expected: FAIL (currently 200 with no headers — open reads today)
 
-- [ ] **Step 3: Implement the shared authorization check**
+- [ ] **Step 3: Implement the thin authorization wrapper (delegates to identity.py — no credential logic here)**
 
-Add to `api_server.py`, near the other helper functions:
+Add to `routes_agents.py`, near the other helper functions:
 
 ```python
 def _authorize_agent_read(agent_id: str, request: Request) -> None:
     """Reads used to be fully open (pre-workspace design). Now require
-    either the agent's own secret or its workspace's key — either proves
-    the caller has a legitimate claim to this agent_id's data."""
-    from ledger_engine import _secret_path
-    import workspace_engine
-    agent_secret_header = request.headers.get("x-agent-secret", "")
-    workspace_key_header = request.headers.get("x-workspace-key", "")
-    secret_path = _secret_path(agent_id)
-    if agent_secret_header and secret_path.exists():
-        import secrets as _secrets
-        if _secrets.compare_digest(agent_secret_header, secret_path.read_text().strip()):
-            return
-    if workspace_key_header:
-        ws_dir = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
-        workspace = workspace_engine.get_workspace_by_key(workspace_key_header)
-        if workspace and ws_dir.exists() and ws_dir.read_text().strip() == workspace["workspace_id"]:
-            return
-    raise HTTPException(401, "this agent's data requires its agent_secret or workspace_key")
+    either the agent's own secret or its workspace's key — checked via
+    identity.authorize_agent_access(), the same function the claim gate
+    (ledger_engine.ensure_agent_secret) resolves identity through. This
+    wrapper's only job is pulling headers off Request and raising the
+    HTTP error — it holds no credential-comparison logic of its own."""
+    import identity
+    if not identity.authorize_agent_access(
+            agent_id,
+            agent_secret=request.headers.get("x-agent-secret", ""),
+            workspace_key=request.headers.get("x-workspace-key", "")):
+        raise HTTPException(401, "this agent's data requires its agent_secret or workspace_key")
 ```
 
 Add `request: Request` as a parameter to `get_report`, `get_report_html`,
@@ -584,18 +795,19 @@ Expected: PASS, full suite
 - [ ] **Step 6: Commit**
 
 ```bash
-git add api_server.py tests/test_workspace_read_scoping.py README.md status.html
-git commit -m "feat: scope agent reads to workspace/agent ownership (breaking change, see spec 3c)"
+git add routes_agents.py tests/test_workspace_read_scoping.py README.md status.html
+git commit -m "feat: scope agent reads to workspace/agent ownership via identity.py (breaking change, see spec 3c)"
 ```
 
 ---
 
-## Task 4: Google OAuth + session dashboard (parallelizable with Tasks 5, 6)
+## Task 5: Google OAuth + session dashboard (parallelizable with Tasks 6, 7)
 
 **Files:**
 - Create: `oauth_google.py`
 - Create: `session_auth.py`
-- Modify: `api_server.py` (routes: `/login`, `/auth/google/callback`, `/logout`, `/dashboard`)
+- Create: `routes_auth.py` (routes: `/login`, `/auth/google/callback`, `/logout`, `/dashboard`)
+- Modify: `api_server.py` (add `app.include_router(auth_router)`)
 - Test: `tests/test_oauth_session.py`
 
 **Interfaces:**
@@ -730,59 +942,73 @@ def exchange_code(code: str) -> dict:
     return {"google_sub": userinfo["sub"], "email": userinfo.get("email", "")}
 ```
 
-- [ ] **Step 5: Add the routes to api_server.py**
+- [ ] **Step 5: Create routes_auth.py**
 
 ```python
+#!/usr/bin/env python3
+"""Google OAuth login + session-based workspace dashboard. Session
+resolution goes through identity.resolve_session() (Task 2) — this file
+holds routing/cookie plumbing only, no credential logic of its own."""
+import html
 import secrets as _secrets_mod
 
-@app.get("/login")
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from ledger_engine import DATA_DIR
+
+router = APIRouter()
+
+
+@router.get("/login")
 def login():
     state = _secrets_mod.token_urlsafe(16)
     from oauth_google import google_auth_url
-    from fastapi.responses import RedirectResponse
     resp = RedirectResponse(google_auth_url(state))
     resp.set_cookie("al_oauth_state", state, httponly=True, max_age=600)
     return resp
 
-@app.get("/auth/google/callback")
+
+@router.get("/auth/google/callback")
 def google_callback(code: str, state: str, request: Request):
-    from fastapi.responses import RedirectResponse
     if request.cookies.get("al_oauth_state") != state:
         raise HTTPException(400, "invalid oauth state")
     from oauth_google import exchange_code
     import workspace_engine
-    userinfo = exchange_code(code)
-    workspace = workspace_engine.get_workspace_by_google_sub(userinfo["google_sub"])
-    if workspace is None:
-        workspace_id, _ = workspace_engine.create_workspace(
-            owner_email=userinfo["email"], google_sub=userinfo["google_sub"])
-    else:
-        workspace_id = workspace["workspace_id"]
     from session_auth import sign_session
+    userinfo = exchange_code(code)
+    # create_workspace is idempotent per google_sub (Task 1): a returning
+    # user gets their EXISTING workspace_id back with a freshly reissued
+    # raw_key (their old key stops working, per Task 1's _reissue_key
+    # fix) — always returns (workspace_id, raw_key) in both the new-user
+    # and returning-user case, so there is exactly one code path here,
+    # not two branches that can drift (the earlier draft of this task had
+    # a returning-user branch that never captured raw_key — a real
+    # NameError, fixed by using create_workspace's own idempotency
+    # instead of duplicating the lookup).
+    workspace_id, raw_key = workspace_engine.create_workspace(
+        owner_email=userinfo["email"], google_sub=userinfo["google_sub"])
     resp = RedirectResponse("/dashboard")
     resp.set_cookie("al_session", sign_session(workspace_id), httponly=True, max_age=2592000)
-    # One-time key reveal: the raw key only exists right here (create_workspace
-    # returns it once, then only its hash is ever stored). Carry it to the
-    # dashboard's first load via a short-lived cookie the dashboard route
-    # reads-and-deletes, so a page refresh never shows it twice.
+    # One-time key reveal: the raw key only exists right here. Carry it to
+    # the dashboard's first load via a short-lived cookie the dashboard
+    # route reads-and-deletes, so a page refresh never shows it twice.
     resp.set_cookie("al_key_reveal", raw_key, httponly=True, max_age=30)
     resp.delete_cookie("al_oauth_state")
     return resp
 
-@app.get("/logout")
+@router.get("/logout")
 def logout():
-    from fastapi.responses import RedirectResponse
     resp = RedirectResponse("/")
     resp.delete_cookie("al_session")
     return resp
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(request: Request):
-    from session_auth import verify_session
+    import identity
     import workspace_engine
-    workspace_id = verify_session(request.cookies.get("al_session", ""))
+    workspace_id = identity.resolve_session(request.cookies.get("al_session", ""))
     if not workspace_id:
-        from fastapi.responses import RedirectResponse
         return RedirectResponse("/login")
     ws = workspace_engine.get_workspace(workspace_id)
     reveal_key = request.cookies.get("al_key_reveal")
@@ -817,29 +1043,37 @@ The reveal cookie is `httponly` and 30-second-lived — long enough for the
 redirect-and-render round trip, short enough that it can't be replayed
 later even if something in the browser cached the URL/response.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 6: Wire the router into api_server.py**
+
+```python
+from routes_auth import router as auth_router
+app.include_router(auth_router)
+```
+
+- [ ] **Step 7: Run tests to verify they pass**
 
 Run: `/opt/miniconda3/bin/python3 -m pytest -q`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add oauth_google.py session_auth.py api_server.py tests/test_oauth_session.py
+git add oauth_google.py session_auth.py routes_auth.py api_server.py tests/test_oauth_session.py
 git commit -m "feat: Google OAuth login + session-based workspace dashboard"
 ```
 
 ---
 
-## Task 5: Per-workspace Stripe billing (parallelizable with Tasks 4, 6)
+## Task 6: Per-workspace Stripe billing (parallelizable with Tasks 5, 7)
 
 **Files:**
-- Modify: `api_server.py` (`stripe_webhook`, new `POST /v1/billing/checkout`)
+- Create: `routes_billing.py` (moves `stripe_webhook` here from `api_server.py`, adds `POST /v1/billing/checkout`)
+- Modify: `api_server.py` (remove `stripe_webhook`, add `app.include_router(billing_router)`)
 - Test: `tests/test_workspace_billing.py`
 
 **Interfaces:**
-- Consumes: `workspace_engine.mark_pro(workspace_id, stripe_customer_id)`, `session_auth.verify_session`
-- Produces: `POST /v1/billing/checkout` (session-protected) → `{"checkout_url": str}`
+- Consumes: `workspace_engine.mark_pro(workspace_id, stripe_customer_id)`, `identity.resolve_session` (Task 2)
+- Produces: `POST /v1/billing/checkout` (session-protected) → `{"checkout_url": str}`; `router = APIRouter()` in `routes_billing.py`, shared with Task 7 (x402 also lands in this file)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -858,9 +1092,11 @@ def client(monkeypatch):
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET_AL", "whsec_test")
     import importlib
-    import ledger_engine, workspace_engine, api_server
+    import ledger_engine, workspace_engine, identity, routes_billing, api_server
     importlib.reload(workspace_engine)
     importlib.reload(ledger_engine)
+    importlib.reload(identity)
+    importlib.reload(routes_billing)
     importlib.reload(api_server)
     from fastapi.testclient import TestClient
     yield TestClient(api_server.app), workspace_engine
@@ -916,9 +1152,9 @@ def test_completed_checkout_does_not_mark_other_workspaces_pro(client):
 Run: `/opt/miniconda3/bin/python3 -m pytest tests/test_workspace_billing.py -v`
 Expected: FAIL (webhook currently calls global `activate_pro()`, not per-workspace)
 
-- [ ] **Step 3: Rewire the webhook handler**
+- [ ] **Step 3: Create routes_billing.py, moving `stripe_webhook` into it and rewiring it per-workspace**
 
-In `api_server.py`'s `stripe_webhook`, replace the `if plan == "pro": from ledger_engine import activate_pro; activate_pro()` block with:
+Move the existing `stripe_webhook` function (currently in `api_server.py`) into a new `routes_billing.py` verbatim — change its `@app.post("/stripe/webhook")` decorator to `@router.post("/stripe/webhook")` on a new `router = APIRouter()`, and bring its existing imports/constants (`CUSTOMERS_FILE`, `_append_customer`) with it. Then, within the moved function, replace its `if plan == "pro": from ledger_engine import activate_pro; activate_pro()` block with:
 
 ```python
     if plan == "pro":
@@ -936,13 +1172,13 @@ already stopped calling them from the claim path; they become unused
 dead code here, note for cleanup but don't delete in this task to keep
 the diff focused.)
 
-- [ ] **Step 4: Add the checkout-session-creation endpoint**
+- [ ] **Step 4: Add the checkout-session-creation endpoint to routes_billing.py**
 
 ```python
-@app.post("/v1/billing/checkout")
+@router.post("/v1/billing/checkout")
 def create_checkout(request: Request):
-    from session_auth import verify_session
-    workspace_id = verify_session(request.cookies.get("al_session", ""))
+    import identity
+    workspace_id = identity.resolve_session(request.cookies.get("al_session", ""))
     if not workspace_id:
         raise HTTPException(401, "log in first")
     # NOTE: confirm the exact Stripe Checkout Sessions API request shape
@@ -968,25 +1204,34 @@ def create_checkout(request: Request):
     return {"checkout_url": session["url"]}
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Wire the router into api_server.py**
+
+Remove the (now-relocated) `stripe_webhook` function from `api_server.py` and add:
+
+```python
+from routes_billing import router as billing_router
+app.include_router(billing_router)
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `/opt/miniconda3/bin/python3 -m pytest -q`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add api_server.py tests/test_workspace_billing.py
-git commit -m "feat: per-workspace Stripe billing, replaces global pro.flag webhook"
+git add routes_billing.py api_server.py tests/test_workspace_billing.py
+git commit -m "feat: per-workspace Stripe billing in routes_billing.py, replaces global pro.flag webhook"
 ```
 
 ---
 
-## Task 6: x402 self-serve workspace minting (parallelizable with Tasks 4, 5)
+## Task 7: x402 self-serve workspace minting (parallelizable with Tasks 5, 6)
 
 **Files:**
 - Create: `x402_verify.py`
-- Modify: `api_server.py` (`POST /v1/billing/x402`)
+- Modify: `routes_billing.py` (add `POST /v1/billing/x402` — same router Task 6 created)
 - Test: `tests/test_x402_billing.py`
 
 **Interfaces:**
@@ -1015,9 +1260,11 @@ def client(monkeypatch):
     tmp = tempfile.mkdtemp()
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
     import importlib
-    import ledger_engine, workspace_engine, api_server
+    import ledger_engine, workspace_engine, identity, routes_billing, api_server
     importlib.reload(workspace_engine)
     importlib.reload(ledger_engine)
+    importlib.reload(identity)
+    importlib.reload(routes_billing)
     importlib.reload(api_server)
     from fastapi.testclient import TestClient
     yield TestClient(api_server.app), api_server
@@ -1090,10 +1337,10 @@ def verify_payment(payment_header: str) -> dict:
     }
 ```
 
-- [ ] **Step 4: Add the endpoint**
+- [ ] **Step 4: Add the endpoint to routes_billing.py (the router Task 6 created)**
 
 ```python
-@app.post("/v1/billing/x402")
+@router.post("/v1/billing/x402")
 def x402_billing(request: Request):
     payment_header = request.headers.get("x-payment", "")
     if not payment_header:
@@ -1114,13 +1361,129 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add x402_verify.py api_server.py tests/test_x402_billing.py
-git commit -m "feat: x402 self-serve workspace minting — no human/OAuth required"
+git add x402_verify.py routes_billing.py tests/test_x402_billing.py
+git commit -m "feat: x402 self-serve workspace minting in routes_billing.py — no human/OAuth required"
 ```
 
 ---
 
-## Task 7: Migration — assign existing real agents to a default workspace
+## Task 8: `ARCHITECTURE.md` + `features.json` — system legibility artifacts
+
+**Files:**
+- Create: `ARCHITECTURE.md`
+- Create: `features.json`
+
+**Interfaces:**
+- Consumes: nothing programmatically — these are documentation/tracking artifacts, not code other tasks import
+- Produces: the canonical, kept-current system map and feature-status tracker for this project going forward
+
+**Why this task exists, and why it comes after Tasks 1-7:** writing this
+before the identity/billing/router restructuring landed would describe a
+system that doesn't exist yet by the time a reader opens it. Written now,
+it describes the system as Tasks 1-7 actually left it.
+
+- [ ] **Step 1: Write ARCHITECTURE.md**
+
+```markdown
+# AgentLedger — Architecture
+
+One-paragraph-per-concept map of the system as it exists after the
+workspace-identity phase (2026-09-10). Read this first in any new
+session touching this repo — it replaces reconstructing the system from
+git log and scattered specs.
+
+## Layers
+
+- `workspace_engine.py` — per-customer identity + billing state (flat
+  JSON files under `DATA_DIR/workspaces/`). Owns: workspace records,
+  key hashing, scarcity-window accounting, pro-status.
+- `identity.py` — the one place every gate resolves "who is this caller"
+  through (`resolve_agent_secret`, `resolve_workspace_key`,
+  `resolve_session`, `authorize_agent_access`). No gate anywhere in the
+  codebase should compare a secret/key/cookie directly — it calls into
+  this module instead.
+- `ledger_engine.py` — per-agent ledger core (spend entries, budgets,
+  alerts, claim-on-first-write via `ensure_agent_secret`, which now
+  requires a `workspace_key` on brand-new claims, resolved via
+  `identity.py`).
+- `routes_agents.py` / `routes_billing.py` / `routes_auth.py` —
+  responsibility-scoped FastAPI routers, each independently readable
+  without loading the others. Mounted onto the app in `api_server.py`.
+- `api_server.py` — app creation, MCP mounting, meta endpoints (health,
+  stats, llms.txt, agent.json, server.json), router includes. Nothing
+  else lives here.
+
+## The three ways a caller gets a workspace
+
+1. **Google OAuth** (`routes_auth.py`) — a human logs in, gets a
+   `workspace_key` shown once on the dashboard. Free tier or Pro
+   depending on Stripe/scarcity status.
+2. **x402 self-serve** (`routes_billing.py`) — an autonomous agent with
+   its own wallet pays directly; the paying wallet address becomes the
+   workspace identity. No human, no login, ever.
+3. **Existing `agent_secret`** — an agent claimed before this phase (or
+   claimed under either path above) keeps authenticating writes with its
+   own secret, never needing the workspace_key again after the initial
+   claim.
+
+## Data flow, briefly
+
+- **Claim:** `POST /v1/track` (new agent_id) → `identity.resolve_workspace_key`
+  → cap check against the workspace's `agent_cap` → mint `agent_secret`,
+  stamp `workspace_id.txt`.
+- **Track/read:** existing `agent_secret` (writes) or `agent_secret` /
+  `workspace_key` (reads, via `identity.authorize_agent_access`) authorizes.
+- **Upgrade:** Stripe Checkout Session (`client_reference_id = workspace_id`)
+  → webhook → `workspace_engine.mark_pro(workspace_id, ...)` — scoped to
+  one workspace, never global.
+
+## Keeping this current
+
+Update this file in the same commit as any change to the layer list, the
+identity paths, or the data flow above. A stale map is worse than none —
+if a task changes one of these, it updates this file too.
+```
+
+- [ ] **Step 2: Write features.json**
+
+Follow the Workbench's `devops/feature-tracker` skill format (JSON, not
+Markdown, so agents are less likely to overwrite it wholesale):
+
+```json
+{
+  "project": "agent-ledger",
+  "updated": "2026-09-10",
+  "features": [
+    {"name": "per-agent spend ledger", "status": "shipped"},
+    {"name": "MCP + REST + CLI parity", "status": "shipped"},
+    {"name": "idempotency + typed errors + version gate", "status": "shipped"},
+    {"name": "scarcity window (first 50 free)", "status": "shipped", "note": "re-scoped to workspaces, this phase"},
+    {"name": "owner dashboard", "status": "shipped", "note": "admin-secret gated, pre-dates workspace identity"},
+    {"name": "per-agent human-readable report page", "status": "shipped"},
+    {"name": "workspace identity core", "status": "in_progress", "note": "Tasks 1-4 of docs/superpowers/plans/2026-09-10-workspace-identity.md"},
+    {"name": "google oauth + session dashboard", "status": "in_progress", "note": "Task 5"},
+    {"name": "per-workspace stripe billing", "status": "in_progress", "note": "Task 6"},
+    {"name": "x402 self-serve workspace minting", "status": "in_progress", "note": "Task 7"},
+    {"name": "existing-agent migration to workspaces", "status": "planned", "note": "Task 9"},
+    {"name": "database migration (flat files -> real DB)", "status": "not_started", "note": "deferred per spec 3d, triggered by usage"},
+    {"name": "workspace key rotation/revocation UI", "status": "not_started"},
+    {"name": "per-workspace rate limiting", "status": "not_started"},
+    {"name": "mcp.so / Smithery / PulseMCP directory listings", "status": "not_started"},
+    {"name": "launch post", "status": "not_started", "note": "never auto-published, needs explicit approval"}
+  ]
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add ARCHITECTURE.md features.json
+git commit -m "docs: ARCHITECTURE.md + features.json — system legibility artifacts"
+```
+
+---
+
+## Task 9: Migration — assign existing real agents to a default workspace
 
 **Files:**
 - Create: `scripts/migrate_agents_to_workspace.py`
@@ -1134,7 +1497,7 @@ git commit -m "feat: x402 self-serve workspace minting — no human/OAuth requir
 ```python
 #!/opt/miniconda3/bin/python3
 """One-time: assign every currently-claimed agent_id (pre-workspace era)
-to a single default workspace, so nothing breaks after Tasks 1-3 deploy.
+to a single default workspace, so nothing breaks after Tasks 1-8 deploy.
 Run with --dry-run first. Idempotent: re-running skips agents that
 already have a workspace_id.txt."""
 import argparse
@@ -1197,5 +1560,6 @@ git commit -m "chore: one-time migration script, existing agents to default work
 
 - [ ] Run `/opt/miniconda3/bin/python3 -m pytest -q` — full suite green
 - [ ] Deploy via `./deploy.sh` (register `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `AL_SESSION_SECRET`, `AL_STRIPE_PRICE_ID`, `X402_FACILITATOR_URL` as Railway env vars first — none of this works without them)
-- [ ] Run the migration script (Task 7) against production before or immediately after this deploy — existing agents lose write access otherwise (their `workspace_id.txt` is missing, but their `agent_secret` writes don't check for it, so this is a soft requirement for dashboard visibility, not a hard outage — confirm this during the red-team pass on Task 2)
+- [ ] Run the migration script (Task 9) against production before or immediately after this deploy — existing agents lose write access otherwise (their `workspace_id.txt` is missing, but their `agent_secret` writes don't check for it, so this is a soft requirement for dashboard visibility, not a hard outage — confirm this during the red-team pass on Task 2)
+- [ ] Confirm `ARCHITECTURE.md` (Task 8) matches what actually shipped — if any task deviated from its brief during implementation (fix rounds, rulings), update the map before calling this phase done
 - [ ] Smoke test all four claim paths live: existing agent write (unaffected), new claim with no key (401), new claim with a freshly-signed-up Google workspace key (200), x402 mint (200)
