@@ -316,6 +316,72 @@ def get_report(agent_id: str, days: int = 30):
             "anomalies": r.anomalies, "entry_count": r.entry_count,
             "plan": r.plan, "pro_until": r.pro_until}
 
+@app.get("/v1/report/{agent_id}/html", response_class=HTMLResponse)
+def get_report_html(agent_id: str, days: int = 30):
+    """Human-readable version of /v1/report/{agent_id} — same open read (no
+    secret required), just rendered instead of raw JSON. This is the page an
+    agent's owner (or the agent itself, sharing a link) actually looks at,
+    rather than curl-ing JSON to see if a budget is close to tripping."""
+    from ledger_engine import validate_agent_id
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    r = report(agent_id, days)
+    budget = r.budget_status or {}
+    cap_cents = budget.get("monthly_cap_cents")
+    token_cap = budget.get("monthly_token_cap")
+    pct = budget.get("pct_used", 0)
+    token_pct = budget.get("token_pct_used", 0)
+    exceeded = bool(budget.get("exceeded") or budget.get("token_exceeded"))
+    safe_agent_id = html.escape(agent_id)
+    plan_badge = {"free": "Free", "pro_scarcity": "Pro (launch window)",
+                  "pro_stripe": "Pro"}.get(r.plan, html.escape(r.plan))
+
+    def bar(used_pct: float, danger: bool) -> str:
+        used_pct = max(0.0, min(100.0, used_pct))
+        color = "#f85149" if danger else "#3fb950"
+        return (f'<div style="background:#21262d;border-radius:6px;height:10px;width:100%;max-width:360px">'
+                f'<div style="background:{color};height:10px;border-radius:6px;width:{used_pct:.0f}%"></div></div>')
+
+    rail_rows = "".join(
+        f"<tr><td>{html.escape(rail)}</td><td>${cents/100:.2f}</td></tr>"
+        for rail, cents in r.by_rail.items()) or '<tr><td colspan=2>No spend yet.</td></tr>'
+    anomaly_rows = "".join(
+        f"<li>{html.escape(str(a))}</li>" for a in r.anomalies) or "<li>None</li>"
+
+    budget_html = ""
+    if cap_cents:
+        budget_html += (f'<p>Dollar budget: <b>${cap_cents/100:.2f}/mo</b> — '
+                         f'{pct:.0f}% used</p>{bar(pct, pct >= 80)}')
+    if token_cap:
+        budget_html += (f'<p style="margin-top:14px">Token budget: <b>{token_cap:,}/mo</b> — '
+                         f'{token_pct:.0f}% used</p>{bar(token_pct, token_pct >= 80)}')
+    if not cap_cents and not token_cap:
+        budget_html = '<p style="color:#8b949e">No budget cap set — spend is tracked but not enforced.</p>'
+    if exceeded:
+        budget_html += '<p style="color:#f85149;font-weight:600">⚠️ Budget exceeded — writes are being blocked.</p>'
+
+    page_html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>AgentLedger — {safe_agent_id}</title>
+<style>
+body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif;padding:24px;max-width:640px;margin:0 auto}}
+table{{border-collapse:collapse;width:100%;margin:8px 0 16px}}
+th,td{{text-align:left;padding:6px 10px;border-bottom:1px solid #30363d;font-size:13px}}
+th{{color:#8b949e;font-weight:600}}
+h1{{font-size:20px;margin-bottom:2px}} .sub{{color:#8b949e;font-size:12px;margin-bottom:20px}}
+.badge{{display:inline-block;background:#238636;color:#fff;border-radius:4px;padding:2px 8px;font-size:11px}}
+</style></head><body>
+<h1>{safe_agent_id} <span class="badge">{plan_badge}</span></h1>
+<div class="sub">Last {days} days · total spend ${r.total_spend_cents/100:.2f} · {r.entry_count} entries</div>
+{budget_html}
+<h3 style="margin-top:24px;font-size:14px">Spend by rail</h3>
+<table>{rail_rows}</table>
+<h3 style="font-size:14px">Anomalies</h3>
+<ul style="font-size:13px;color:#8b949e">{anomaly_rows}</ul>
+</body></html>"""
+    return HTMLResponse(content=page_html)
+
 @app.get("/v1/alerts/{agent_id}")
 def get_alerts(agent_id: str):
     from ledger_engine import validate_agent_id

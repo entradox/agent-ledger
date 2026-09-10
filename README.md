@@ -67,6 +67,9 @@ curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
 curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent
 ```
 
+**Want to just look at it?** Every agent has a human-readable page, no curl
+required: `https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent/html`
+
 Reads (`/v1/report`, `/v1/tokens`, `/v1/alerts`) never require a secret — only
 writes to an `agent_id` do, and only after that `agent_id` has been claimed by
 a first write. This is what stops a stranger from overwriting or corrupting
