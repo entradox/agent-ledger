@@ -57,9 +57,8 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str],
                  workspace_key: Optional[str] = None):
     """Shared auth gate for every write endpoint. Claiming a NEW agent_id
     requires a valid workspace_key (obtained by paying via
-    POST /v1/billing/x402 — no human, no login — or by signing in at
-    /login, which requires Google OAuth configured on this deployment and
-    returns 503 login_not_configured otherwise); that first write mints the
+    POST /v1/billing/x402 — no human, no login — or at /start, which mints
+    a workspace and shows its key once); that first write mints the
     agent's own secret, which every later write to that agent_id must carry
     instead. Also enforces the workspace's agent-slot cap. Raises
     HTTPException on failure."""
@@ -139,16 +138,14 @@ def _authorize_agent_read(agent_id: str, request: Request) -> None:
     and cookies off Request and raising the HTTP error — it holds no
     credential-comparison logic of its own.
 
-    The cookie arm exists because the dashboard links to
-    /v1/report/{agent_id}/html and a browser following that link sends no
-    headers at all; it is authorized through the same workspace-ownership
-    comparison as X-Workspace-Key, never a special case."""
+    Credentials come from headers only. The browser-session arm is gone with
+    Google sign-in (D-1162): there is no login, so there is no cookie that
+    could authorize a read."""
     import identity
     if not identity.authorize_agent_access(
             agent_id,
             agent_secret=request.headers.get("x-agent-secret", ""),
-            workspace_key=request.headers.get("x-workspace-key", ""),
-            session_cookie=request.cookies.get("al_session", "")):
+            workspace_key=request.headers.get("x-workspace-key", "")):
         raise HTTPException(401, detail=error_envelope(
             401, "this agent's data requires its agent_secret or workspace_key",
             code="agent_secret_mismatch"))

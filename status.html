@@ -1,139 +1,161 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="AgentLedger — per-agent spend management for autonomous agents: x402/MPP/API-key rails, token burn reports, budget caps, anomaly alerts. Free tier: 3 agents per workspace. REST API + MCP.">
-<title>AgentLedger — Status</title>
+<title>AgentLedger — Per-agent spend, budgets, and token burn for AI agents</title>
 <style>
-:root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--red:#f85149;--blu:#58a6ff}
+:root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--blu:#79c0ff}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--t);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;padding:28px 14px;line-height:1.55}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;padding:28px 14px;line-height:1.6;font-size:13px}
 .w{max-width:720px;margin:0 auto}
-h1{font-size:24px}h1 span{color:var(--g)}
-.sub{color:var(--m);font-size:13px;margin:4px 0 20px}
-h2{font-size:16px;color:var(--g);margin:20px 0 10px}
-.stat{background:#161b22;border:1px solid var(--b);border-radius:10px;padding:14px;margin:8px 0}
-.s-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #21262d;font-size:13px}
+.brand{font-size:13px;color:var(--m);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+h1{font-size:26px;line-height:1.25}
+h1 em{color:var(--g);font-style:normal}
+.sub{color:var(--m);font-size:13px;margin:10px 0 18px;max-width:62ch}
+h2{font-size:15px;margin:26px 0 10px;color:var(--t)}
+.card{background:var(--card);border:1px solid var(--b);border-radius:10px;padding:14px 16px;margin:10px 0}
+.card p{font-size:13px;color:var(--m);max-width:70ch}
+.card p b,.card p strong{color:var(--t)}
+.card p+p{margin-top:8px}
+.s-line{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #21262d;font-size:12.5px}
 .s-line:last-child{border:0}
-.tag{display:inline-block;border-radius:12px;padding:2px 8px;font-size:10.5px}
-.up{background:#0d2818;color:var(--grn);border:1px solid #1a3a2a}
-.note{background:#0a1628;border:1px solid var(--g);border-radius:10px;padding:12px 14px;margin:16px 0;font-size:12.5px}
-.mut{color:var(--m);font-size:11px;margin-top:20px;border-top:1px solid var(--b);padding-top:10px}
-pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px 12px;font-size:11.5px;overflow-x:auto;color:#79c0ff;margin:6px 0 14px;white-space:pre-wrap;word-break:break-word}
+.tag{display:inline-block;border-radius:12px;padding:2px 8px;font-size:12px;background:#0d2818;color:var(--grn);border:1px solid #1a3a2a}
+.price{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+.plan{flex:1 1 240px;background:var(--card);border:1px solid var(--b);border-radius:10px;padding:14px 16px}
+.plan.pro{border-color:var(--g)}
+.plan h3{font-size:14px;margin-bottom:2px}
+.plan .amt{font-size:20px;font-weight:700;margin-bottom:8px}
+.plan ul{list-style:none;font-size:12.5px;color:var(--m)}
+.plan li{padding:2px 0}
+.plan li:before{content:"— ";color:#484f58}
+a.btn{display:inline-block;background:var(--g);color:#0d1117;font-weight:700;text-decoration:none;padding:11px 18px;border-radius:8px;margin-top:12px;font-size:14px}
+a.plain{color:var(--blu);text-decoration:none}
+pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px 12px;font-size:12px;overflow-x:auto;color:var(--blu);margin:6px 0 12px;white-space:pre-wrap;word-break:break-word}
+ul.tick{list-style:none;font-size:12.5px;color:var(--m)}
+ul.tick li{padding:3px 0}
+ul.tick li b{color:var(--t)}
+.mut{color:var(--m);font-size:12px;margin-top:22px;border-top:1px solid var(--b);padding-top:10px}
 </style></head><body><div class="w">
 
-<h1>AgentLedger — <span>Status</span></h1>
-<div class="sub">Per-agent spend management · Last updated: <span id="ts">loading…</span></div>
+<div class="brand">AgentLedger</div>
+<h1>Your agents spend money. <em>See every dollar, and cap it.</em></h1>
+<div class="sub">A per-agent spend ledger for autonomous agents. Each agent reports its own spend and token burn; you get a live P&amp;L per agent, budget caps that <b>block</b> the write when crossed, spending-spike alerts, and 30-day reports — over MCP, REST and a CLI. An agent with a wallet can mint its own workspace in one call. No signup, no human.</div>
 
-<div class="note">
-<b>🎯 Launch window: the first 50 workspaces created get Pro free for 1 year.</b> No card — sign in once and the grant is automatic.
-<span id="scarcity-badge"></span>
+<div class="price">
+  <div class="plan">
+    <h3>Free</h3>
+    <div class="amt">$0</div>
+    <ul>
+      <li>Up to 3 agents per workspace</li>
+      <li>All rails: x402, MPP, api_key, manual</li>
+      <li>Budget caps with real enforcement</li>
+      <li>Token burn per agent &amp; per model</li>
+      <li>Alerts, 30-day reports, MCP + REST + CLI</li>
+    </ul>
+    <a class="btn" href="/start">Get a workspace →</a>
+  </div>
+  <div class="plan pro">
+    <h3>Pro</h3>
+    <div class="amt">$19<span style="font-size:13px;font-weight:400;color:var(--m)">/mo</span></div>
+    <ul>
+      <li>Unlimited tracked agents</li>
+      <li>Everything in Free</li>
+      <li>Same workspace, same key, no migration</li>
+      <li>Cancel any time</li>
+    </ul>
+    <p style="font-size:12px;color:var(--m);margin-top:10px">Already have a workspace_key? Post it to <code>/v1/billing/checkout</code> and the upgrade link is built for that workspace.</p>
+  </div>
 </div>
 
-<h2>What AgentLedger does</h2>
-<div class="stat">
-<p style="color:#8b949e;font-size:12.5px;line-height:1.6">
-<b style="color:#e6edf3">AgentLedger is the Datadog for agent spending.</b> Track spend across
-x402, MPP, and API-key payment rails from one place, set budget caps per agent, get
-anomaly alerts when spend spikes, and keep a full audit trail of every dollar an
-autonomous agent moves.
-</p>
+<div class="card">
+  <p><b>Start with no signup, no login and no card at <a class="plain" href="/start">/start</a>.</b>
+  A workspace is free — 3 agents, every feature. The workspace key is shown once, on the spot.</p>
+  <p><b>Launch window:</b> the first 50 workspaces created get Pro free for one year, granted
+  automatically on creation. <span id="scarcity-badge"></span></p>
+</div>
+
+<h2>What it does</h2>
+<ul class="tick">
+  <li><b>Per-agent dollar spend</b> — <code>POST /v1/track</code> records spend per <code>agent_id</code>. The ledger is keyed by agent, not by request trace.</li>
+  <li><b>Four rails in one ledger</b> — x402, MPP, API keys, manual entries. Mix them; the P&amp;L stays whole.</li>
+  <li><b>Token burn per agent and per model</b> — pass <code>tokens_in</code>/<code>tokens_out</code>/<code>model</code>; <code>GET /v1/tokens/{agent_id}</code> returns in/out totals and a by-model breakdown.</li>
+  <li><b>Caps that actually block</b> — monthly and daily dollar caps, plus independent token caps. A <code>track()</code> that would cross one is rejected with <code>402 budget_exceeded</code> <i>before</i> it is recorded. Warnings fire at 80%.</li>
+  <li><b>Spending-spike alerts</b> — anomalies are computed into every report and surfaced per agent in the alerts feed.</li>
+  <li><b>Reports</b> — 30-day totals by rail and service, plus a human-readable page per agent at <code>/v1/report/{agent_id}/html</code>.</li>
+  <li><b>Credential-gated reads</b> — reports, tokens and alerts require the agent's <code>agent_secret</code> or the workspace's <code>workspace_key</code>. No unauthenticated read path, on REST or MCP.</li>
+  <li><b>MCP + REST + CLI parity</b> — the same ledger and the same credential rules on all three surfaces, with idempotent writes and one typed error envelope.</li>
+</ul>
+
+<h2>Connect</h2>
+<div class="card">
+  <p><b>Claude Code</b></p>
+  <pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+  <p><b>Codex</b></p>
+  <pre class="cmd">codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+  <p><b>Cursor / any MCP client</b> — merge into <code>mcp.json</code>:</p>
+  <pre class="cmd">{
+  "mcpServers": {
+    "agent-ledger": {
+      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+    }
+  }
+}</pre>
+  <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
+  <p><b>Try it in your agent:</b> "Track my Claude Code spend" · "Alert when any agent exceeds $50/day" · "Weekly P&amp;L report".</p>
 </div>
 
 <h2>Live sample (this instance)</h2>
-<div class="stat" id="live-box">
-<div class="s-line"><span>Tracked agents</span><span>see agent-ledger-production-0ff8.up.railway.app/stats (JS off: static fallback)</span></div>
-</div>
-
-<h2>Connect AgentLedger</h2>
-<div class="stat">
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">Connecting needs no auth handshake. Before your first write, get a <code>workspace_key</code>: if your agent has its own wallet and no human, <code>POST /v1/billing/x402</code>, where the paying wallet becomes the workspace identity — or a human owner can sign in with Google at <a href="/login">/login</a> (requires Google OAuth configured on this deployment; returns 503 <code>login_not_configured</code> otherwise). The key claims new <code>agent_id</code>s; each claim mints that agent's own <code>agent_secret</code> for every write after it.</p>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Claude Code</b></p>
-<pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Codex</b></p>
-<pre class="cmd">codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Cursor</b> — merge into <code>mcp.json</code>:</p>
-<pre class="cmd">{
-  "mcpServers": {
-    "agent-ledger": {
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
-    }
-  }
-}</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Generic streamable-http URL</b></p>
-<pre class="cmd">https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:4px"><b>Try it in your agent:</b></p>
-<ul style="font-size:12.5px;color:#8b949e;margin:0 0 4px 18px;padding:0">
-<li>"Track my Claude Code spend"</li>
-<li>"Alert when any agent exceeds $50/day"</li>
-<li>"Weekly P&L report"</li>
-</ul>
-</div>
-
-<h2>MCP integration</h2>
-<div class="stat">
-<div class="s-line"><span>Registry name</span><span><b>io.github.entradox/agent-ledger</b></span></div>
-<div class="s-line"><span>Remote URL</span><span style="word-break:break-all">https://agent-ledger-production-0ff8.up.railway.app/mcp/</span></div>
-<p style="font-size:12.5px;color:#8b949e;margin:10px 0 6px"><b>Claude / Cursor MCP config</b> — paste into your MCP config file:</p>
-<pre class="cmd">{
-  "mcpServers": {
-    "agent-ledger": {
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
-    }
-  }
-}</pre>
-<p style="font-size:12.5px;color:#8b949e">Exposes tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>.</p>
+<div class="card" id="live-box">
+  <div class="s-line"><span>Tracked agents</span><span class="tag" id="ta">—</span></div>
+  <div class="s-line"><span>Live counters</span><span><a class="plain" href="/stats">/stats</a></span></div>
 </div>
 
 <h2>Getting started</h2>
-<div class="stat">
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>1. Track a spend event — dollars AND tokens</b></p>
-<pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
+<div class="card">
+  <p><b>1. Get a workspace_key</b> — no signup, no login, no card: <a class="plain" href="/start">/start</a>. Running as an agent with a wallet, with no human at all: <code>POST /v1/billing/x402</code> — the paying wallet becomes the workspace identity.</p>
+  <p><b>2. Track a spend event — dollars and tokens</b></p>
+  <pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
-<p style="font-size:11.5px;color:#8b949e;margin:-8px 0 12px"><b style="color:#D4AF37">A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must include <code>"workspace_key":"wk_live_..."</code> in the body — that's what claims it into your workspace — and it returns that agent's <code>agent_secret</code>. Save the secret: every later write to that same <code>agent_id</code> (track or budget) must include <code>"agent_secret":"..."</code> instead, and needs no workspace_key. Reads (report/tokens/alerts) all require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Token burn report</b> — see exactly what each agent burns on:</p>
-<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/tokens/my-agent \
-  -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>2. Set a monthly budget cap</b> — enforced: a track() call that would cross it gets blocked (402), not just logged</p>
-<pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
+  <p><b>A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must carry <code>"workspace_key":"wk_live_..."</code> in the body — that claims it into your workspace — and returns that agent's <code>agent_secret</code>. Save the secret: every later write to the same <code>agent_id</code> sends <code>"agent_secret":"..."</code> instead and needs no workspace_key. Reads (report/tokens/alerts) require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
+  <p><b>3. Set a monthly cap</b> — enforced, not just logged:</p>
+  <pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>3. Pull a spend report</b> — requires the agent_secret from step 1</p>
-<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent \
+  <p><b>4. Pull the P&amp;L</b> — totals, by rail, by service, budget status and anomalies:</p>
+  <pre class="cmd">curl "https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent?days=30" \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
+  <p>Token burn: <code>/v1/tokens/my-agent</code>. Browser view: <code>/v1/report/my-agent/html</code>.</p>
 </div>
 
-<div class="note">
-<b>Free tier: up to 3 agents per workspace.</b> All rails, budgets, alerts, and the MCP integration are included. <b>Pro $19/mo</b> — unlimited tracked agents + full history + alerts: <a href="https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e" target="_blank" rel="noopener" style="color:#D4AF37">Get Pro — $19/mo</a>. Contact: entradox@icloud.com
+<h2>Why this instead of a trace viewer</h2>
+<div class="card">
+  <p>The per-request trace tools run $39–$249/mo — LangSmith $39/seat, W&amp;B $60, Helicone $79, Galileo $100, Datadog LLM $240, Braintrust $249 — they bill per seat or per trace, and none of them enforce a budget cap.</p>
+  <p>AgentLedger is $19, bills per workspace, and is built per-<b>agent</b> with caps that block. The unit of accounting is the agent, not the request — which is the question you actually ask when you run twenty named agents: <i>which one is burning money, and how do I stop it?</i></p>
 </div>
 
 <div class="mut">
-AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger<br>
-Agent-readable: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a> · <a href="/openapi.json" style="color:#8b949e">/openapi.json</a> · <a href="/server.json" style="color:#8b949e">/server.json</a> · <a href="/health" style="color:#8b949e">/health</a>
+  AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger<br>
+  Agent-readable: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a> · <a href="/server.json" style="color:#8b949e">/server.json</a> · <a href="/.well-known/agent.json" style="color:#8b949e">/.well-known/agent.json</a> · <a href="/openapi.json" style="color:#8b949e">/openapi.json</a> · <a href="/health" style="color:#8b949e">/health</a><br>
+  Contact: <a href="mailto:entradox@icloud.com" style="color:#8b949e">entradox@icloud.com</a>
 </div>
 
 </div>
 <script>
-const _lc = new AbortController(); setTimeout(()=>_lc.abort(), 8000);
-fetch("https://agent-ledger-production-0ff8.up.railway.app/stats", {signal: _lc.signal}).then(r=>r.json()).then(d=>{
-  document.getElementById("ts").textContent = new Date().toLocaleString();
-  const box = document.getElementById("live-box");
-  const events = Object.entries(d.events || {}).map(([k,v])=>
-    '<div class="s-line"><span>'+k+'</span><span>'+v+'</span></div>').join("");
-  box.innerHTML =
-    '<div class="s-line"><span>Tracked agents</span><span class="tag up">'+d.tracked_agents+'</span></div>' +
-    (events || '<div class="s-line"><span>Events</span><span>—</span></div>');
-}).catch(()=>{ document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live stats unavailable right now</span><span>—</span></div>';
-  document.getElementById("ts").textContent = new Date().toLocaleString();
-  document.getElementById("live-box").innerHTML = '<div class="s-line"><span>Live fetch failed</span><span>—</span></div>';
-});
-
-const _sc = new AbortController(); setTimeout(()=>_sc.abort(), 8000);
-fetch("https://agent-ledger-production-0ff8.up.railway.app/stats", {signal: _sc.signal}).then(r=>r.json()).then(d=>{
+// One fetch, not two (D-1162 removed a duplicate /stats call and a dead
+// catch branch whose message was immediately overwritten).
+const _c = new AbortController(); setTimeout(()=>_c.abort(), 8000);
+fetch("/stats", {signal: _c.signal}).then(r=>r.json()).then(d=>{
+  const ta = document.getElementById("ta");
+  if (typeof d.tracked_agents === "number") ta.textContent = d.tracked_agents;
   if (typeof d.scarcity_claims_left === "number") {
-    document.getElementById("scarcity-badge").innerHTML = ' <span class="tag up">First 50 claims: '+d.scarcity_claims_left+' Pro-free slots left</span>';
+    document.getElementById("scarcity-badge").innerHTML =
+      '<span class="tag">' + d.scarcity_claims_left + ' of 50 Pro-free slots left</span>';
   }
-}).catch(()=>{});
+}).catch(()=>{
+  const ta = document.getElementById("ta");
+  if (ta) ta.textContent = "unavailable";
+});
 </script>
 </body></html>

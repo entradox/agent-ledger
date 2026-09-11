@@ -3,8 +3,11 @@
 (HMAC-verified, fail-closed) and checkout-session creation. Moved out of
 api_server.py (Task 6) so billing logic and its two endpoints
 (/stripe/webhook, /v1/billing/checkout) live in one file, shared with
-Task 7 (x402 also lands here). Session resolution goes through
-identity.resolve_session() — this file holds routing/plumbing only.
+Task 7 (x402 also lands here). Workspace identity resolution goes
+through identity.resolve_workspace_key() — this file holds routing/plumbing
+only. The Google-session arm was removed in D-1162: checkout is authenticated
+by the workspace's own key, and the payment URL carries client_reference_id so
+the webhook upgrades the right workspace.
 """
 import hashlib
 import hmac
@@ -17,7 +20,7 @@ import urllib.request
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from ledger_engine import DATA_DIR
+from ledger_engine import DATA_DIR, error_envelope
 import metrics
 
 router = APIRouter()
@@ -120,30 +123,37 @@ def billing_status(email: str, token: str = ""):
 
 @router.post("/v1/billing/checkout")
 def create_checkout(request: Request):
+    """Checkout URL for an existing workspace, authenticated by its own
+    workspace_key.
+
+    Re-keyed off the retired Google session (D-1162). The old version read an
+    `al_session` cookie, which meant the product's only human purchase path
+    required a login that the deployment could not serve — and it needed
+    STRIPE_API_KEY / AL_STRIPE_PRICE_ID, neither of which was set, so the
+    route could never have worked here.
+
+    No Stripe secret is needed: the URL is the existing live payment link
+    with client_reference_id appended. Stripe echoes that value back on
+    checkout.session.completed (docs.stripe.com/payment-links/url-parameters),
+    which is exactly the field this module's webhook reads to call
+    workspace_engine.mark_pro(). No API key, no session, no Google.
+    """
     import identity
-    workspace_id = identity.resolve_session(request.cookies.get("al_session", ""))
-    if not workspace_id:
-        raise HTTPException(401, "log in first")
-    # NOTE: confirm the exact Stripe Checkout Sessions API request shape
-    # (https://docs.stripe.com/api/checkout/sessions/create) at
-    # implementation time rather than assuming from memory — this call
-    # needs STRIPE_API_KEY (already in x_api_creds.env as STRIPE_SECRET_KEY,
-    # GasPermit account) and the existing STRIPE_PRO_PRICE_ID-equivalent
-    # for AgentLedger's $19/mo price.
-    body = urllib.parse.urlencode({
-        "mode": "subscription",
-        "line_items[0][price]": os.environ["AL_STRIPE_PRICE_ID"],
-        "line_items[0][quantity]": "1",
-        "client_reference_id": workspace_id,
-        "success_url": "https://agent-ledger-production-0ff8.up.railway.app/dashboard",
-        "cancel_url": "https://agent-ledger-production-0ff8.up.railway.app/dashboard",
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.stripe.com/v1/checkout/sessions", data=body, method="POST",
-        headers={"Authorization": f"Bearer {os.environ['STRIPE_API_KEY']}"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        session = json.loads(resp.read())
-    return {"checkout_url": session["url"]}
+    workspace_id = (request.headers.get("x-workspace-id") or "").strip()
+    raw_key = (request.headers.get("x-workspace-key") or "").strip()
+    if not workspace_id or not raw_key:
+        raise HTTPException(401, detail=error_envelope(
+            401, "send the workspace's own credentials as X-Workspace-Id and "
+                 "X-Workspace-Key (mint a workspace at POST /start, or by paying "
+                 "at POST /v1/billing/x402)", code="workspace_key_required"))
+    if identity.resolve_workspace_key(raw_key) != workspace_id:
+        raise HTTPException(401, detail=error_envelope(
+            401, "workspace_key does not match that workspace_id",
+            code="agent_secret_mismatch"))
+    link = os.environ.get("AL_STRIPE_PAYMENT_LINK",
+                          "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+    return {"checkout_url": f"{link}?client_reference_id={workspace_id}",
+            "workspace_id": workspace_id}
 
 
 @router.post("/v1/billing/x402")

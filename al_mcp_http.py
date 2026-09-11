@@ -50,9 +50,8 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
     """Record a spend entry for an AI agent on any payment rail, with optional token counts.
 
     Claiming a brand-new agent_id requires your workspace_key (get one via
-    x402 at POST /v1/billing/x402 — no human, no login — or by signing in
-    at /login, which requires Google OAuth configured on this deployment
-    and returns 503 login_not_configured otherwise). That first call mints an
+    x402 at POST /v1/billing/x402 — no human, no login — or at /start).
+    That first call mints an
     agent_secret and returns it in the response — save it, every later call
     for that same agent_id must pass it back (no workspace_key needed again)
     or the write is rejected. Amounts are capped

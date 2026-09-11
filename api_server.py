@@ -38,10 +38,6 @@ app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 from routes_agents import router as agents_router
 app.include_router(agents_router)
 
-from routes_auth import router as auth_router
-app.include_router(auth_router)
-
-
 @app.exception_handler(HTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
     """Single source for the typed error envelope on every REST error path
@@ -57,7 +53,7 @@ DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
 
 # reach paths tracked for unique-ip-hash "reach" telemetry
-REACH_PATHS = frozenset({"/status", "/llms.txt", "/server.json",
+REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
                           "/.well-known/glama.json", "/stats", "/mcp/"})
 
 
@@ -265,18 +261,17 @@ Human/agent status page: GET /status
 Claiming a NEW agent_id requires a workspace_key in the body of the first
 write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
-workspace identity). A human owner can instead sign in at /login, which
-requires Google OAuth to be configured for this deployment; if it isn't,
-/login returns 503 login_not_configured. Missing or invalid key on a
-new claim gets 401 workspace_key_required.
+workspace identity), or by opening GET /start — no signup, no login, no
+card. Missing or invalid key on a new claim gets 401
+workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
 {"agent_secret": "...", "_note": "..."}. Save it — every later write to that
 same agent_id must include it in the body as "agent_secret" (the
 workspace_key is never needed again for that agent), or the request is
 rejected with 401. Reads /v1/report, /v1/tokens, and /v1/alerts all require
 an X-Agent-Secret or X-Workspace-Key header (either credential proving
-access to that agent_id) — missing/wrong gets 401. A logged-in browser
-session cookie also authorizes reads for that session's own workspace.
+access to that agent_id) — missing/wrong gets 401. There is no
+unauthenticated read path, on REST or MCP.
 Launch window: the first 50 WORKSPACES ever created get Pro free for 1 year
 (no action needed — signing up inside the window mints the grant
 automatically; it expires one year later).
@@ -323,9 +318,8 @@ GET  /v1/agents                    — owner-only: full cross-tenant listing (re
 GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
-GET  /login                        — Google sign-in; issues a workspace_key on first login
-                                      (503 login_not_configured if Google OAuth isn't set
-                                      up for this deployment)
+GET  /start                        — get a workspace (no signup, no login);
+                                      POST /start mints one and shows the key once
 
 ## MCP
 
@@ -401,9 +395,8 @@ AGENT_JSON = {
         "field": "workspace_key",
         "description": "Get a workspace_key with no human at all by paying via "
                         "POST /v1/billing/x402 (the paying wallet becomes the workspace "
-                        "identity). A human owner can instead sign in at /login, which "
-                        "requires Google OAuth to be configured for this deployment "
-                        "(503 login_not_configured otherwise). Claiming a NEW agent_id "
+                        "identity), or at GET /start — no signup, no login, no card. "
+                        "Claiming a NEW agent_id "
                         "requires that workspace_key in the first POST /v1/track or "
                         "/v1/budget body; that call mints an agent_secret in the "
                         "response — save it, every later write to that agent_id must "
@@ -447,9 +440,118 @@ def agent_json():
     pricing, auth, and how to call it (rules/agent-native-standard.md)."""
     return JSONResponse(content=AGENT_JSON)
 
+def _status_html() -> str:
+    return (Path(__file__).parent / "status.html").read_text()
+
+
+@app.get("/", response_class=HTMLResponse)
+def front_door():
+    """The front door. Until D-1162 this path 404'd — the only human page was
+    /status, so a live product with a working payment link could not be
+    reached from its own root."""
+    return _status_html()
+
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page():
-    return (Path(__file__).parent / "status.html").read_text()
+    return _status_html()
+
+
+PAYMENT_LINK = os.environ.get(
+    "AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+
+
+def _page(title: str, body: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html.escape(title)}</title>
+<style>
+:root{{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--t);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;padding:28px 14px;line-height:1.55}}
+.w{{max-width:640px;margin:0 auto}}
+h1{{font-size:24px}} h1 span{{color:var(--g)}}
+.sub{{color:var(--m);font-size:13px;margin:4px 0 20px}}
+.card{{background:var(--card);border:1px solid var(--b);border-radius:10px;padding:16px;margin:16px 0;font-size:13px}}
+.card p{{margin-bottom:8px}}
+.key{{background:#0d1117;border:1px solid var(--g);border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:14px;color:var(--g);word-break:break-all;user-select:all;margin:8px 0}}
+a.btn,button.btn{{display:inline-block;background:var(--g);color:#0d1117;font-weight:700;border:0;cursor:pointer;text-decoration:none;padding:12px 20px;border-radius:8px;margin-top:12px;font-size:15px;font-family:inherit}}
+.warn{{color:#f0b429;font-size:12.5px;margin-top:8px}}
+.mut{{color:var(--m);font-size:12px;margin-top:18px}}
+pre{{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px;font-size:12px;overflow-x:auto;color:#79c0ff;white-space:pre-wrap;word-break:break-word}}
+</style></head><body><div class="w">{body}</div></body></html>"""
+
+
+def _start_form_html() -> str:
+    return _page("AgentLedger — start", """
+<h1>Start your <span>ledger</span></h1>
+<div class="sub">Get a workspace, claim your first agent, set a cap.</div>
+<div class="card">
+<p><b>No signup. No login. No card.</b> One press and you get a workspace_key you can
+use immediately. Free tier is 3 agents per workspace — every rail, budget caps with real
+enforcement, alerts, reports, token burn, and the MCP server are included.</p>
+<form method="post" action="/start"><button class="btn" type="submit">Create my workspace</button></form>
+<div class="warn">The key is shown once, on the next screen. Save it before you leave — it is not emailed.</div>
+</div>
+<div class="card">
+<p><b>Running this from an agent?</b> An agent with a wallet can mint its own workspace with
+no human in the loop at all:</p>
+<pre>curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/billing/x402 \
+  -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
+<p class="mut">The paying wallet becomes the workspace identity. Agent-facing docs:
+<a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
+</div>
+<div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
+""")
+
+
+def _start_key_html(workspace_id: str, raw_key: str, checkout: str) -> str:
+    key_block = (f'<div class="key">{html.escape(raw_key)}</div>' if raw_key else
+                 '<div class="key">a key was already issued for this workspace and is '
+                 'shown only once, at mint time</div>')
+    return _page("AgentLedger — your workspace", f"""
+<h1>Your workspace is <span>live</span></h1>
+<div class="sub">workspace_id: {html.escape(workspace_id)}</div>
+<div class="card">
+<p><b>Your workspace_key — shown once:</b></p>
+{key_block}
+<div class="warn">Save it now. It is not emailed, and it cannot be displayed again.</div>
+<p class="mut">Claim your first agent by sending it as <code>workspace_key</code> on the first
+<code>POST /v1/track</code>. That call returns the agent's own <code>agent_secret</code>,
+which authenticates every write after it. Working examples:
+<a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
+</div>
+<div class="card">
+<p><b>Upgrade this workspace to Pro — $19/mo</b> (unlimited tracked agents).</p>
+<a class="btn" href="{html.escape(checkout, quote=True)}" rel="noopener">Continue to payment →</a>
+<p class="mut">The link carries this workspace's id, so the upgrade lands on <i>this</i>
+workspace. The free tier needs no card and does not expire.</p>
+</div>
+<div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
+""")
+
+
+@app.get("/start", response_class=HTMLResponse)
+def start_page():
+    """Step one of the buy path. Deliberately does NOT mint: a mint on GET
+    would let any crawler, link-preview bot or accidental reload burn one of
+    the 50 launch-window workspaces and orphan a key nobody ever saw. The
+    form POSTs to this same path, which does the minting."""
+    return _start_form_html()
+
+
+@app.post("/start", response_class=HTMLResponse)
+def start_mint():
+    """Mint a workspace for a human with no signup, no login and no card, then
+    show its workspace_key exactly once — the same one-time reveal the
+    retiring Google dashboard used. The payment link carries the workspace id
+    as client_reference_id: that reference is what lets the Stripe webhook
+    mark THIS workspace Pro. Without it a real payment would take the card
+    and upgrade nothing (D-1162)."""
+    import workspace_engine
+    workspace_id, raw_key = workspace_engine.create_workspace()
+    checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
+    return _start_key_html(workspace_id, raw_key, checkout)
 
 @app.get("/v1/_beacon")
 def connect_beacon(event: str):

@@ -71,35 +71,36 @@ def test_completed_checkout_does_not_mark_other_workspaces_pro(client, monkeypat
     assert ws.is_workspace_pro(workspace_b) is False
 
 
-def test_checkout_endpoint_requires_session(client):
+def test_checkout_endpoint_requires_workspace_credentials(client):
+    """No session, no cookie: the retired Google arm is gone, so a caller
+    with nothing gets a typed 401 rather than "log in first"."""
     c, ws = client
     r = c.post("/v1/billing/checkout")
     assert r.status_code == 401
 
 
-def test_checkout_endpoint_returns_checkout_url_for_logged_in_workspace(client, monkeypatch):
+def test_checkout_endpoint_rejects_mismatched_workspace_key(client):
     c, ws = client
-    import identity, routes_billing
-    workspace_id, _ = ws.create_workspace(owner_email="a@example.com")
+    workspace_id, _raw_key = ws.create_workspace(owner_email="a@example.com")
+    r = c.post("/v1/billing/checkout",
+               headers={"X-Workspace-Id": workspace_id,
+                        "X-Workspace-Key": "wk_live_not_the_key"})
+    assert r.status_code == 401
 
-    monkeypatch.setattr(identity, "resolve_session", lambda cookie: workspace_id)
-    monkeypatch.setenv("AL_STRIPE_PRICE_ID", "price_test_123")
-    monkeypatch.setenv("STRIPE_API_KEY", "sk_test_fake")
 
-    class _FakeResp:
-        def __enter__(self):
-            return self
-        def __exit__(self, *a):
-            return False
-        def read(self):
-            return json.dumps({"url": "https://checkout.stripe.com/pay/cs_test_fake"}).encode()
-
-    def _fake_urlopen(req, timeout=10):
-        return _FakeResp()
-
-    monkeypatch.setattr(routes_billing.urllib.request, "urlopen", _fake_urlopen)
-
-    c.cookies.set("al_session", "whatever")
-    r = c.post("/v1/billing/checkout")
+def test_checkout_url_carries_client_reference_id_for_that_workspace(client, monkeypatch):
+    """The point of the re-key (D-1162): the upgrade link must identify the
+    workspace, because client_reference_id is what the Stripe webhook reads to
+    mark it Pro. Without it a real card payment charges the card and upgrades
+    nothing. No Stripe API key and no browser session is involved any more."""
+    c, ws = client
+    workspace_id, raw_key = ws.create_workspace(owner_email="a@example.com")
+    monkeypatch.setenv("AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/test_link")
+    r = c.post("/v1/billing/checkout",
+               headers={"X-Workspace-Id": workspace_id, "X-Workspace-Key": raw_key})
     assert r.status_code == 200
-    assert r.json() == {"checkout_url": "https://checkout.stripe.com/pay/cs_test_fake"}
+    body = r.json()
+    assert body["workspace_id"] == workspace_id
+    assert body["checkout_url"] == (
+        f"https://buy.stripe.com/test_link?client_reference_id={workspace_id}")
+    assert raw_key not in json.dumps(body)

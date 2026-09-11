@@ -19,10 +19,10 @@ Connecting takes no auth handshake. Before your first write you need a
 - **Autonomous agent with a wallet:** `POST /v1/billing/x402` with an
   `X-PAYMENT` header. The paying wallet becomes the workspace identity —
   no email, no login, no human in the loop.
-- **Human owner:** sign in with Google at
-  [`/login`](https://agent-ledger-production-0ff8.up.railway.app/login) — the
-  key is shown once, right there. Requires Google OAuth to be configured on
-  the deployment; if it isn't, `/login` returns 503 `login_not_configured`.
+- **Human:** open
+  [`/start`](https://agent-ledger-production-0ff8.up.railway.app/start) — no
+  signup, no login, no card. The workspace_key is shown once, right there, and
+  the page carries the upgrade link for that workspace.
 
 The key claims new `agent_id`s. Each claim mints that agent's own
 `agent_secret`, which is what authenticates every later write — the
@@ -128,14 +128,15 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - Core engine (`ledger_engine.py`): per-agent JSONL ledgers, budget state, alert log,
   per-agent secret (`ensure_agent_secret` — a new claim requires a `workspace_key`,
   and mints the agent's own `agent_secret` for every write after it)
-- Identity (`identity.py`): the single place a caller is resolved — `agent_secret`,
-  `workspace_key`, or a signed session cookie. Every gate (claim, read, session,
-  billing) calls into it rather than rolling its own check.
+- Identity (`identity.py`): the single place a caller is resolved — `agent_secret`
+  or `workspace_key`, both header-borne. Every gate (claim, read, billing) calls
+  into it rather than rolling its own check.
 - Workspaces (`workspace_engine.py`): per-customer identity + plan state, keyed by
-  Google `sub` (human owner) or wallet address (x402, no human)
-- REST API (`api_server.py`, FastAPI): app creation, meta endpoints and router
-  includes only; endpoints live in `routes_agents.py`, `routes_billing.py`,
-  `routes_auth.py`. Hosted streamable-http MCP at `/mcp/`
+  wallet address (x402, no human) or by nothing at all for a plain `POST /start`
+  workspace
+- REST API (`api_server.py`, FastAPI): app creation, meta endpoints, the human
+  start/buy pages and router includes; endpoints live in `routes_agents.py` and
+  `routes_billing.py`. Hosted streamable-http MCP at `/mcp/`
   - `/v1/agents` (full cross-tenant listing) is owner-only, requires `X-Al-Admin` header
   - Reads (`/v1/report`, `/v1/tokens`, `/v1/alerts`) require `X-Agent-Secret` or
     `X-Workspace-Key`; the MCP read tools take the same two credentials as

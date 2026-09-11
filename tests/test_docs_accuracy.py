@@ -27,9 +27,14 @@ REPO = Path(__file__).resolve().parent.parent
 DOC_FILES = ("README.md", "status.html", "recipes.md",
              "al_mcp_http.py", "routes_agents.py")
 
-# Claims that are no longer true. "no login" is deliberately absent: the
-# x402 path genuinely requires none.
-STALE_CLAIMS = ("no signup", "No signup", "first write claims it",
+# Claims that are no longer true. "no login" is deliberately absent: the x402
+# path genuinely requires none. "no signup" was on this list until D-1162 and
+# has been taken off deliberately, not quietly: it went stale when the only
+# self-serve source of a workspace_key was a paid x402 mint, so telling a human
+# "no signup" pointed them at a wall. GET+POST /start now mints a workspace with
+# no email, no password and no card, so the claim is exact again — and
+# tests/test_start_flow.py pins the mechanism, so it cannot rot into a lie twice.
+STALE_CLAIMS = ("first write claims it",
                 "which needs no secret", "needs no secret",
                 "no secret needed")
 
@@ -59,7 +64,7 @@ def test_llms_txt_documents_the_workspace_key_claim_gate():
     import api_server
     txt = api_server.LLMS_TXT
     assert "workspace_key" in txt
-    assert "/login" in txt
+    assert "/start" in txt
     assert "/v1/billing/x402" in txt
 
 
@@ -77,7 +82,7 @@ def test_agent_json_auth_describes_workspace_key():
     auth = api_server.AGENT_JSON["auth"]
     assert auth["type"] == "workspace_key"
     assert "No signup" not in auth["description"]
-    assert "/login" in auth["description"]
+    assert "/start" in auth["description"]
 
 
 def test_agent_json_advertises_the_x402_self_serve_path():

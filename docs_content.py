@@ -32,9 +32,8 @@ curl -X POST {BASE_URL}/v1/track \\
 Claiming a NEW `agent_id` requires a `workspace_key` in that first write's
 body (add `"workspace_key":"wk_live_..."` to the example above). Get one
 with no human at all via `POST /v1/billing/x402` — the paying wallet
-becomes the workspace identity. A human owner can instead sign in at
-`{BASE_URL}/login`, which requires Google OAuth to be configured for this
-deployment; if it isn't, `/login` returns 503 `login_not_configured`.
+becomes the workspace identity. A human can instead open `{BASE_URL}/start`,
+which mints a workspace and shows its key once — no signup, no login.
 Without a workspace_key, a new claim is rejected with 401
 `workspace_key_required`.
 
@@ -72,9 +71,8 @@ REST_ENDPOINTS_MD = f"""## REST Endpoints
 GET  /health                       — liveness
 POST /v1/billing/x402              — self-serve workspace_key for an agent with a wallet
                                       (X-PAYMENT header; paying wallet = workspace identity)
-GET  /login                        — Google sign-in; issues a workspace_key on first login
-                                      (503 login_not_configured if Google OAuth isn't set
-                                      up for this deployment)
+GET  /start                        — get a workspace (no signup, no login);
+                                      POST /start mints one and shows the key once
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
 POST /v1/budget                    — set budget caps (workspace_key claims, agent_secret writes)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
@@ -184,9 +182,8 @@ BASE = "{BASE_URL}"
 HEADERS = {{"Content-Type": "application/json", "AL-API-Version": "{AL_API_VERSION}"}}
 
 # Claiming a new agent_id needs your workspace_key: POST /v1/billing/x402
-# if your agent has a wallet (no human, no login), or sign in at
-# {BASE_URL}/login (requires Google OAuth configured on the deployment;
-# returns 503 login_not_configured otherwise). After the first call the
+# if your agent has a wallet (no human, no login), or open
+# {BASE_URL}/start (no signup, no login). After the first call the
 # minted agent_secret is what authenticates every later write.
 WORKSPACE_KEY = "wk_live_..."
 agent_secret = None  # fill in after the first successful call
@@ -219,8 +216,7 @@ HEADERS = {{"Content-Type": "application/json", "AL-API-Version": "{AL_API_VERSI
 
 # A new agent_id is claimed with your workspace_key; afterwards the minted
 # agent_secret authenticates writes. Get one via POST /v1/billing/x402 (no
-# human, no login) or by signing in at {BASE_URL}/login (requires Google
-# OAuth configured on the deployment; 503 login_not_configured otherwise).
+# human, no login) or at {BASE_URL}/start.
 WORKSPACE_KEY = "wk_live_..."
 
 
@@ -299,8 +295,7 @@ def track_once(agent_id, rail, amount_cents, service, agent_secret=None, idem_ke
         body["agent_secret"] = agent_secret
     else:
         # claiming a new agent_id — needs a workspace_key from
-        # POST /v1/billing/x402 (no login) or from /login (Google OAuth
-        # must be configured on the deployment)
+        # POST /v1/billing/x402 (no login) or from /start
         body["workspace_key"] = "wk_live_..."
     for attempt in range(3):
         try:

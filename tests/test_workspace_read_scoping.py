@@ -10,14 +10,11 @@ AL_VERSION = "2026-09-01"
 def client(monkeypatch):
     tmp = tempfile.mkdtemp()
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
-    monkeypatch.setenv("AL_SESSION_SECRET", "test-secret-for-signing")
     import importlib
     import ledger_engine, workspace_engine, identity, routes_agents, api_server
-    import session_auth
     importlib.reload(workspace_engine)
     importlib.reload(ledger_engine)
     importlib.reload(identity)
-    importlib.reload(session_auth)
     importlib.reload(routes_agents)
     importlib.reload(api_server)
     from fastapi.testclient import TestClient
@@ -128,41 +125,15 @@ def test_alerts_rejects_wrong_credential(client):
     assert r.status_code == 401
 
 
-# --- session-cookie arm (C2: the dashboard's own agent links used to 401) ----
+# --- session-cookie arm REMOVED (D-1162) ------------------------------------
+# Google sign-in is gone, so /dashboard is gone, so no browser ever sends an
+# al_session cookie. The four tests that lived here exercised a credential that
+# no longer exists; the property they protected (a session must never read
+# another workspace's agents) is now structurally unreachable. What replaces
+# them: a stale cookie must be treated as no credential at all.
 
-def test_html_report_accepts_session_cookie_for_own_workspace(client):
-    """A browser following the dashboard's /v1/report/{id}/html link sends
-    only al_session — no headers at all. That must authorize."""
+def test_reads_reject_a_retired_session_cookie(client):
     tc, raw_key, secret = client
-    import session_auth
-    cookie = session_auth.sign_session(_workspace_id_of(raw_key))
-    tc.cookies.set("al_session", cookie)
-    r = tc.get("/v1/report/read-scope-agent/html")
-    assert r.status_code == 200
-
-
-def test_session_cookie_from_other_workspace_still_401(client):
-    """The security property that matters: a valid session must NOT grant
-    access to an agent belonging to a different workspace."""
-    tc, raw_key, secret = client
-    import workspace_engine, session_auth
-    other_ws_id, _ = workspace_engine.create_workspace(owner_email="intruder@example.com")
-    tc.cookies.set("al_session", session_auth.sign_session(other_ws_id))
+    tc.cookies.set("al_session", "any-old-cookie")
     r = tc.get("/v1/report/read-scope-agent/html")
     assert r.status_code == 401
-
-
-def test_forged_session_cookie_rejected(client):
-    tc, raw_key, secret = client
-    tc.cookies.set("al_session", _workspace_id_of(raw_key) + ".deadbeef")
-    r = tc.get("/v1/report/read-scope-agent/html")
-    assert r.status_code == 401
-
-
-def test_json_report_also_accepts_session_cookie(client):
-    tc, raw_key, secret = client
-    import session_auth
-    cookie = session_auth.sign_session(_workspace_id_of(raw_key))
-    tc.cookies.set("al_session", cookie)
-    r = tc.get("/v1/report/read-scope-agent")
-    assert r.status_code == 200
