@@ -3,3 +3,12 @@ uvicorn[standard]>=0.29.0
 pydantic>=2.7.0
 fastmcp>=2.10.0
 x402[evm]>=2.0
+# httpx is REQUIRED by x402's HTTP facilitator client, but the x402 package
+# declares it only under its [clients] and [all] extras -- NOT under [evm].
+# Installing x402[evm] alone therefore yields a clean image where the x402
+# resource server cannot be constructed, and the route silently degrades to
+# 503 "No module named 'httpx'" in production while working fine on a dev
+# machine (where httpx usually arrives as a transitive dependency).
+# This exact line is what agent-watch -- the fleet's x402 integration that has
+# completed a real live settlement -- carries. Keep the two in step.
+httpx>=0.27.0
