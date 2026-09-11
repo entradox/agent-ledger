@@ -21,21 +21,25 @@ def client(monkeypatch):
 
     # Fresh module state per test — these modules cache DATA_DIR and in-memory
     # counters at import time, so drop any previously-imported copies.
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
 
     import metrics as metrics_mod
     import api_server as api_server_mod
+    import importlib
+    import workspace_engine
+    importlib.reload(workspace_engine)
+    _, ws_key = workspace_engine.create_workspace(owner_email='smoke-fixture@example.com')
     from fastapi.testclient import TestClient
 
     tc = TestClient(api_server_mod.app)
-    yield tc, api_server_mod, metrics_mod
+    yield tc, api_server_mod, metrics_mod, ws_key
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_middleware_records_http_events(client):
-    tc, api_server_mod, metrics_mod = client
+    tc, api_server_mod, metrics_mod, ws_key = client
     r1 = tc.get("/health")
     assert r1.status_code == 200
     r2 = tc.get("/stats")
@@ -45,9 +49,9 @@ def test_middleware_records_http_events(client):
 
 
 def test_wrong_secret_records_auth_fail_and_401(client):
-    tc, api_server_mod, metrics_mod = client
+    tc, api_server_mod, metrics_mod, ws_key = client
     body = {"agent_id": "auth-test-agent", "rail": "manual", "amount_cents": 100,
-            "service": "svc"}
+            "service": "svc", "workspace_key": ws_key}
     first = tc.post("/v1/track", json=body, headers={"AL-API-Version": "2026-09-01"})
     assert first.status_code == 200
 
@@ -58,23 +62,24 @@ def test_wrong_secret_records_auth_fail_and_401(client):
     assert snap["totals"].get("auth_fail", 0) >= 1
 
 
-def test_fourth_new_agent_over_cap_records_cap_blocked(client, monkeypatch):
-    tc, api_server_mod, metrics_mod = client
-    import ledger_engine
-    from ledger_engine import BETA_AGENT_CAP
+def test_fourth_new_agent_over_cap_records_cap_blocked(client):
+    tc, api_server_mod, metrics_mod, ws_key = client
+    import workspace_engine
 
-    # a claim inside the scarcity window is granted Pro rather than capped
-    # (D-818), so close the window to reach the cap path this test targets
-    monkeypatch.setattr(ledger_engine, "SCARCITY_PRO_CAP", 0)
+    # a fresh free-tier workspace (agent_cap = WORKSPACE_FREE_AGENT_CAP):
+    # WORKSPACE_SCARCITY_CAP = 0 keeps it out of the launch "pro scarcity"
+    # window, same as tests/test_workspace_claim_gate.py
+    workspace_engine.WORKSPACE_SCARCITY_CAP = 0
+    _, cap_ws_key = workspace_engine.create_workspace(owner_email='cap-test@example.com')
 
-    for i in range(BETA_AGENT_CAP):
+    for i in range(workspace_engine.WORKSPACE_FREE_AGENT_CAP):
         body = {"agent_id": f"cap-agent-{i}", "rail": "manual", "amount_cents": 10,
-                "service": "svc"}
+                "service": "svc", "workspace_key": cap_ws_key}
         r = tc.post("/v1/track", json=body, headers={"AL-API-Version": "2026-09-01"})
         assert r.status_code == 200
 
     body_over = {"agent_id": "cap-agent-over", "rail": "manual", "amount_cents": 10,
-                 "service": "svc"}
+                 "service": "svc", "workspace_key": cap_ws_key}
     r_over = tc.post("/v1/track", json=body_over, headers={"AL-API-Version": "2026-09-01"})
     assert r_over.status_code == 402
     snap = metrics_mod.snapshot()
@@ -82,7 +87,7 @@ def test_fourth_new_agent_over_cap_records_cap_blocked(client, monkeypatch):
 
 
 def test_v1_metrics_requires_admin_header(client):
-    tc, api_server_mod, metrics_mod = client
+    tc, api_server_mod, metrics_mod, ws_key = client
     no_auth = tc.get("/v1/metrics")
     assert no_auth.status_code == 401
 
@@ -99,7 +104,7 @@ def test_v1_metrics_requires_admin_header(client):
 
 
 def test_squatted_slot_appears_with_has_data_false(client):
-    tc, api_server_mod, metrics_mod = client
+    tc, api_server_mod, metrics_mod, ws_key = client
     from ledger_engine import _agent_dir
 
     agent_dir = _agent_dir("squatted-agent")
@@ -116,7 +121,7 @@ def test_squatted_slot_appears_with_has_data_false(client):
 def test_billing_path_email_never_reaches_metrics(client):
     """Pins the Morgan-review privacy rule: GET /v1/billing/{email} must never
     leak the raw email into the metrics event log."""
-    tc, api_server_mod, metrics_mod = client
+    tc, api_server_mod, metrics_mod, ws_key = client
 
     r = tc.get("/v1/billing/customer@example.com")
     # endpoint may 404/401/200 depending on billing state — the status doesn't
@@ -134,7 +139,7 @@ def test_billing_path_email_never_reaches_metrics(client):
 def test_ip_hash_refuses_unsalted(monkeypatch):
     """No AL_METRICS_SALT → no ip_hash at all (unsalted hash = reversible)."""
     monkeypatch.delenv("AL_METRICS_SALT", raising=False)
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
     import api_server as api_server_mod
 
@@ -145,9 +150,11 @@ def test_ip_hash_refuses_unsalted(monkeypatch):
     assert api_server_mod._ip_hash(FakeRequest()) is None
 
     monkeypatch.setenv("AL_METRICS_SALT", "some-secret-salt-value")
-    sys.modules.pop("api_server", None)
+    for mod in ("api_server", "routes_agents"):
+        sys.modules.pop(mod, None)
     import importlib
     api_server_mod = importlib.import_module("api_server")
     h = api_server_mod._ip_hash(FakeRequest())
     assert h is not None and len(h) == 12
-    sys.modules.pop("api_server", None)
+    for mod in ("api_server", "routes_agents"):
+        sys.modules.pop(mod, None)

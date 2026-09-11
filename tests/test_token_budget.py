@@ -14,6 +14,7 @@ written behind it.
 
 Run with: python3 -m pytest -q
 """
+import importlib
 import os
 import shutil
 import sys
@@ -37,8 +38,11 @@ def engine(monkeypatch):
         sys.modules.pop(mod, None)
 
     import ledger_engine as ledger_engine_mod
+    import workspace_engine
+    importlib.reload(workspace_engine)
+    _, ws_key = workspace_engine.create_workspace(owner_email='engine-fixture@example.com')
 
-    yield ledger_engine_mod
+    yield ledger_engine_mod, ws_key
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -50,15 +54,18 @@ def client(monkeypatch):
     monkeypatch.setenv("AL_ADMIN_SECRET", "test-admin-secret")
     monkeypatch.delenv("AL_PRO_ACTIVE", raising=False)
 
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
 
     import ledger_engine as ledger_engine_mod
     import api_server as api_server_mod
+    import workspace_engine
+    importlib.reload(workspace_engine)
+    _, ws_key = workspace_engine.create_workspace(owner_email='client-fixture@example.com')
     from fastapi.testclient import TestClient
 
     tc = TestClient(api_server_mod.app)
-    yield tc, api_server_mod, ledger_engine_mod
+    yield tc, api_server_mod, ledger_engine_mod, ws_key
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -77,7 +84,8 @@ def _headers(idem_key=None, version=AL_VERSION):
 def test_dollar_cap_does_not_block_token_rows(engine):
     """Regression for the original gap: a dollar cap must never block
     rail="tokens" bookkeeping (0-cent, exempt from the dollar check)."""
-    engine.ensure_agent_secret("agent-a")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-a", workspace_key=ws_key)
     engine.set_budget("agent-a", monthly_cents=100)  # $1 dollar cap
     entry = engine.track("agent-a", "tokens", 0, "gpt-4o",
                          tokens_in=1_000_000, tokens_out=1_000_000)
@@ -85,7 +93,8 @@ def test_dollar_cap_does_not_block_token_rows(engine):
 
 
 def test_monthly_token_cap_blocks_over_cap(engine):
-    engine.ensure_agent_secret("agent-b")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-b", workspace_key=ws_key)
     engine.set_budget("agent-b", monthly_cents=0, monthly_tokens=1000)
     engine.track("agent-b", "tokens", 0, "gpt-4o", tokens_in=600, tokens_out=0)
     with pytest.raises(engine.BudgetExceededError):
@@ -93,7 +102,8 @@ def test_monthly_token_cap_blocks_over_cap(engine):
 
 
 def test_daily_token_cap_blocks_over_cap(engine):
-    engine.ensure_agent_secret("agent-c")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-c", workspace_key=ws_key)
     engine.set_budget("agent-c", monthly_cents=0, daily_tokens=1000)
     engine.track("agent-c", "tokens", 0, "gpt-4o", tokens_in=700, tokens_out=0)
     with pytest.raises(engine.BudgetExceededError):
@@ -101,14 +111,16 @@ def test_daily_token_cap_blocks_over_cap(engine):
 
 
 def test_token_cap_exactly_at_limit_is_allowed(engine):
-    engine.ensure_agent_secret("agent-d")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-d", workspace_key=ws_key)
     engine.set_budget("agent-d", monthly_cents=0, monthly_tokens=1000)
     entry = engine.track("agent-d", "tokens", 0, "gpt-4o", tokens_in=1000, tokens_out=0)
     assert entry.meta["tokens_in"] == 1000
 
 
 def test_token_budget_alert_logged_on_exceed(engine):
-    engine.ensure_agent_secret("agent-e")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-e", workspace_key=ws_key)
     engine.set_budget("agent-e", monthly_cents=0, monthly_tokens=1000)
     engine.track("agent-e", "tokens", 0, "gpt-4o", tokens_in=1000, tokens_out=0)
     alerts_path = engine._alerts_path("agent-e")
@@ -119,7 +131,8 @@ def test_token_budget_alert_logged_on_exceed(engine):
 
 
 def test_report_surfaces_token_budget_status(engine):
-    engine.ensure_agent_secret("agent-f")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-f", workspace_key=ws_key)
     engine.set_budget("agent-f", monthly_cents=0, monthly_tokens=1000)
     engine.track("agent-f", "tokens", 0, "gpt-4o", tokens_in=300, tokens_out=0)
     r = engine.report("agent-f")
@@ -129,14 +142,16 @@ def test_report_surfaces_token_budget_status(engine):
 
 
 def test_no_token_cap_set_omits_token_fields_from_report(engine):
-    engine.ensure_agent_secret("agent-g")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-g", workspace_key=ws_key)
     engine.set_budget("agent-g", monthly_cents=500)
     r = engine.report("agent-g")
     assert "monthly_token_cap" not in r.budget_status
 
 
 def test_budget_to_dict_and_get_budget_roundtrip_token_caps(engine):
-    engine.ensure_agent_secret("agent-h")
+    engine, ws_key = engine
+    engine.ensure_agent_secret("agent-h", workspace_key=ws_key)
     engine.set_budget("agent-h", monthly_cents=0, monthly_tokens=5000, daily_tokens=1000)
     b = engine.get_budget("agent-h")
     assert b.monthly_token_cap == 5000
@@ -147,8 +162,9 @@ def test_old_budget_json_without_token_fields_still_loads(engine):
     """A budget.json written before this change has no monthly_token_cap/
     daily_token_cap keys — Budget(**d) must fall back to the dataclass
     defaults (0) rather than raising."""
+    engine, ws_key = engine
     import json
-    engine.ensure_agent_secret("agent-i")
+    engine.ensure_agent_secret("agent-i", workspace_key=ws_key)
     engine._agent_dir("agent-i").mkdir(parents=True, exist_ok=True)
     old_shape = {"agent_id": "agent-i", "monthly_cap_cents": 500,
                  "daily_cap_cents": 0, "alert_threshold_pct": 80}
@@ -161,9 +177,10 @@ def test_old_budget_json_without_token_fields_still_loads(engine):
 # ── API-level ────────────────────────────────────────────────────────────
 
 def test_budget_endpoint_accepts_and_returns_token_caps(client):
-    tc, _, _ = client
+    tc, _, _, ws_key = client
     r = tc.post("/v1/budget", json={"agent_id": "api-agent-1", "monthly_cents": 0,
-                                    "monthly_tokens": 2000, "daily_tokens": 500},
+                                    "monthly_tokens": 2000, "daily_tokens": 500,
+                                    "workspace_key": ws_key},
                headers=_headers())
     assert r.status_code == 200
     body = r.json()
@@ -172,9 +189,10 @@ def test_budget_endpoint_accepts_and_returns_token_caps(client):
 
 
 def test_track_tokens_rail_blocked_with_402_over_cap(client):
-    tc, _, _ = client
+    tc, _, _, ws_key = client
     budget = tc.post("/v1/budget", json={"agent_id": "api-agent-2", "monthly_cents": 0,
-                                         "monthly_tokens": 1000}, headers=_headers())
+                                         "monthly_tokens": 1000,
+                                         "workspace_key": ws_key}, headers=_headers())
     secret = budget.json()["agent_secret"]
 
     ok = tc.post("/v1/track", json={"agent_id": "api-agent-2", "rail": "tokens",
@@ -195,10 +213,11 @@ def test_tokens_rail_primary_write_does_not_duplicate_row(client):
     """/v1/track with rail="tokens" directly must write exactly one ledger
     row carrying the tokens_in/tokens_out metadata — not a metadata-less
     bookkeeping row plus a second real one behind it."""
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     r = tc.post("/v1/track", json={"agent_id": "api-agent-3", "rail": "tokens",
                                    "amount_cents": 0, "service": "gpt-4o",
-                                   "tokens_in": 123, "tokens_out": 45},
+                                   "tokens_in": 123, "tokens_out": 45,
+                                   "workspace_key": ws_key},
                headers=_headers())
     assert r.status_code == 200
 
@@ -215,10 +234,11 @@ def test_dollar_rail_with_tokens_writes_two_rows(client):
     """A dollar-rail write that also reports token burn still gets the
     dollar row plus a separate 0-cent tokens bookkeeping row (unchanged
     behavior for the non-tokens-primary case)."""
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     r = tc.post("/v1/track", json={"agent_id": "api-agent-4", "rail": "manual",
                                    "amount_cents": 250, "service": "search",
-                                   "tokens_in": 10, "tokens_out": 20},
+                                   "tokens_in": 10, "tokens_out": 20,
+                                   "workspace_key": ws_key},
                headers=_headers())
     assert r.status_code == 200
 
@@ -231,14 +251,15 @@ def test_dollar_rail_with_tokens_writes_two_rows(client):
 
 
 def test_report_endpoint_exposes_token_budget_status(client):
-    tc, _, _ = client
+    tc, _, _, ws_key = client
     budget = tc.post("/v1/budget", json={"agent_id": "api-agent-5", "monthly_cents": 0,
-                                         "monthly_tokens": 1000}, headers=_headers())
+                                         "monthly_tokens": 1000,
+                                         "workspace_key": ws_key}, headers=_headers())
     secret = budget.json()["agent_secret"]
     tc.post("/v1/track", json={"agent_id": "api-agent-5", "rail": "tokens",
                                "amount_cents": 0, "service": "gpt-4o",
                                "tokens_in": 300, "tokens_out": 0,
                                "agent_secret": secret}, headers=_headers())
-    r = tc.get("/v1/report/api-agent-5")
+    r = tc.get("/v1/report/api-agent-5", headers={"X-Agent-Secret": secret})
     assert r.status_code == 200
     assert r.json()["budget_status"]["monthly_tokens_used"] == 300

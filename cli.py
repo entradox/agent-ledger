@@ -43,6 +43,23 @@ def _mode_banner(args):
     return base
 
 
+def _local_claim(args):
+    """Local mode has always written straight through ledger_engine with no
+    claim step (it's the trusted operator path). If --workspace-key IS given,
+    honour it: claim/verify the agent_id into that workspace first so a local
+    claim binds a workspace_id the same way a remote one does. No key given =
+    unchanged legacy behavior."""
+    workspace_key = getattr(args, "workspace_key", None)
+    if not workspace_key:
+        return
+    from ledger_engine import ensure_agent_secret
+    secret, created = ensure_agent_secret(
+        args.agent_id, getattr(args, "agent_secret", None) or None,
+        workspace_key=workspace_key)
+    if created:
+        print(f"[claimed {args.agent_id} — agent_secret: {secret}]", file=sys.stderr)
+
+
 def cmd_track(args):
     base = _mode_banner(args)
     if base:
@@ -53,9 +70,12 @@ def cmd_track(args):
                  "amount_cents": args.amount_cents, "service": args.service}
         if args.agent_secret:
             body["agent_secret"] = args.agent_secret
+        if args.workspace_key:
+            body["workspace_key"] = args.workspace_key
         print(json.dumps(_remote_request(base, "POST", "/v1/track", body), indent=2))
         return
     from ledger_engine import track
+    _local_claim(args)
     entry = track(args.agent_id, args.rail, args.amount_cents, args.service)
     print(json.dumps(entry.to_dict(), indent=2))
 
@@ -69,9 +89,12 @@ def cmd_budget(args):
         body = {"agent_id": args.agent_id, "agent_secret": args.agent_secret,
                  "monthly_cents": args.monthly_cents, "daily_cents": args.daily_cents,
                  "monthly_tokens": args.monthly_tokens, "daily_tokens": args.daily_tokens}
+        if args.workspace_key:
+            body["workspace_key"] = args.workspace_key
         print(json.dumps(_remote_request(base, "POST", "/v1/budget", body), indent=2))
         return
     from ledger_engine import set_budget
+    _local_claim(args)
     b = set_budget(args.agent_id, args.monthly_cents, args.daily_cents,
                    monthly_tokens=args.monthly_tokens, daily_tokens=args.daily_tokens)
     print(json.dumps(b.to_dict(), indent=2))
@@ -138,6 +161,7 @@ def main():
     t.add_argument("--amount-cents", type=int, required=True)
     t.add_argument("--service", required=True)
     t.add_argument("--agent-secret", help="required for remote writes to an already-claimed agent_id")
+    t.add_argument("--workspace-key", help="required when claiming a brand-new agent_id")
     t.set_defaults(fn=cmd_track)
 
     b = sub.add_parser("set-budget", help="set budget caps")
@@ -147,6 +171,7 @@ def main():
     b.add_argument("--monthly-tokens", type=int, default=0, help="monthly token-burn cap (rail=tokens agents)")
     b.add_argument("--daily-tokens", type=int, default=0, help="daily token-burn cap (rail=tokens agents)")
     b.add_argument("--agent-secret", help="required for remote writes")
+    b.add_argument("--workspace-key", help="required when claiming a brand-new agent_id")
     b.set_defaults(fn=cmd_budget)
 
     r = sub.add_parser("report", help="generate spend report")

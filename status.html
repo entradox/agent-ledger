@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="AgentLedger — per-agent spend management for autonomous agents: x402/MPP/API-key rails, token burn reports, budget caps, anomaly alerts. Free during beta (3 agents), no signup. REST API + MCP.">
+<meta name="description" content="AgentLedger — per-agent spend management for autonomous agents: x402/MPP/API-key rails, token burn reports, budget caps, anomaly alerts. Free tier: 3 agents per workspace. REST API + MCP.">
 <title>AgentLedger — Status</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--red:#f85149;--blu:#58a6ff}
@@ -24,7 +24,7 @@ pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:1
 <div class="sub">Per-agent spend management · Last updated: <span id="ts">loading…</span></div>
 
 <div class="note">
-<b>🎯 Launch window: the first 50 agents to claim a slot get Pro free for 1 year.</b> No card, no signup — the first write claims it.
+<b>🎯 Launch window: the first 50 workspaces created get Pro free for 1 year.</b> No card — sign in once and the grant is automatic.
 <span id="scarcity-badge"></span>
 </div>
 
@@ -45,7 +45,7 @@ autonomous agent moves.
 
 <h2>Connect AgentLedger</h2>
 <div class="stat">
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">No OAuth, no API key, no signup — the first write for a new <code>agent_id</code> mints its <code>agent_secret</code> right in the response. Point any MCP client at the remote below and start tracking spend immediately.</p>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">Connecting needs no auth handshake. Before your first write, get a <code>workspace_key</code>: if your agent has its own wallet and no human, <code>POST /v1/billing/x402</code>, where the paying wallet becomes the workspace identity — or a human owner can sign in with Google at <a href="/login">/login</a> (requires Google OAuth configured on this deployment; returns 503 <code>login_not_configured</code> otherwise). The key claims new <code>agent_id</code>s; each claim mints that agent's own <code>agent_secret</code> for every write after it.</p>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Claude Code</b></p>
 <pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Codex</b></p>
@@ -89,21 +89,23 @@ autonomous agent moves.
 <pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}'</pre>
-<p style="font-size:11.5px;color:#8b949e;margin:-8px 0 12px"><b style="color:#D4AF37">No signup, but not open-write either:</b> the first call for a new <code>agent_id</code> returns an <code>agent_secret</code> in the response. Save it — every later write to that same <code>agent_id</code> (track or budget) must include <code>"agent_secret":"..."</code> in the body, or it's rejected. Reads (report/tokens/alerts) stay open, no secret needed.</p>
+  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
+<p style="font-size:11.5px;color:#8b949e;margin:-8px 0 12px"><b style="color:#D4AF37">A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must include <code>"workspace_key":"wk_live_..."</code> in the body — that's what claims it into your workspace — and it returns that agent's <code>agent_secret</code>. Save the secret: every later write to that same <code>agent_id</code> (track or budget) must include <code>"agent_secret":"..."</code> instead, and needs no workspace_key. Reads (report/tokens/alerts) all require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Token burn report</b> — see exactly what each agent burns on:</p>
-<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/tokens/my-agent</pre>
+<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/tokens/my-agent \
+  -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>2. Set a monthly budget cap</b> — enforced: a track() call that would cross it gets blocked (402), not just logged</p>
 <pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>3. Pull a spend report</b></p>
-<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent</pre>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>3. Pull a spend report</b> — requires the agent_secret from step 1</p>
+<pre class="cmd">curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent \
+  -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
 </div>
 
 <div class="note">
-<b>Free during beta (up to 3 agents).</b> All rails, budgets, alerts, and the MCP integration are free while AgentLedger is in beta. GA pricing: <b>Pro $19/mo</b> — unlimited tracked agents + full history + alerts: <a href="https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e" target="_blank" rel="noopener" style="color:#D4AF37">Get Pro — $19/mo</a>. Contact: entradox@icloud.com
+<b>Free tier: up to 3 agents per workspace.</b> All rails, budgets, alerts, and the MCP integration are included. <b>Pro $19/mo</b> — unlimited tracked agents + full history + alerts: <a href="https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e" target="_blank" rel="noopener" style="color:#D4AF37">Get Pro — $19/mo</a>. Contact: entradox@icloud.com
 </div>
 
 <div class="mut">

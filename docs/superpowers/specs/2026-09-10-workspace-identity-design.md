@@ -29,6 +29,82 @@ Stripe billing. It explicitly does NOT cover the dashboard UI pages
 their own specs once this shape is locked, per the brainstorming skill's
 decomposition guidance for multi-subsystem requests.
 
+## System legibility (added 2026-09-10, mid-implementation)
+
+This phase touches identity and auth from four different angles (claim
+gating, read authorization, session login, x402 minting). Left
+unaddressed, each would grow its own auth-checking logic and pile new
+routes onto the already-multi-responsibility `api_server.py` — exactly
+the kind of fragmentation that makes a system illegible to whoever (human
+or agent) next has to reason about it. Four structural additions, folded
+into the tasks below rather than treated as a separate cleanup pass:
+
+- **One identity concept, one module.** `identity.py` becomes the single
+  place "who is this caller" gets resolved — every gate (claim, read,
+  session, billing) calls into it instead of rolling its own check.
+- **`api_server.py` stops growing as a monolith.** It becomes a thin
+  FastAPI app that mounts responsibility-scoped routers
+  (`routes_agents.py`, `routes_billing.py`, `routes_auth.py`) instead of
+  accumulating every new endpoint inline.
+- **`ARCHITECTURE.md`** — one file, kept current, that IS the system's
+  current mental model (layer stack, identity paths, data flow) — so
+  reconstructing "what is this system, currently" never again requires
+  git archaeology across commits, specs, and handoff docs.
+- **`features.json`** at repo root — per the Workbench's existing
+  feature-tracker standard, not yet applied to this project.
+
+### 0. `identity.py` — the one place callers get resolved
+
+```
+resolve_agent_secret(agent_id: str, provided_secret: str | None) -> bool
+resolve_workspace_key(raw_key: str | None) -> str | None   # -> workspace_id or None
+resolve_session(cookie_value: str | None) -> str | None    # -> workspace_id or None
+authorize_agent_access(agent_id: str, *, agent_secret: str | None = None,
+                        workspace_key: str | None = None) -> bool
+```
+
+`authorize_agent_access` is the one function both the claim gate (in
+`ledger_engine.ensure_agent_secret`) and the read gate (in
+`routes_agents.py`, formerly `_authorize_agent_read` in `api_server.py`)
+call — either credential authorizing is decided in exactly one place,
+not reimplemented per-caller. `resolve_session` is what `routes_auth.py`'s
+`/dashboard` uses. This doesn't change any behavior already spec'd above
+(sections 2, 3c) — it relocates the *same* logic into one shared module
+instead of duplicating it at each call site.
+
+### File structure — `api_server.py` decomposition
+
+```
+api_server.py       — FastAPI app creation, MCP mounting, meta endpoints
+                       (health, stats, llms.txt, agent.json, server.json),
+                       router includes. Nothing else lives here going forward.
+identity.py          — resolve_* functions (above)
+routes_agents.py     — /v1/track, /v1/budget, /v1/report*, /v1/alerts,
+                        /v1/tokens (existing core, relocated unchanged)
+routes_billing.py    — /stripe/webhook, /v1/billing/checkout, /v1/billing/x402
+routes_auth.py       — /login, /auth/google/callback, /logout, /dashboard
+```
+
+Each router file is a plain `APIRouter()` mounted in `api_server.py` via
+`app.include_router(...)` — no behavior change from today's single-file
+routing, just responsibility-scoped files an agent (or a human) can hold
+fully in context without loading the other three.
+
+### `ARCHITECTURE.md` and `features.json`
+
+`ARCHITECTURE.md` (repo root): the layer stack above, the three ways a
+caller gets identity (existing agent_secret / Google OAuth workspace /
+x402 workspace), and one paragraph of data flow per major operation
+(claim, track, read, upgrade). Updated whenever a task changes the shape
+of any of these — kept current is the entire point, a stale map is worse
+than none.
+
+`features.json` (repo root): per the Workbench's `devops/feature-tracker`
+skill format — one entry per shippable feature (workspace identity,
+Google OAuth, x402 billing, read scoping, etc.) with status. JSON, not
+Markdown, per that skill's own rationale (agents are less likely to
+overwrite it wholesale than prose).
+
 ## Design
 
 ### 1. Data model — new `workspace` entity
@@ -60,10 +136,10 @@ for **new** claims only:
 
 - `POST /v1/track` or `/v1/budget` for an `agent_id` that has never been
   claimed now requires a `workspace_key` field in the body.
-- The key is hashed and looked up against a `workspace`. Invalid/missing
-  key on a new claim → 401 `workspace_key_required` (not the old
-  `beta_cap_exceeded` — that error still exists for a *valid* workspace
-  that's out of free slots).
+- The key is resolved via `identity.resolve_workspace_key()` (section 0) —
+  not a bespoke lookup inline. Invalid/missing key on a new claim → 401
+  `workspace_key_required` (not the old `beta_cap_exceeded` — that error
+  still exists for a *valid* workspace that's out of free slots).
 - Once claimed, all future writes to that `agent_id` continue to
   authenticate with `agent_secret` exactly as today — `workspace_key` is
   never needed again for that agent. This is deliberate: it keeps the
@@ -131,8 +207,10 @@ being acceptable once real paying customers exist.
 New behavior: each read endpoint requires **either** the agent's own
 `agent_secret` **or** its workspace's `workspace_key`, passed as a header
 (`X-Agent-Secret` or `X-Workspace-Key` — not a query param, to keep
-credentials out of server/proxy access logs). Either credential is
-sufficient (mirrors the existing write-path trust model, where
+credentials out of server/proxy access logs), checked via
+`identity.authorize_agent_access()` (section 0) — the same function the
+claim gate uses, not a second parallel implementation. Either credential
+is sufficient (mirrors the existing write-path trust model, where
 `agent_secret` alone already authorizes writes). No credential → 401.
 
 This is a real regression against today's "share a link, anyone can see

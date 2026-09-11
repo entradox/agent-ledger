@@ -19,10 +19,11 @@ from ledger_engine import (
     track, set_budget, get_budget, report, list_agents, _ledger_path,
     ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
     AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
+    WorkspaceKeyRequiredError,
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
-    idempotency_release, scarcity_claims_left, _delete_agent_row,
+    idempotency_release, scarcity_claims_left,
 )
 import metrics
 
@@ -33,6 +34,12 @@ import uvicorn
 
 APP_VERSION = "0.3.0"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
+
+from routes_agents import router as agents_router
+app.include_router(agents_router)
+
+from routes_auth import router as auth_router
+app.include_router(auth_router)
 
 
 @app.exception_handler(HTTPException)
@@ -46,43 +53,6 @@ async def _typed_error_handler(request: Request, exc: HTTPException):
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
     return JSONResponse(status_code=exc.status_code,
                          content=error_envelope(exc.status_code, str(exc.detail)))
-
-
-def _check_api_version(request: Request):
-    """Every /v1/* write must send AL-API-Version: <current>. Missing or
-    stale/invalid value -> 400 version_header (launch-kit v0.3 item 1.2)."""
-    version = request.headers.get("AL-API-Version")
-    if version != AL_API_VERSION:
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(400, detail=error_envelope(
-            400, f"AL-API-Version header must be '{AL_API_VERSION}' (got {version!r})",
-            code="version_header"))
-
-
-def _idempotency_gate(request: Request, agent_id: str, op: str):
-    """Shared Idempotency-Key handling for POST endpoints. Returns a cached
-    JSONResponse to return immediately, or None if the caller should proceed
-    (and must call idempotency_store() itself once the write succeeds)."""
-    key = request.headers.get("Idempotency-Key")
-    try:
-        status, cached = idempotency_begin(key, agent_id, op)
-    except IdempotencyKeyTooLongError as e:
-        raise HTTPException(400, detail=error_envelope(
-            400, str(e), code="idempotency_key_too_long"))
-    except IdempotencyConflictError as e:
-        raise HTTPException(409, detail=error_envelope(
-            409, str(e), code="idempotency_conflict"))
-    if status == "cached":
-        try:
-            metrics.record_event("idempotency_hit")
-        except Exception:
-            pass
-        return JSONResponse(status_code=cached["status_code"], content=cached["response"])
-    return None
-
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
 
@@ -122,32 +92,6 @@ async def _metrics_middleware(request: Request, call_next):
         pass
     return response
 
-def _log_event(kind):
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(COUNTS_FILE, "a") as f:
-            f.write(json.dumps({"ts": time.time(), "kind": kind}) + "\n")
-    except Exception:
-        pass
-
-class TrackRequest(BaseModel):
-    agent_id: str
-    rail: str
-    amount_cents: int = Field(ge=0, le=MAX_AMOUNT_CENTS)
-    service: str
-    tokens_in: int = Field(default=0, ge=0)
-    tokens_out: int = Field(default=0, ge=0)
-    model: str = ""
-    agent_secret: Optional[str] = None
-
-class BudgetRequest(BaseModel):
-    agent_id: str
-    monthly_cents: int = Field(ge=0)
-    daily_cents: int = Field(default=0, ge=0)
-    monthly_tokens: int = Field(default=0, ge=0)
-    daily_tokens: int = Field(default=0, ge=0)
-    agent_secret: Optional[str] = None
-
 @app.get("/health")
 def health():
     return {"ok": True, "service": "agent-ledger", "version": APP_VERSION}
@@ -155,251 +99,12 @@ def health():
 import threading as _threading
 import time as _time
 
-def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
-    """Shared auth gate for every write endpoint. Mints a secret on first use
-    of a new agent_id (no signup), verifies it on every later write, and
-    enforces the beta agent-slot cap. Raises HTTPException on failure."""
-    try:
-        return ensure_agent_secret(agent_id, provided_secret)
-    except AuthError as e:
-        try:
-            metrics.record_event("auth_fail")
-        except Exception:
-            pass
-        raise HTTPException(401, detail=error_envelope(401, str(e), code="agent_secret_mismatch"))
-    except BetaCapExceededError as e:
-        # Pro exemption is handled inside ensure_agent_secret(); anything that
-        # still reaches here is a genuinely free-tier cap hit.
-        try:
-            metrics.record_event("cap_blocked")
-        except Exception:
-            pass
-        raise HTTPException(402, detail=error_envelope(402, str(e), code="beta_cap_exceeded"))
-    except ValidationError as e:
-        # malformed agent_id (traversal, bad charset) — 422, not a 500
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
-
-@app.post("/v1/track")
-def create_track(req: TrackRequest, request: Request):
-    _log_event("track")
-    _check_api_version(request)
-    # Validate BEFORE the claim/mint step: a garbage rail or amount must not
-    # burn a free-tier agent slot (the minted secret is only returned on a
-    # successful write, so failing after minting would squat the agent_id).
-    try:
-        le_validate_agent_id(req.agent_id)
-    except ValidationError as e:
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
-    if req.rail != "tokens":
-        from ledger_engine import VALID_RAILS
-        if req.rail not in VALID_RAILS:
-            try:
-                metrics.record_event("validation_fail")
-            except Exception:
-                pass
-            raise HTTPException(422, detail=error_envelope(
-                422, f"rail must be one of {sorted(VALID_RAILS)} (got '{req.rail}')",
-                code="rail_not_allowed"))
-    # SECURITY ORDER: auth (claim) runs BEFORE the idempotency gate — an
-    # unauthenticated caller must not be able to reserve/409 a legitimate
-    # retry or read the cache (Morgan review 2026-09-09). Failed writes
-    # release their in-flight row so honest retries re-attempt.
-    idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
-    cached = _idempotency_gate(request, req.agent_id, "track")
-    if cached is not None:
-        return cached
-    # token dimension: token counts stored SEPARATELY from the dollar ledger
-    # (never mixed — token counts are not cents) via meta on the entry. When
-    # rail="tokens" IS the primary write, tok_meta rides on that single entry;
-    # a dollar-rail write that also reports token burn gets a second, separate
-    # 0-cent "tokens" row below. Attaching it twice for a tokens-primary call
-    # would leave a duplicate, metadata-less garbage row behind.
-    tok_meta = {}
-    if req.tokens_in or req.tokens_out:
-        tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
-        if req.model:
-            tok_meta["model"] = req.model
-    primary_meta = tok_meta if req.rail == "tokens" else {}
-    try:
-        entry = track(req.agent_id, req.rail, req.amount_cents, req.service, **primary_meta)
-    except ValidationError as e:
-        idempotency_release(idem_key, req.agent_id, "track")
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(422, detail=error_envelope(422, str(e)))
-    except BudgetExceededError as e:
-        idempotency_release(idem_key, req.agent_id, "track")
-        raise HTTPException(402, detail=error_envelope(402, str(e)))
-    if req.rail != "tokens" and tok_meta:
-        track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
-    result = entry.to_dict()
-    if created:
-        result["agent_secret"] = secret
-        result["_note"] = ("Save this agent_secret — required for every future write "
-                            "to this agent_id (track/budget). It will not be shown again.")
-    # SECURITY: the minted agent_secret must never be persisted in the
-    # idempotency cache — a replayable cached response would re-expose the
-    # secret to anyone who can name agent_id + key (Morgan review 2026-09-09).
-    # First-call clients that lose the secret re-register a new agent_id.
-    cached_payload = dict(result)
-    cached_payload.pop("agent_secret", None)
-    cached_payload["_note"] = ("agent_secret is shown once at claim time and is "
-                               "not included in cached (idempotent) replays.")
-    idempotency_store(idem_key, req.agent_id, "track", cached_payload, 200)
-    try:
-        metrics.record_event("track_ok")
-    except Exception:
-        pass
-    return result
-
-@app.post("/v1/budget")
-def create_budget(req: BudgetRequest, request: Request):
-    _check_api_version(request)
-    try:
-        le_validate_agent_id(req.agent_id)
-    except ValidationError as e:
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
-    # SECURITY ORDER: same as /v1/track — auth before gate; failed writes
-    # release the in-flight row. Secret never enters the cache.
-    idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
-    cached = _idempotency_gate(request, req.agent_id, "budget")
-    if cached is not None:
-        return cached
-    try:
-        b = set_budget(req.agent_id, req.monthly_cents, req.daily_cents,
-                       monthly_tokens=req.monthly_tokens, daily_tokens=req.daily_tokens)
-    except ValidationError as e:
-        idempotency_release(idem_key, req.agent_id, "budget")
-        try:
-            metrics.record_event("validation_fail")
-        except Exception:
-            pass
-        raise HTTPException(422, detail=error_envelope(422, str(e)))
-    result = b.to_dict()
-    if created:
-        result["agent_secret"] = secret
-        result["_note"] = ("Save this agent_secret — required for every future write "
-                           "to this agent_id (track/budget). It will not be shown again.")
-    cached_payload = dict(result)
-    cached_payload.pop("agent_secret", None)
-    cached_payload["_note"] = ("agent_secret is shown once at claim time and is "
-                               "not included in cached (idempotent) replays.")
-    idempotency_store(idem_key, req.agent_id, "budget", cached_payload, 200)
-    try:
-        metrics.record_event("budget_set")
-    except Exception:
-        pass
-    return result
-
-@app.get("/v1/report/{agent_id}")
-def get_report(agent_id: str, days: int = 30):
-    r = report(agent_id, days)
-    return {"agent_id": r.agent_id, "period": r.period,
-            "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
-            "by_service": r.by_service, "budget_status": r.budget_status,
-            "anomalies": r.anomalies, "entry_count": r.entry_count,
-            "plan": r.plan, "pro_until": r.pro_until}
-
-@app.get("/v1/report/{agent_id}/html", response_class=HTMLResponse)
-def get_report_html(agent_id: str, days: int = 30):
-    """Human-readable version of /v1/report/{agent_id} — same open read (no
-    secret required), just rendered instead of raw JSON. This is the page an
-    agent's owner (or the agent itself, sharing a link) actually looks at,
-    rather than curl-ing JSON to see if a budget is close to tripping."""
-    from ledger_engine import validate_agent_id
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    r = report(agent_id, days)
-    budget = r.budget_status or {}
-    cap_cents = budget.get("monthly_cap_cents")
-    token_cap = budget.get("monthly_token_cap")
-    pct = budget.get("pct_used", 0)
-    token_pct = budget.get("token_pct_used", 0)
-    exceeded = bool(budget.get("exceeded") or budget.get("token_exceeded"))
-    safe_agent_id = html.escape(agent_id)
-    plan_badge = {"free": "Free", "pro_scarcity": "Pro (launch window)",
-                  "pro_stripe": "Pro"}.get(r.plan, html.escape(r.plan))
-
-    def bar(used_pct: float, danger: bool) -> str:
-        used_pct = max(0.0, min(100.0, used_pct))
-        color = "#f85149" if danger else "#3fb950"
-        return (f'<div style="background:#21262d;border-radius:6px;height:10px;width:100%;max-width:360px">'
-                f'<div style="background:{color};height:10px;border-radius:6px;width:{used_pct:.0f}%"></div></div>')
-
-    rail_rows = "".join(
-        f"<tr><td>{html.escape(rail)}</td><td>${cents/100:.2f}</td></tr>"
-        for rail, cents in r.by_rail.items()) or '<tr><td colspan=2>No spend yet.</td></tr>'
-    anomaly_rows = "".join(
-        f"<li>{html.escape(str(a))}</li>" for a in r.anomalies) or "<li>None</li>"
-
-    budget_html = ""
-    if cap_cents:
-        budget_html += (f'<p>Dollar budget: <b>${cap_cents/100:.2f}/mo</b> — '
-                         f'{pct:.0f}% used</p>{bar(pct, pct >= 80)}')
-    if token_cap:
-        budget_html += (f'<p style="margin-top:14px">Token budget: <b>{token_cap:,}/mo</b> — '
-                         f'{token_pct:.0f}% used</p>{bar(token_pct, token_pct >= 80)}')
-    if not cap_cents and not token_cap:
-        budget_html = '<p style="color:#8b949e">No budget cap set — spend is tracked but not enforced.</p>'
-    if exceeded:
-        budget_html += '<p style="color:#f85149;font-weight:600">⚠️ Budget exceeded — writes are being blocked.</p>'
-
-    page_html = f"""<!doctype html><html><head><meta charset="utf-8">
-<title>AgentLedger — {safe_agent_id}</title>
-<style>
-body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif;padding:24px;max-width:640px;margin:0 auto}}
-table{{border-collapse:collapse;width:100%;margin:8px 0 16px}}
-th,td{{text-align:left;padding:6px 10px;border-bottom:1px solid #30363d;font-size:13px}}
-th{{color:#8b949e;font-weight:600}}
-h1{{font-size:20px;margin-bottom:2px}} .sub{{color:#8b949e;font-size:12px;margin-bottom:20px}}
-.badge{{display:inline-block;background:#238636;color:#fff;border-radius:4px;padding:2px 8px;font-size:11px}}
-</style></head><body>
-<h1>{safe_agent_id} <span class="badge">{plan_badge}</span></h1>
-<div class="sub">Last {days} days · total spend ${r.total_spend_cents/100:.2f} · {r.entry_count} entries</div>
-{budget_html}
-<h3 style="margin-top:24px;font-size:14px">Spend by rail</h3>
-<table>{rail_rows}</table>
-<h3 style="font-size:14px">Anomalies</h3>
-<ul style="font-size:13px;color:#8b949e">{anomaly_rows}</ul>
-</body></html>"""
-    return HTMLResponse(content=page_html)
-
-@app.get("/v1/alerts/{agent_id}")
-def get_alerts(agent_id: str):
-    from ledger_engine import validate_agent_id
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    alerts_path = DATA_DIR / "agents" / agent_id / "alerts.jsonl"
-    if not alerts_path.exists():
-        return {"count": 0, "alerts": []}
-    alerts = [json.loads(l) for l in open(alerts_path)]
-    return {"count": len(alerts), "alerts": alerts}
-
 @app.get("/v1/agents")
 def get_agents(request: Request):
     """Portfolio-wide listing across every agent_id ever claimed — owner-only.
-    (Per-agent data stays open-read at GET /v1/report/{agent_id} and
-    /v1/tokens/{agent_id}; this endpoint is the full cross-tenant dump.)"""
+    (Per-agent data at GET /v1/report/{agent_id}, /v1/tokens/{agent_id}, and
+    /v1/alerts/{agent_id} requires X-Agent-Secret or X-Workspace-Key; this
+    endpoint is the separate full cross-tenant dump.)"""
     admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
     if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
         raise HTTPException(401, "owner only")
@@ -555,18 +260,30 @@ across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status
 
-## Ownership (no signup — but not open-write either)
+## Ownership (a workspace_key claims; an agent_secret writes)
 
-The first write (POST /v1/track or /v1/budget) to a new agent_id mints an
-`agent_secret` and returns it once, e.g. {"agent_secret": "...", "_note": "..."}.
-Save it — every later write to that same agent_id must include it in the body
-as "agent_secret", or the request is rejected with 401. Reads
-(/v1/report, /v1/tokens, /v1/alerts) stay open — no secret required.
-Launch window: the first 50 agent_ids ever claimed get Pro free for 1 year
-(no action needed — claiming inside the window mints the grant automatically).
-After that window closes, beta caps total non-Pro claimed agents at 3
-site-wide; a 4th new non-Pro agent_id then gets 402 until upgrading ($19/mo,
-unlimited agents). Amounts per entry are capped at $100,000 and must be >= 0.
+Claiming a NEW agent_id requires a workspace_key in the body of the first
+write (POST /v1/track or /v1/budget). Get one self-serve with no human at
+all by paying via POST /v1/billing/x402 (the paying wallet becomes the
+workspace identity). A human owner can instead sign in at /login, which
+requires Google OAuth to be configured for this deployment; if it isn't,
+/login returns 503 login_not_configured. Missing or invalid key on a
+new claim gets 401 workspace_key_required.
+That first write mints an `agent_secret` and returns it once, e.g.
+{"agent_secret": "...", "_note": "..."}. Save it — every later write to that
+same agent_id must include it in the body as "agent_secret" (the
+workspace_key is never needed again for that agent), or the request is
+rejected with 401. Reads /v1/report, /v1/tokens, and /v1/alerts all require
+an X-Agent-Secret or X-Workspace-Key header (either credential proving
+access to that agent_id) — missing/wrong gets 401. A logged-in browser
+session cookie also authorizes reads for that session's own workspace.
+Launch window: the first 50 WORKSPACES ever created get Pro free for 1 year
+(no action needed — signing up inside the window mints the grant
+automatically; it expires one year later).
+Outside that window a free workspace is capped at 3 agents; a 4th new
+agent_id gets 402 until upgrading ($19/mo, unlimited agents). The cap is
+per workspace, not site-wide. Amounts per entry are capped at $100,000 and
+must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
 cross the monthly/daily cap is rejected with 402, not just logged.
 Dollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/
@@ -591,17 +308,24 @@ GET  /health                       — liveness
 POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
      body: {"agent_id": str, "rail": str, "amount_cents": int (0-10000000), "service": str,
             "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional),
+            "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret); once set,
                                       track() blocks entries that would cross the cap
      body: {"agent_id": str, "monthly_cents": int (0-10000000), "daily_cents": int (optional, 0-10000000),
             "monthly_tokens": int (optional, token-burn cap), "daily_tokens": int (optional, token-burn cap),
+            "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
-GET  /v1/report/{agent_id}         — spend report (query: days=30) — open read
-GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — open read
-GET  /v1/alerts/{agent_id}         — alerts for agent — open read
+GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
+GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
+GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
+POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
+                                      (X-PAYMENT header; the paying wallet IS the identity)
+GET  /login                        — Google sign-in; issues a workspace_key on first login
+                                      (503 login_not_configured if Google OAuth isn't set
+                                      up for this deployment)
 
 ## MCP
 
@@ -609,22 +333,30 @@ Registry: io.github.entradox/agent-ledger
 Remote:   https://agent-ledger-production-0ff8.up.railway.app/mcp/
 
 Tools exposed at POST /mcp/:
-  ledger_track          — record a spend entry (agent_secret param, same rules as above)
-  ledger_set_budget     — set a budget cap (agent_secret param, same rules as above)
-  ledger_report         — get a spend report (open read)
-  ledger_alerts         — get alerts for an agent (open read)
+  ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
+  ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
+  ledger_report         — get a spend report (agent_secret or workspace_key param)
+  ledger_alerts         — get alerts for an agent (agent_secret or workspace_key param)
   ledger_list_agents    — owner-only (admin_secret param)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
+Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
+take agent_secret/workspace_key parameters and enforce the same access rule
+as GET /v1/report and GET /v1/alerts — there is no unauthenticated read path
+on either surface. Only the meta-doc tools (ledger_api_docs,
+ledger_examples) are open, and they expose no agent data.
+
 Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
 AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
 The /mcp/ endpoint itself does not require this header (MCP tool calls are
-not version-gated); reads (/v1/report, /v1/tokens, /v1/alerts) are unaffected too.
+not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
-Free during beta. Contact: entradox@icloud.com
+Pricing is as described above (free tier = 3 agents per workspace; Pro =
+$19/mo, unlimited agents; first 50 workspaces get Pro free for 1 year).
+Contact: entradox@icloud.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
 
@@ -665,21 +397,35 @@ AGENT_JSON = {
     "api_base": "https://agent-ledger-production-0ff8.up.railway.app/v1",
     "openapi": "https://agent-ledger-production-0ff8.up.railway.app/openapi.json",
     "auth": {
-        "type": "self_issued_secret",
-        "field": "agent_secret",
-        "description": "No signup. The first POST /v1/track or /v1/budget for a new "
-                        "agent_id mints an agent_secret in the response body — save it, "
-                        "every later write to that agent_id must include it. Reads "
-                        "(report/alerts/tokens) need no auth.",
+        "type": "workspace_key",
+        "field": "workspace_key",
+        "description": "Get a workspace_key with no human at all by paying via "
+                        "POST /v1/billing/x402 (the paying wallet becomes the workspace "
+                        "identity). A human owner can instead sign in at /login, which "
+                        "requires Google OAuth to be configured for this deployment "
+                        "(503 login_not_configured otherwise). Claiming a NEW agent_id "
+                        "requires that workspace_key in the first POST /v1/track or "
+                        "/v1/budget body; that call mints an agent_secret in the "
+                        "response — save it, every later write to that agent_id must "
+                        "include it and needs no workspace_key. Reads "
+                        "(report/alerts/tokens) require agent_secret or workspace_key, "
+                        "sent as X-Agent-Secret or X-Workspace-Key.",
     },
     "pricing": {
         "model": "freemium",
         "amount_usd": 19.00,
-        "description": "Free during beta. Pro is $19/mo for unlimited agents "
-                        "(free tier is capped). Launch window: first 50 agents to "
-                        "claim a slot get Pro free for 1 year.",
+        "description": "Free tier is 3 agents per workspace. Pro is $19/mo for "
+                        "unlimited agents. Launch window: the first 50 workspaces "
+                        "created get Pro free for 1 year.",
     },
     "capabilities": [
+        {"id": "mint_workspace_x402",
+         "description": "Self-serve workspace + workspace_key for an agent with a "
+                        "wallet — no human, no login. Present an x402 payment in the "
+                        "X-PAYMENT header; the paying wallet becomes the workspace "
+                        "identity. Do this first: a workspace_key is required to "
+                        "claim a new agent_id.",
+         "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
         {"id": "set_budget", "description": "Set monthly/daily budget caps for an agent",
@@ -718,165 +464,8 @@ def connect_beacon(event: str):
             pass
     return JSONResponse(content={"ok": True})
 
-# ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
-CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
-
-def _append_customer(rec: dict):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CUSTOMERS_FILE, "a") as f:
-        f.write(json.dumps(rec) + "\n")
-
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    """Fulfillment: checkout.session.completed -> customers.jsonl (HMAC-verified)."""
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
-    secret = os.environ.get("STRIPE_WEBHOOK_SECRET_AL", "")
-    if not secret:
-        # Fail closed: an unsigned/unverifiable webhook must never mutate state
-        # (customers.jsonl, pro.flag). Missing secret on the service = config
-        # error, and silently accepting the event would be an open write path.
-        raise HTTPException(500, "webhook secret not configured — event rejected")
-    try:
-        parts = dict(p.split("=", 1) for p in sig.split(","))
-        expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
-        if not parts.get("t") or not hmac.compare_digest(parts.get("v1", ""), expected):
-            raise HTTPException(400, "bad signature")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(400, "signature verification failed")
-    event = json.loads(payload)
-    event_type = event.get("type", "")
-    if event_type.startswith("checkout.session.") and event_type not in (
-            "checkout.session.completed", "checkout.session.expired"):
-        # a checkout session that opened (and hasn't hit a terminal state)
-        # counts as revenue-funnel entry — leading indicator of purchase intent.
-        # completed/expired excluded so Stripe retries and dead sessions never
-        # inflate the funnel (Morgan review, 2026-09-09).
-        try:
-            metrics.record_event("checkout_started")
-        except Exception:
-            pass
-    if event_type != "checkout.session.completed":
-        return {"received": True, "ignored": event.get("type")}
-    sess = event["data"]["object"]
-    email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
-    if not email:
-        return {"registered": False, "reason": "no email on session"}
-    amount = sess.get("amount_total") or 0
-    plan = "pro" if amount == 1900 else "unknown"
-    _append_customer({"ts": time.time(), "email": email, "plan": plan,
-                      "amount_total": amount, "stripe_session": sess.get("id", ""),
-                      "status": "active", "authority": "confirmed-at-checkout"})
-    try:
-        metrics.record_event("checkout_completed", amount_cents=amount)
-    except Exception:
-        pass
-    if plan == "pro":
-        from ledger_engine import activate_pro
-        activate_pro()
-    try:
-        from send_onboarding_email import send_onboarding_email
-        send_onboarding_email(email, plan)
-    except Exception as e:
-        import logging
-        logging.warning(f"onboarding email skipped: {e}")
-    return {"registered": True, "email": email, "plan": plan}
-
-@app.delete("/v1/agents/{agent_id}")
-def delete_agent(agent_id: str, request: Request):
-    """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
-    are per-product, so the operator can clear test/demo agents to free slots."""
-    from ledger_engine import validate_agent_id
-    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
-        raise HTTPException(401, "owner only")
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    import shutil
-    agent_dir = DATA_DIR / "agents" / agent_id
-    if not agent_dir.exists():
-        raise HTTPException(404, f"agent not found: {agent_id}")
-    # D-819: the row goes FIRST, then the dir. A dir removed without its row
-    # is an orphan row that diverges the scarcity counter from the window
-    # gate — if the row delete fails, abort with BOTH intact rather than
-    # leaving a silent orphan behind.
-    try:
-        _delete_agent_row(agent_id)
-    except Exception as e:
-        raise HTTPException(500, detail=error_envelope(
-            500, f"could not delete agent record for '{agent_id}': {e}"))
-    shutil.rmtree(agent_dir)
-    return {"deleted": agent_id}
-
-@app.get("/v1/tokens/{agent_id}")
-def token_report(agent_id: str, days: int = 30):
-    """Token burn report: totals in/out, by model, per period. Separate from
-    dollar spend — answers 'what is this agent burning on?'"""
-    from ledger_engine import validate_agent_id
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    from ledger_engine import _ledger_path
-    p = _ledger_path(agent_id)
-    if not p.exists():
-        return {"agent_id": agent_id, "days": days, "tokens_in": 0, "tokens_out": 0,
-                "total_tokens": 0, "by_model": {}, "entries": 0}
-    import time as _t
-    cutoff = _t.time() - days * 86400
-    tin = tout = 0
-    by_model = {}
-    entries = 0
-    for line in p.read_text().splitlines():
-        try:
-            e = json.loads(line)
-        except Exception:
-            continue
-        # token counts live at TOP level of the entry (track() promotes **meta to keys)
-        if e.get("rail") != "tokens" or "tokens_in" not in e:
-            continue
-        ts = e.get("timestamp", "")
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-            if dt < cutoff:
-                continue
-        except Exception:
-            pass
-        t_in = e.get("tokens_in", 0)
-        t_out = e.get("tokens_out", 0)
-        tin += t_in
-        tout += t_out
-        entries += 1
-        m = e.get("model") or "unknown"
-        by_model[m] = by_model.get(m, 0) + t_in + t_out
-    return {"agent_id": agent_id, "days": days, "tokens_in": tin, "tokens_out": tout,
-            "total_tokens": tin + tout, "by_model": by_model, "entries": entries}
-
-@app.get("/v1/billing/{email}")
-def billing_status(email: str, token: str = ""):
-    """Customer plan lookup — OWNER-ONLY (Opus audit round 3: was an open
-    email-enumeration oracle). Token = HMAC-SHA256("billing:<email>",
-    AL_ADMIN_SECRET), truncated to 32 hex chars; the operator computes it,
-    customers never see billing state of other emails."""
-    import hashlib as _h, secrets as _secrets, hmac as _hmac
-    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    # keyed digest: sha256(secret || email) truncated to 128 bits — constant-time compare
-    expected_token = _h.sha256(admin_secret.encode() + b"billing:" + email.lower().encode()).hexdigest()[:32] if admin_secret else ""
-    if not (admin_secret and token and expected_token) or not _secrets.compare_digest(token, expected_token):
-        raise HTTPException(401, "owner only (billing status is not public)")
-    for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
-        try:
-            r = json.loads(line)
-            if r.get("email", "").lower() == email.lower() and r.get("status") == "active":
-                return {"email": email, "plan": r.get("plan"), "status": "active"}
-        except Exception:
-            continue
-    return {"email": email, "plan": "beta", "status": "free_during_beta"}
+from routes_billing import router as billing_router
+app.include_router(billing_router)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8761))

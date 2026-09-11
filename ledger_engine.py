@@ -91,6 +91,10 @@ class BetaCapExceededError(LedgerError):
     """Beta agent-slot cap reached."""
 
 
+class WorkspaceKeyRequiredError(LedgerError):
+    """A brand-new agent_id claim did not present a valid workspace_key."""
+
+
 class IdempotencyKeyTooLongError(ValidationError):
     """Idempotency-Key header exceeds MAX_IDEMPOTENCY_KEY_LEN."""
 
@@ -193,21 +197,17 @@ def claimed_agent_count() -> int:
 
 
 def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
-                         *, check_cap: bool = True) -> tuple[str, bool]:
-    """Claim-or-verify ownership of agent_id. No signup required — the first
-    write to a new agent_id mints a secret and returns it; every later write
-    to that same agent_id must present it. Returns (secret, created).
+                         *, workspace_key: Optional[str] = None,
+                         check_cap: bool = True) -> tuple[str, bool]:
+    """Claim-or-verify ownership of agent_id. An already-claimed agent_id is
+    verified against provided_secret; a brand-new claim requires a valid
+    workspace_key, which resolves the workspace the agent_id is claimed
+    into. Returns (secret, created).
 
     Raises AuthError if agent_id is already claimed and the secret doesn't
-    match, or BetaCapExceededError if this would be a new agent past the
-    free-tier slot cap (skipped when Pro is active — site-wide Stripe Pro,
-    this specific agent_id already holding a live scarcity-window grant, or a
-    new claim that is itself inside the scarcity window, which is about to be
-    granted Pro below).
-
-    A brand-new agent_id claimed while the all-time claimed count is still
-    under SCARCITY_PRO_CAP is stamped with a one-year pro_until (scarcity
-    window, v0.3.1) — see is_pro().
+    match; WorkspaceKeyRequiredError if a new claim's workspace_key is absent
+    or invalid; BetaCapExceededError if the resolved workspace's agent_cap is
+    already reached (skipped when check_cap=False).
     """
     validate_agent_id(agent_id)
     path = _secret_path(agent_id)
@@ -218,30 +218,39 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 f"agent_id '{agent_id}' is already claimed — pass its agent_secret "
                 "(returned when the agent_id was first used) to write to it")
         return real, False
-    pre_claim_count = claimed_agent_count()
-    # Eligibility order is load-bearing (D-818): the scarcity window is
-    # evaluated BEFORE the free-tier cap. Checking the cap first shadowed the
-    # whole launch promise — a brand-new agent_id whose claim fell inside the
-    # window (pre_claim_count < SCARCITY_PRO_CAP) got 402 and could never mint
-    # the pro_until grant that claim was supposed to receive.
-    inside_scarcity_window = pre_claim_count < SCARCITY_PRO_CAP
-    if (check_cap and not pro_active() and not is_pro(agent_id)["is_pro"]
-            and not inside_scarcity_window
-            and pre_claim_count >= BETA_AGENT_CAP):
-        raise BetaCapExceededError(
-            f"Beta limit: {BETA_AGENT_CAP} agents tracked. Upgrade to Pro ($19/mo) "
-            "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e "
-            "— or contact entradox@icloud.com")
+    # NEW claim from here — requires a valid workspace_key (D-<next>: workspace
+    # identity, 2026-09-10). The site-wide BETA_AGENT_CAP/scarcity-by-agent-id
+    # logic that used to live here is retired in favor of per-workspace caps.
+    # Resolved via identity.py (not workspace_engine directly) so every
+    # caller across the codebase goes through the same resolution function.
+    import identity
+    import workspace_engine
+    workspace_id = identity.resolve_workspace_key(workspace_key)
+    workspace = workspace_engine.get_workspace(workspace_id) if workspace_id else None
+    if workspace is None:
+        raise WorkspaceKeyRequiredError(
+            "a new agent_id requires a valid workspace_key — sign up at "
+            "https://agent-ledger-production-0ff8.up.railway.app/login "
+            "(or pay via x402 at /v1/billing/x402) to get one")
+
+    # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
+    # has agent_cap=None stored, so reading the field directly would leave a
+    # first-50 workspace unbounded forever.
+    agent_cap = workspace_engine.effective_agent_cap(workspace)
+    if check_cap and agent_cap is not None:
+        claimed_in_workspace = sum(
+            1 for d in (DATA_DIR / "agents").glob("*")
+            if d.is_dir() and (d / "workspace_id.txt").exists()
+            and (d / "workspace_id.txt").read_text().strip() == workspace["workspace_id"])
+        if claimed_in_workspace >= agent_cap:
+            raise BetaCapExceededError(
+                f"Free tier: {agent_cap} agents per workspace. Upgrade to Pro ($19/mo) "
+                "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
     path.write_text(new_secret)
-    if inside_scarcity_window:
-        pro_until = _time.time() + SCARCITY_PRO_DURATION_SECONDS
-        _set_pro_until(agent_id, pro_until)
-        remaining = SCARCITY_PRO_CAP - (pre_claim_count + 1)
-        metrics.record_event("pro_scarcity_claimed", remaining=remaining)
-        if remaining == 0:
-            metrics.record_event("pro_scarcity_exhausted")
+    (_agent_dir(agent_id) / "workspace_id.txt").write_text(workspace["workspace_id"])
     return new_secret, True
 
 
@@ -297,18 +306,6 @@ def _get_pro_until(agent_id: str) -> Optional[float]:
     try:
         row = conn.execute("SELECT pro_until FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
         return row[0] if row else None
-    finally:
-        conn.close()
-
-
-def _set_pro_until(agent_id: str, pro_until: float) -> None:
-    conn = _agents_conn()
-    try:
-        conn.execute(
-            "INSERT INTO agents (agent_id, pro_until) VALUES (?, ?) "
-            "ON CONFLICT(agent_id) DO UPDATE SET pro_until=excluded.pro_until",
-            (agent_id, pro_until))
-        conn.commit()
     finally:
         conn.close()
 

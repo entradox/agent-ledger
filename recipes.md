@@ -14,6 +14,12 @@ import requests
 BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
+# Claiming a new agent_id needs your workspace_key: POST /v1/billing/x402
+# if your agent has a wallet (no human, no login), or sign in at
+# https://agent-ledger-production-0ff8.up.railway.app/login (requires Google OAuth configured on the deployment;
+# returns 503 login_not_configured otherwise). After the first call the
+# minted agent_secret is what authenticates every later write.
+WORKSPACE_KEY = "wk_live_..."
 agent_secret = None  # fill in after the first successful call
 
 
@@ -22,6 +28,8 @@ def track_spend(agent_id, rail, amount_cents, service, **extra):
             "service": service, **extra}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{BASE}/v1/track", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -46,10 +54,19 @@ BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
 
+# A new agent_id is claimed with your workspace_key; afterwards the minted
+# agent_secret authenticates writes. Get one via POST /v1/billing/x402 (no
+# human, no login) or by signing in at https://agent-ledger-production-0ff8.up.railway.app/login (requires Google
+# OAuth configured on the deployment; 503 login_not_configured otherwise).
+WORKSPACE_KEY = "wk_live_..."
+
+
 def set_budget(agent_id, monthly_cents, agent_secret=None, daily_cents=0):
     body = {"agent_id": agent_id, "monthly_cents": monthly_cents, "daily_cents": daily_cents}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{BASE}/v1/budget", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -79,16 +96,22 @@ if __name__ == "__main__":
 Pattern name: `weekly_report`
 
 ```python
-"""AgentLedger — weekly spend P&L across every agent you track."""
+"""AgentLedger — weekly spend P&L across every agent you track.
+
+GET /v1/report now requires a credential: either the agent's own
+agent_secret, or (as used here) the workspace_key covering all of your
+agent_ids at once."""
 import requests
 
 BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 
 
-def weekly_pnl(agent_ids):
+def weekly_pnl(agent_ids, workspace_key):
     rows = []
+    headers = {"X-Workspace-Key": workspace_key}
     for agent_id in agent_ids:
-        r = requests.get(f"{BASE}/v1/report/{agent_id}", params={"days": 7}, timeout=10)
+        r = requests.get(f"{BASE}/v1/report/{agent_id}", params={"days": 7},
+                          headers=headers, timeout=10)
         r.raise_for_status()
         rep = r.json()
         rows.append({"agent_id": agent_id,
@@ -99,7 +122,8 @@ def weekly_pnl(agent_ids):
 
 
 if __name__ == "__main__":
-    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"]):
+    workspace_key = "YOUR_SAVED_WORKSPACE_KEY"
+    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"], workspace_key):
         print(f"{row['agent_id']:24s} ${row['spend_usd']:.2f}  anomalies={len(row['anomalies'])}")
 ```
 
@@ -122,6 +146,11 @@ def track_once(agent_id, rail, amount_cents, service, agent_secret=None, idem_ke
     body = {"agent_id": agent_id, "rail": rail, "amount_cents": amount_cents, "service": service}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        # claiming a new agent_id — needs a workspace_key from
+        # POST /v1/billing/x402 (no login) or from /login (Google OAuth
+        # must be configured on the deployment)
+        body["workspace_key"] = "wk_live_..."
     for attempt in range(3):
         try:
             r = requests.post(f"{BASE}/v1/track", json=body, headers=headers, timeout=5)
