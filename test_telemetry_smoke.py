@@ -21,7 +21,7 @@ def client(monkeypatch):
 
     # Fresh module state per test — these modules cache DATA_DIR and in-memory
     # counters at import time, so drop any previously-imported copies.
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
 
     import metrics as metrics_mod

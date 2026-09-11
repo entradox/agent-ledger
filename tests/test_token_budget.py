@@ -54,7 +54,7 @@ def client(monkeypatch):
     monkeypatch.setenv("AL_ADMIN_SECRET", "test-admin-secret")
     monkeypatch.delenv("AL_PRO_ACTIVE", raising=False)
 
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
 
     import ledger_engine as ledger_engine_mod

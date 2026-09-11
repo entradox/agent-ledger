@@ -12,9 +12,10 @@ def client(monkeypatch):
     tmp = tempfile.mkdtemp()
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
     import importlib
-    import ledger_engine, workspace_engine, api_server
+    import ledger_engine, workspace_engine, api_server, routes_agents
     importlib.reload(workspace_engine)
     importlib.reload(ledger_engine)
+    importlib.reload(routes_agents)
     importlib.reload(api_server)
     from fastapi.testclient import TestClient
     yield TestClient(api_server.app), workspace_engine
