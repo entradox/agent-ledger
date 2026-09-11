@@ -90,3 +90,45 @@ def test_google_auth_routes_are_gone_not_just_broken(client, path):
     typed 503 on a route that still exists implies the feature is merely
     unconfigured. Google OAuth returns when a real reason for it exists."""
     assert client.get(path).status_code == 404
+
+
+def test_post_start_creates_the_free_tier_not_the_paid_one(client):
+    """Morgan's finding, verified before it was fixed: the launch-window grant
+    hands over the ENTIRE paid tier — agent_cap None, one year, free — so
+    minting every anonymous visitor into it made the $19 upgrade button
+    decorative and put the whole promotion one loop away from anyone who
+    wanted it. /start now creates exactly the free tier the page advertises."""
+    import workspace_engine
+    r = client.post("/start")
+    ws_id = re.search(r"workspace_id: (ws_[A-Za-z0-9_\-]+)", r.text).group(1)
+    ws = workspace_engine.get_workspace(ws_id)
+    assert ws["plan"] == "free"
+    assert ws["pro_scarcity"] is False
+    assert ws["pro_until"] is None
+    assert workspace_engine.effective_agent_cap(ws) == 3
+    assert "$19" in r.text, "the upgrade offer must still be on the page"
+
+
+def test_the_launch_grant_is_still_reachable_by_the_agent_path(client):
+    """grant_scarcity=False is scoped to the human self-serve route. A real
+    wallet payment is a commitment signal, not an anonymous HTTP request, and
+    still earns the grant."""
+    import workspace_engine
+    ws_id, _ = workspace_engine.create_workspace(wallet_address="0x" + "ab" * 20)
+    assert workspace_engine.get_workspace(ws_id)["plan"] == "pro"
+
+
+def test_start_mint_is_rate_limited_per_ip(client):
+    """POST /start is an unauthenticated write on a public route. Without a
+    cap, one loop mints unlimited workspaces."""
+    codes = [client.post("/start").status_code for _ in range(4)]
+    assert codes[:3] == [200, 200, 200]
+    assert codes[3] == 429
+
+
+def test_key_reveal_response_is_never_cached(client):
+    """The workspace_key is shown exactly once and cannot be reissued, so a
+    cached copy would strand a credential we cannot recover."""
+    r = client.post("/start")
+    assert r.headers.get("cache-control") == "no-store"
+    assert r.headers.get("referrer-policy") == "no-referrer"

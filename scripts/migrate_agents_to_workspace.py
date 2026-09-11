@@ -4,9 +4,14 @@ to a single default workspace, so nothing breaks after Tasks 1-8 deploy.
 Run with --dry-run first. Idempotent: re-running skips agents that
 already have a workspace_id.txt.
 
-Pass --google-sub so the migrated workspace is the SAME one your Google
-login resolves to — without it the script mints a workspace keyed to
-nothing, which your dashboard session can never reach."""
+STALE AS WRITTEN (D-1162): Google auth was deleted, so `--google-sub` no
+longer has a source and "your dashboard session" no longer exists. The
+mechanism below is still correct — bind the pre-existing agents to a
+workspace so their claims keep resolving — but the identity must now come
+from a workspace YOU created at POST /start (or via the x402 mint), passed
+in as that workspace's id. Re-point this script before running it; the
+migration itself is deferred until the right workspace for the 4
+pre-existing agents is decided."""
 import argparse
 import sys
 from pathlib import Path
@@ -24,14 +29,11 @@ def main():
     parser.add_argument("--owner-email", required=True)
     parser.add_argument(
         "--google-sub",
-        help="Your Google 'sub' claim — the stable subject id the OAuth "
-             "callback keys workspaces by. Get it by logging in once at "
-             "/login: the callback resolves your sub and creates a "
-             "workspace under it, so the value is visible in that "
-             "workspace's record (workspaces/<id>.json, field google_sub) "
-             "on the data volume. Passing it here makes the MIGRATED "
-             "workspace the same one your real login resolves to. Omit it "
-             "and the migrated workspace is unreachable from the dashboard.")
+        help="DEPRECATED (D-1162): Google OAuth was removed, so there is no "
+             "'sub' to look up and no login that will ever resolve this "
+             "workspace. Kept only because the mechanism is still tested. "
+             "Before this script may be run, it must take a workspace_id of "
+             "a workspace you created at /start instead.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -44,12 +46,13 @@ def main():
     print(f"Found {len(to_migrate)} agent(s) needing migration: {[d.name for d in to_migrate]}")
     if not args.google_sub:
         print(
-            "\n!! WARNING: no --google-sub given.\n"
-            "!! The workspace this creates is keyed to nothing, so logging in\n"
-            "!! at /login will resolve to a DIFFERENT workspace and the\n"
-            "!! migrated agents will not appear on your dashboard.\n"
-            "!! Log in once, read your google_sub out of the workspace record\n"
-            "!! it creates, and re-run with --google-sub <sub>.\n")
+            "\n!! WARNING: no --google-sub given, and --google-sub is itself\n"
+            "!! DEPRECATED (D-1162): Google auth was deleted, so nothing will\n"
+            "!! ever resolve this workspace by login again. The workspace this\n"
+            "!! run creates is reachable only through the workspace_key printed\n"
+            "!! below — save it from this output, because it is shown once.\n"
+            "!! Before re-running, re-point this script at an existing\n"
+            "!! workspace_id created at POST /start.\n")
     if not to_migrate:
         # create_workspace() is not free: inside the launch window it consumes
         # one of the 50 scarcity slots. Minting a workspace for zero agents

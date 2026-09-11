@@ -78,7 +78,10 @@ async def _metrics_middleware(request: Request, call_next):
         path = request.url.path
         # PII redaction: /v1/billing/{email} has the customer's raw email in the
         # path — never let it reach the metrics event log (Morgan review, 2026-09-09).
-        if path.startswith("/v1/billing/"):
+        if path.startswith("/v1/billing/") and path not in (
+                "/v1/billing/checkout", "/v1/billing/x402"):
+            # Only the email-bearing path is PII; the two real routes keep
+            # their own bucket so the buy funnel stays countable.
             path = "/v1/billing/<redacted>"
         ip_bucket = f"path:{path}" if path in REACH_PATHS or path.startswith("/mcp") else None
         metrics.record_event("http", path=path, method=request.method,
@@ -531,6 +534,22 @@ workspace. The free tier needs no card and does not expire.</p>
 """)
 
 
+def _start_limited_html() -> str:
+    return _page("AgentLedger — slow down", """
+<h1>Too many workspaces from this address</h1>
+<div class="sub">Three per day.</div>
+<div class="card">
+<p>The free tier needs no signup, which also means there is nothing stopping an
+automated loop — so the mint is capped at 3 workspaces per address per day.</p>
+<p>Already have one? Your <code>workspace_key</code> was shown once when you created it.
+If it is lost, it cannot be recovered in this version.</p>
+<p>Running an agent rather than a browser? The self-serve path is
+<code>POST /v1/billing/x402</code>, which is not affected by this limit.</p>
+<p><a class="plain" href="/llms.txt">/llms.txt</a> has the full API docs.</p>
+</div>
+<div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
+""")
+
 @app.get("/start", response_class=HTMLResponse)
 def start_page():
     """Step one of the buy path. Deliberately does NOT mint: a mint on GET
@@ -540,18 +559,55 @@ def start_page():
     return _start_form_html()
 
 
+_START_WINDOW_SECONDS = 86400
+_START_MAX_PER_IP = 3
+_START_MINTS: dict = {}
+
+
+def _start_mint_allowed(request: Request) -> bool:
+    """Three workspace mints per IP per day.
+
+    POST /start is an unauthenticated write on a public route, and each mint
+    costs disk. Without this, one loop creates unlimited workspaces — and
+    against a deployment where the mint still consumed a launch-window slot,
+    it took the whole promotion in a second. In-memory on purpose: this is a
+    single-instance service and the counter is not worth a datastore.
+    """
+    client = request.client.host if request.client else "unknown"
+    now = time.time()
+    recent = [t for t in _START_MINTS.get(client, []) if now - t < _START_WINDOW_SECONDS]
+    if len(recent) >= _START_MAX_PER_IP:
+        _START_MINTS[client] = recent
+        return False
+    recent.append(now)
+    _START_MINTS[client] = recent
+    return True
+
+
 @app.post("/start", response_class=HTMLResponse)
-def start_mint():
+def start_mint(request: Request):
     """Mint a workspace for a human with no signup, no login and no card, then
     show its workspace_key exactly once — the same one-time reveal the
     retiring Google dashboard used. The payment link carries the workspace id
     as client_reference_id: that reference is what lets the Stripe webhook
     mark THIS workspace Pro. Without it a real payment would take the card
-    and upgrade nothing (D-1162)."""
+    and upgrade nothing (D-1162).
+
+    grant_scarcity=False: this is the free tier, not the launch grant. See
+    workspace_engine.create_workspace for why.
+    """
+    if not _start_mint_allowed(request):
+        return HTMLResponse(_start_limited_html(), status_code=429)
     import workspace_engine
-    workspace_id, raw_key = workspace_engine.create_workspace()
+    workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False)
     checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
-    return _start_key_html(workspace_id, raw_key, checkout)
+    # no-store: the key is shown exactly once and can never be re-revealed, so
+    # a cache (or a browser's back-forward cache) holding this response would
+    # strand a credential we cannot reissue. no-referrer keeps the key out of
+    # any Referer header on the outbound click to Stripe.
+    return HTMLResponse(_start_key_html(workspace_id, raw_key, checkout),
+                        headers={"Cache-Control": "no-store",
+                                 "Referrer-Policy": "no-referrer"})
 
 @app.get("/v1/_beacon")
 def connect_beacon(event: str):

@@ -87,10 +87,9 @@ secret as a header, no curl needed for the JSON):
 
 `/v1/report`, `/v1/tokens`, and `/v1/alerts` all require either
 `X-Agent-Secret: <agent's secret>` or `X-Workspace-Key: <the workspace's key>`
-— missing or wrong credential gets 401. A logged-in dashboard session also
-authorizes reads for that session's own workspace, which is how the agent
-links on `/dashboard` work in a browser. This is what stops a stranger from
-reading or overwriting someone else's `agent_id`.
+— missing or wrong credential gets 401. Headers only: there is no cookie or
+session arm, and no unauthenticated read path on REST or MCP. This is what
+stops a stranger from reading or overwriting someone else's `agent_id`.
 
 Note this is a deliberate break from AgentLedger's earlier "share the link,
 anyone can read it" behavior — traded for real isolation between customers.

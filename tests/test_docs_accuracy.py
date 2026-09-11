@@ -26,6 +26,10 @@ REPO = Path(__file__).resolve().parent.parent
 # signup after the workspace-identity phase changed both.
 DOC_FILES = ("README.md", "status.html", "recipes.md",
              "al_mcp_http.py", "routes_agents.py")
+# README.md was already in this tuple, but the session-cookie read claim it
+# carried was not covered by any of the patterns above, so it rotted silently
+# through the Google removal. Keep this comment as a reminder that membership
+# in DOC_FILES only catches the patterns in STALE_CLAIMS.
 
 # Claims that are no longer true. "no login" is deliberately absent: the x402
 # path genuinely requires none. "no signup" was on this list until D-1162 and

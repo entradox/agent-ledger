@@ -81,7 +81,8 @@ def get_workspace_by_wallet(wallet_address: str) -> Optional[dict]:
 
 def create_workspace(*, owner_email: Optional[str] = None,
                       google_sub: Optional[str] = None,
-                      wallet_address: Optional[str] = None
+                      wallet_address: Optional[str] = None,
+                      grant_scarcity: bool = True
                       ) -> tuple[str, Optional[str]]:
     """Idempotent per identity dimension: calling again with the same
     google_sub or wallet_address returns the SAME workspace (no duplicate
@@ -109,7 +110,15 @@ def create_workspace(*, owner_email: Optional[str] = None,
     workspace_id = "ws_" + secrets.token_urlsafe(16)
     raw_key = "wk_live_" + secrets.token_urlsafe(32)
     pre_count = workspace_count()
-    is_scarcity = pre_count < WORKSPACE_SCARCITY_CAP
+    # grant_scarcity=False is the human self-serve path (POST /start). It exists
+    # because the launch-window grant hands over the ENTIRE paid tier — no agent
+    # cap, one year, free — so minting every anonymous visitor into it made the
+    # $19 upgrade button decorative and put the whole promotion one loop away
+    # from anyone who wanted it. A human now gets the free tier the page
+    # advertises (3 agents, every feature); Pro is what $19 buys. The agent path
+    # (POST /v1/billing/x402) still earns the grant, because paying a wallet is
+    # a real commitment signal and not an anonymous HTTP request.
+    is_scarcity = grant_scarcity and pre_count < WORKSPACE_SCARCITY_CAP
     record = {
         "workspace_id": workspace_id,
         "owner_email": owner_email,

@@ -68,9 +68,10 @@ ul.tick li b{color:var(--t)}
 
 <div class="card">
   <p><b>Start with no signup, no login and no card at <a class="plain" href="/start">/start</a>.</b>
-  A workspace is free — 3 agents, every feature. The workspace key is shown once, on the spot.</p>
-  <p><b>Launch window:</b> the first 50 workspaces created get Pro free for one year, granted
-  automatically on creation. <span id="scarcity-badge"></span></p>
+  A workspace is free — 3 agents, every feature, no expiry. The workspace key is shown once, on
+  the spot.</p>
+  <p><b>Past 3 agents it's $19/mo</b> for unlimited tracked agents on the same workspace, same key,
+  no migration. The upgrade link is built for your workspace, not a generic checkout.</p>
 </div>
 
 <h2>What it does</h2>
@@ -149,10 +150,6 @@ const _c = new AbortController(); setTimeout(()=>_c.abort(), 8000);
 fetch("/stats", {signal: _c.signal}).then(r=>r.json()).then(d=>{
   const ta = document.getElementById("ta");
   if (typeof d.tracked_agents === "number") ta.textContent = d.tracked_agents;
-  if (typeof d.scarcity_claims_left === "number") {
-    document.getElementById("scarcity-badge").innerHTML =
-      '<span class="tag">' + d.scarcity_claims_left + ' of 50 Pro-free slots left</span>';
-  }
 }).catch(()=>{
   const ta = document.getElementById("ta");
   if (ta) ta.textContent = "unavailable";
