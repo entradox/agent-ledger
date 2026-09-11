@@ -31,9 +31,9 @@ curl -X POST {BASE_URL}/v1/track \\
 
 No signup: the first write for a new `agent_id` mints an `agent_secret` in
 the response — save it, every later write to that `agent_id` must include
-it as `"agent_secret"`. Reads: `GET /v1/report` and `GET /v1/alerts` require
-an `X-Agent-Secret` or `X-Workspace-Key` header (either credential proving
-access to that `agent_id`); `GET /v1/tokens` stays an open read.
+it as `"agent_secret"`. Reads: `GET /v1/report`, `GET /v1/tokens`, and
+`GET /v1/alerts` all require an `X-Agent-Secret` or `X-Workspace-Key` header
+(either credential proving access to that `agent_id`).
 
 Retries: send the same `Idempotency-Key` on a retried write and you get back
 the exact cached response from the first attempt instead of a second write.
@@ -62,7 +62,7 @@ GET  /health                       — liveness
 POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
-GET  /v1/tokens/{{agent_id}}         — token burn report — open read
+GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (X-Al-Admin)
 GET  /v1/metrics                   — owner-only: funnel + revenue + reach telemetry

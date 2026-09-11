@@ -72,9 +72,9 @@ curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent \
 secret as a header, no curl needed for the JSON):
 `https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent/html`
 
-`/v1/report` and `/v1/alerts` require either `X-Agent-Secret: <agent's secret>`
-or `X-Workspace-Key: <the workspace's key>` — missing or wrong credential gets
-401. `/v1/tokens` is still an open read. This is what stops a stranger from
+`/v1/report`, `/v1/tokens`, and `/v1/alerts` all require either
+`X-Agent-Secret: <agent's secret>` or `X-Workspace-Key: <the workspace's key>`
+— missing or wrong credential gets 401. This is what stops a stranger from
 reading or overwriting someone else's `agent_id`.
 
 ## Install (MCP clients)

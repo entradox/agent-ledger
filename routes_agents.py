@@ -369,7 +369,7 @@ def get_alerts(agent_id: str, request: Request):
     return {"count": len(alerts), "alerts": alerts}
 
 @router.get("/v1/tokens/{agent_id}")
-def token_report(agent_id: str, days: int = 30):
+def token_report(agent_id: str, request: Request, days: int = 30):
     """Token burn report: totals in/out, by model, per period. Separate from
     dollar spend — answers 'what is this agent burning on?'"""
     from ledger_engine import validate_agent_id
@@ -377,6 +377,7 @@ def token_report(agent_id: str, days: int = 30):
         validate_agent_id(agent_id)
     except ValidationError as e:
         raise HTTPException(422, str(e))
+    _authorize_agent_read(agent_id, request)
     from ledger_engine import _ledger_path
     p = _ledger_path(agent_id)
     if not p.exists():

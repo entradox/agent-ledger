@@ -58,3 +58,27 @@ def test_html_report_also_scoped(client):
     assert r.status_code == 401
     r2 = tc.get("/v1/report/read-scope-agent/html", headers={"X-Agent-Secret": secret})
     assert r2.status_code == 200
+
+
+def test_tokens_requires_a_credential(client):
+    tc, raw_key, secret = client
+    r = tc.get("/v1/tokens/read-scope-agent")
+    assert r.status_code == 401
+
+
+def test_tokens_accepts_agent_secret(client):
+    tc, raw_key, secret = client
+    r = tc.get("/v1/tokens/read-scope-agent", headers={"X-Agent-Secret": secret})
+    assert r.status_code == 200
+
+
+def test_tokens_accepts_workspace_key(client):
+    tc, raw_key, secret = client
+    r = tc.get("/v1/tokens/read-scope-agent", headers={"X-Workspace-Key": raw_key})
+    assert r.status_code == 200
+
+
+def test_tokens_rejects_wrong_credential(client):
+    tc, raw_key, secret = client
+    r = tc.get("/v1/tokens/read-scope-agent", headers={"X-Agent-Secret": "wrong"})
+    assert r.status_code == 401
