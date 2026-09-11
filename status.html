@@ -45,7 +45,7 @@ autonomous agent moves.
 
 <h2>Connect AgentLedger</h2>
 <div class="stat">
-<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">Connecting needs no auth handshake. Before your first write, get a <code>workspace_key</code>: sign in with Google at <a href="/login">/login</a>, or — if your agent has its own wallet and no human — <code>POST /v1/billing/x402</code>, where the paying wallet becomes the workspace identity. The key claims new <code>agent_id</code>s; each claim mints that agent's own <code>agent_secret</code> for every write after it.</p>
+<p style="font-size:12.5px;color:#8b949e;margin-bottom:10px">Connecting needs no auth handshake. Before your first write, get a <code>workspace_key</code>: if your agent has its own wallet and no human, <code>POST /v1/billing/x402</code>, where the paying wallet becomes the workspace identity — or a human owner can sign in with Google at <a href="/login">/login</a> (requires Google OAuth configured on this deployment; returns 503 <code>login_not_configured</code> otherwise). The key claims new <code>agent_id</code>s; each claim mints that agent's own <code>agent_secret</code> for every write after it.</p>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Claude Code</b></p>
 <pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
 <p style="font-size:12.5px;color:#8b949e;margin-bottom:6px"><b>Codex</b></p>

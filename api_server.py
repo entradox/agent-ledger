@@ -263,9 +263,11 @@ Human/agent status page: GET /status
 ## Ownership (a workspace_key claims; an agent_secret writes)
 
 Claiming a NEW agent_id requires a workspace_key in the body of the first
-write (POST /v1/track or /v1/budget). Get one by signing in at /login, or
-self-serve with no human at all by paying via POST /v1/billing/x402 (the
-paying wallet becomes the workspace identity). Missing or invalid key on a
+write (POST /v1/track or /v1/budget). Get one self-serve with no human at
+all by paying via POST /v1/billing/x402 (the paying wallet becomes the
+workspace identity). A human owner can instead sign in at /login, which
+requires Google OAuth to be configured for this deployment; if it isn't,
+/login returns 503 login_not_configured. Missing or invalid key on a
 new claim gets 401 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
 {"agent_secret": "...", "_note": "..."}. Save it — every later write to that
@@ -319,9 +321,11 @@ GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by mod
 GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
-GET  /login                        — Google sign-in; issues a workspace_key on first login
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
+GET  /login                        — Google sign-in; issues a workspace_key on first login
+                                      (503 login_not_configured if Google OAuth isn't set
+                                      up for this deployment)
 
 ## MCP
 
@@ -395,9 +399,11 @@ AGENT_JSON = {
     "auth": {
         "type": "workspace_key",
         "field": "workspace_key",
-        "description": "Get a workspace_key by signing in at /login, or with no human "
-                        "at all by paying via POST /v1/billing/x402 (the paying wallet "
-                        "becomes the workspace identity). Claiming a NEW agent_id "
+        "description": "Get a workspace_key with no human at all by paying via "
+                        "POST /v1/billing/x402 (the paying wallet becomes the workspace "
+                        "identity). A human owner can instead sign in at /login, which "
+                        "requires Google OAuth to be configured for this deployment "
+                        "(503 login_not_configured otherwise). Claiming a NEW agent_id "
                         "requires that workspace_key in the first POST /v1/track or "
                         "/v1/budget body; that call mints an agent_secret in the "
                         "response — save it, every later write to that agent_id must "

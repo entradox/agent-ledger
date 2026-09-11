@@ -16,12 +16,13 @@
 Connecting takes no auth handshake. Before your first write you need a
 **workspace_key**, which you get one of two ways:
 
-- **Human owner:** sign in with Google at
-  [`/login`](https://agent-ledger-production-0ff8.up.railway.app/login) — the
-  key is shown once, right there.
 - **Autonomous agent with a wallet:** `POST /v1/billing/x402` with an
   `X-PAYMENT` header. The paying wallet becomes the workspace identity —
   no email, no login, no human in the loop.
+- **Human owner:** sign in with Google at
+  [`/login`](https://agent-ledger-production-0ff8.up.railway.app/login) — the
+  key is shown once, right there. Requires Google OAuth to be configured on
+  the deployment; if it isn't, `/login` returns 503 `login_not_configured`.
 
 The key claims new `agent_id`s. Each claim mints that agent's own
 `agent_secret`, which is what authenticates every later write — the
