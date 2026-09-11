@@ -63,6 +63,15 @@ def dashboard_page(request: Request):
     if not workspace_id:
         return RedirectResponse("/login")
     ws = workspace_engine.get_workspace(workspace_id)
+    # Show the plan actually in force, not the raw stored field. A scarcity
+    # workspace keeps plan == "pro" forever, but once pro_until passes,
+    # effective_agent_cap has already dropped enforcement back to the free
+    # tier — rendering ws['plan'] raw told the owner "pro" while the server
+    # was capping them. is_workspace_pro owns the expiry comparison; this
+    # reads it rather than re-deriving the clock.
+    effective_plan = "pro" if workspace_engine.is_workspace_pro(workspace_id) else "free"
+    if effective_plan == "free" and ws.get("plan") == "pro":
+        effective_plan = "free (launch-window Pro has expired)"
     reveal_key = request.cookies.get("al_key_reveal")
     key_html = (
         f'<p style="color:#d4af37"><b>Your workspace_key (save this now — shown once):</b><br>'
@@ -80,7 +89,7 @@ def dashboard_page(request: Request):
     page = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AgentLedger — Your Workspace</title></head><body style="font-family:sans-serif;padding:24px">
 <h1>Your workspace</h1>
-<p>Plan: <b>{html.escape(ws['plan'])}</b></p>
+<p>Plan: <b>{html.escape(effective_plan)}</b></p>
 {key_html}
 <h3>Your agents</h3><ul>{agent_rows}</ul>
 <p><a href="/logout">Log out</a></p>

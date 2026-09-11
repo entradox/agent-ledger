@@ -98,3 +98,31 @@ def test_dashboard_does_not_promise_key_recovery(auth_client):
     assert "not available yet" in page
     # must not offer re-login as a key-recovery path — it no longer is one
     assert "Log in again" not in page
+
+
+def test_dashboard_shows_pro_while_the_scarcity_grant_is_live(auth_client):
+    tc, workspace_engine = auth_client
+    _callback(tc)
+    page = tc.get("/dashboard").text
+    assert "Plan: <b>pro</b>" in page
+
+
+def test_dashboard_does_not_show_pro_after_the_scarcity_grant_expires(auth_client):
+    """The stored plan field stays "pro" forever on a scarcity workspace, but
+    effective_agent_cap has already dropped enforcement back to the free tier
+    once pro_until passes. Rendering the raw field told the owner "pro" while
+    the server was capping them."""
+    import time
+    tc, workspace_engine = auth_client
+    _callback(tc)
+    ws_id = workspace_engine.get_workspace_by_google_sub("g-login-1")["workspace_id"]
+    record = workspace_engine.get_workspace(ws_id)
+    assert record["plan"] == "pro" and record["pro_until"] is not None
+    record["pro_until"] = time.time() - 1
+    workspace_engine._write_workspace(record)
+
+    page = tc.get("/dashboard").text
+    assert "Plan: <b>pro</b>" not in page
+    assert "expired" in page
+    # the raw stored field is unchanged — only the display is corrected
+    assert workspace_engine.get_workspace(ws_id)["plan"] == "pro"
