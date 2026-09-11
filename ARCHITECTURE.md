@@ -55,7 +55,13 @@ git log and scattered specs.
    `tx_hash` is the idempotency key, on the same store `/v1/track` uses:
    a replay returns the identical cached original response, and a second
    real payment from a known wallet resolves to the existing workspace
-   with `workspace_key: null` rather than rotating the key.
+   with `workspace_key: null` rather than rotating the key. Verification and
+   settlement run through the real `x402` SDK (`x402_verify.py`); the route
+   needs `X402_PAY_TO` (receiving wallet — no default) and optionally
+   `X402_FACILITATOR_URL` (default `https://x402.org/facilitator`),
+   `X402_NETWORK` (default `eip155:84532`, Base Sepolia) and `X402_MINT_PRICE`
+   (default `$0.01`). Unset `X402_PAY_TO` degrades the route to 503; the
+   service still starts.
 3. **Existing `agent_secret`** — an agent claimed before this phase (or
    claimed under either path above) keeps authenticating writes with its
    own secret, never needing the workspace_key again after the initial

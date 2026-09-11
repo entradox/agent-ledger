@@ -171,12 +171,22 @@ def x402_billing(request: Request):
     from ledger_engine import (idempotency_begin, idempotency_store,
                                idempotency_release, error_envelope,
                                IdempotencyKeyTooLongError, IdempotencyConflictError)
-    payment_header = request.headers.get("x-payment", "")
-    if not payment_header:
-        raise HTTPException(402, "X-PAYMENT header required")
     import x402_verify, workspace_engine
-    result = x402_verify.verify_payment(payment_header)
+    try:
+        result = x402_verify.verify_payment(request)
+    except x402_verify.X402Unavailable as e:
+        raise HTTPException(503, f"x402 not available on this service: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"x402 payment processing failed: {str(e)[:120]}")
     if not result["verified"]:
+        # The SDK's own response (402 + PAYMENT-REQUIRED header listing price,
+        # network and pay_to) is what discovery clients need; forward it
+        # verbatim rather than flattening it to a bare 402 string.
+        unpaid = result.get("unpaid_response")
+        if unpaid:
+            return JSONResponse(status_code=unpaid["status"],
+                                content=unpaid.get("body") or {},
+                                headers=unpaid.get("headers") or {})
         raise HTTPException(402, "payment not verified")
     wallet = result.get("payer_wallet")
     if not wallet:
@@ -188,12 +198,13 @@ def x402_billing(request: Request):
             402, "payer wallet missing from settlement — no identity to bind "
                  "a workspace to, refusing to mint", code="x402_no_payer_wallet"))
     # Settlement sanity: a verified payment of ANY size to ANY recipient must
-    # not mint a workspace. Only the recipient is checked here — the
-    # facilitator response schema is still an unconfirmed placeholder (see
-    # x402_verify.py), so this deliberately validates the one field whose
-    # meaning is unambiguous rather than a schema we have not confirmed.
-    # Enforced only when X402_RECEIVING_ADDRESS is configured; an unset value
-    # means the operator has not declared a receiving address yet.
+    # not mint a workspace. `recipient` is the pay_to on the PaymentRequirements
+    # the SDK verified the payment against — the one field whose meaning is
+    # unambiguous. Defence in depth: under the real SDK that pay_to comes from
+    # this service's own X402_PAY_TO config, so a mismatch means the route and
+    # the treasury config have drifted apart. Enforced only when
+    # X402_RECEIVING_ADDRESS is configured; an unset value means the operator
+    # has not declared a receiving address yet.
     expected_recipient = os.environ.get("X402_RECEIVING_ADDRESS", "")
     if expected_recipient:
         recipient = result.get("recipient")
@@ -244,4 +255,7 @@ def x402_billing(request: Request):
     cached_payload["_note"] = ("workspace_key is shown once at claim time and is "
                                "not included in cached (idempotent) replays.")
     idempotency_store(tx_hash, wallet, "x402_mint", cached_payload, 200)
-    return payload
+    # Echo the SDK's PAYMENT-RESPONSE settlement headers so the paying client
+    # can see its receipt (tx hash, network) alongside the minted workspace.
+    return JSONResponse(status_code=200, content=payload,
+                        headers=result.get("settlement_headers") or {})
