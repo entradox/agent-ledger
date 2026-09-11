@@ -130,6 +130,67 @@ def test_cli_budget_accepts_workspace_key():
     assert args.workspace_key == "wk_live_xyz"
 
 
+# --- MCP reads are credential-gated, same as REST (Fix 7) --------------------
+
+def _claimed(al_mcp_http, workspace_engine, agent_id="read-gate-agent"):
+    _, raw_key = workspace_engine.create_workspace(owner_email="r@example.com")
+    r = al_mcp_http.ledger_track(agent_id=agent_id, rail="api_key",
+                                 amount_cents=100, service="s",
+                                 workspace_key=raw_key)
+    return raw_key, r["agent_secret"]
+
+
+def test_mcp_report_without_credential_is_refused(mcp_env):
+    al_mcp_http, workspace_engine = mcp_env
+    _claimed(al_mcp_http, workspace_engine)
+    result = al_mcp_http.ledger_report(agent_id="read-gate-agent")
+    assert result["error_code"] == "agent_secret_mismatch"
+    assert "total_spend_cents" not in result
+
+
+def test_mcp_report_accepts_agent_secret(mcp_env):
+    al_mcp_http, workspace_engine = mcp_env
+    _, secret = _claimed(al_mcp_http, workspace_engine)
+    result = al_mcp_http.ledger_report(agent_id="read-gate-agent",
+                                       agent_secret=secret)
+    assert result["total_spend_cents"] == 100
+
+
+def test_mcp_report_accepts_workspace_key(mcp_env):
+    al_mcp_http, workspace_engine = mcp_env
+    raw_key, _ = _claimed(al_mcp_http, workspace_engine)
+    result = al_mcp_http.ledger_report(agent_id="read-gate-agent",
+                                       workspace_key=raw_key)
+    assert result["total_spend_cents"] == 100
+
+
+def test_mcp_report_rejects_other_workspaces_key(mcp_env):
+    """The bypass that mattered: MCP must not hand an agent's data to a
+    caller the REST read gate would have refused."""
+    al_mcp_http, workspace_engine = mcp_env
+    _claimed(al_mcp_http, workspace_engine)
+    _, other_key = workspace_engine.create_workspace(owner_email="other@example.com")
+    result = al_mcp_http.ledger_report(agent_id="read-gate-agent",
+                                       workspace_key=other_key)
+    assert result["error_code"] == "agent_secret_mismatch"
+
+
+def test_mcp_alerts_without_credential_is_refused(mcp_env):
+    al_mcp_http, workspace_engine = mcp_env
+    _claimed(al_mcp_http, workspace_engine)
+    result = al_mcp_http.ledger_alerts(agent_id="read-gate-agent")
+    assert result["error_code"] == "agent_secret_mismatch"
+    assert "alerts" not in result
+
+
+def test_mcp_alerts_accepts_agent_secret(mcp_env):
+    al_mcp_http, workspace_engine = mcp_env
+    _, secret = _claimed(al_mcp_http, workspace_engine)
+    result = al_mcp_http.ledger_alerts(agent_id="read-gate-agent",
+                                       agent_secret=secret)
+    assert "alerts" in result
+
+
 def test_cli_workspace_key_defaults_to_none():
     args = _parse(["track", "--agent-id", "a1", "--rail", "api_key",
                    "--amount-cents", "100", "--service", "s"])

@@ -140,19 +140,47 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
     return result
 
 
+def _authorize_read_or_error(agent_id: str, agent_secret: str, workspace_key: str):
+    """MCP-side mirror of routes_agents._authorize_agent_read. Returns a
+    typed error dict if neither credential authorizes, else None.
+
+    Reads on the REST side are credential-gated (spec 3c); leaving the MCP
+    reads open would be a straight bypass of that gate — an agent refused
+    by GET /v1/report could read the same data through ledger_report with
+    no credential at all. Same identity.authorize_agent_access call, so
+    there is still exactly one place either credential is decided.
+    """
+    import identity
+    if identity.authorize_agent_access(agent_id,
+                                       agent_secret=agent_secret or None,
+                                       workspace_key=workspace_key or None):
+        return None
+    return {"error": "this agent's data requires its agent_secret or workspace_key",
+            "error_code": "agent_secret_mismatch"}
+
+
 @mcp.tool(annotations={"title": "Agent Spend Report", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
-def ledger_report(agent_id: str, days: int = 30) -> dict:
+def ledger_report(agent_id: str, days: int = 30, agent_secret: str = "",
+                  workspace_key: str = "") -> dict:
     """Spend report for an agent over a rolling window.
 
     Returns total spend, breakdown by rail and by service, budget status
     (ok/warning/exceeded), detected anomalies, and entry count.
 
+    Requires a credential: either the agent's own agent_secret or its
+    workspace's workspace_key (same rule as GET /v1/report).
+
     Args:
         agent_id: unique agent identifier
         days: report window in days (default 30)
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
     """
     from ledger_engine import report
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
     r = report(agent_id, days)
     _record_mcp_call()
     return {"agent_id": r.agent_id, "period": r.period,
@@ -163,14 +191,27 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
 
 @mcp.tool(annotations={"title": "Agent Budget Alerts", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
-def ledger_alerts(agent_id: str) -> dict:
-    """Alert history for an agent: budget warnings (80% threshold) and spending spikes."""
+def ledger_alerts(agent_id: str, agent_secret: str = "",
+                  workspace_key: str = "") -> dict:
+    """Alert history for an agent: budget warnings (80% threshold) and spending spikes.
+
+    Requires a credential: either the agent's own agent_secret or its
+    workspace's workspace_key (same rule as GET /v1/alerts).
+
+    Args:
+        agent_id: unique agent identifier
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+    """
     import json as _json
     from ledger_engine import _alerts_path, validate_agent_id, ValidationError
     try:
         validate_agent_id(agent_id)  # REST/MCP parity — same guard as GET /v1/alerts
     except ValidationError as e:
-        return {"error": str(e)}
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
     p = _alerts_path(agent_id)
     if not p.exists():
         return {"alerts": []}
