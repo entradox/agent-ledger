@@ -229,9 +229,11 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     workspace = workspace_engine.get_workspace(workspace_id) if workspace_id else None
     if workspace is None:
         raise WorkspaceKeyRequiredError(
-            "a new agent_id requires a valid workspace_key — sign up at "
-            "https://agent-ledger-production-0ff8.up.railway.app/login "
-            "(or pay via x402 at /v1/billing/x402) to get one")
+            "a new agent_id requires a valid workspace_key — get one "
+            "self-serve at POST /v1/billing/x402 (no human, no login), or by "
+            "signing in at "
+            "https://agent-ledger-production-0ff8.up.railway.app/login if "
+            "Google OAuth is configured for this deployment")
 
     # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
     # has agent_cap=None stored, so reading the field directly would leave a
