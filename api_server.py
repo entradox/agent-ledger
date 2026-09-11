@@ -261,8 +261,10 @@ Human/agent status page: GET /status
 The first write (POST /v1/track or /v1/budget) to a new agent_id mints an
 `agent_secret` and returns it once, e.g. {"agent_secret": "...", "_note": "..."}.
 Save it — every later write to that same agent_id must include it in the body
-as "agent_secret", or the request is rejected with 401. Reads
-(/v1/report, /v1/tokens, /v1/alerts) stay open — no secret required.
+as "agent_secret", or the request is rejected with 401. Reads /v1/report and
+/v1/alerts require an X-Agent-Secret or X-Workspace-Key header (either
+credential proving access to that agent_id) — missing/wrong gets 401.
+/v1/tokens stays an open read.
 Launch window: the first 50 agent_ids ever claimed get Pro free for 1 year
 (no action needed — claiming inside the window mints the grant automatically).
 After that window closes, beta caps total non-Pro claimed agents at 3
@@ -298,9 +300,9 @@ POST /v1/budget                    — set budget caps (mints/verifies agent_sec
      body: {"agent_id": str, "monthly_cents": int (0-10000000), "daily_cents": int (optional, 0-10000000),
             "monthly_tokens": int (optional, token-burn cap), "daily_tokens": int (optional, token-burn cap),
             "agent_secret": str (required after the first call for this agent_id)}
-GET  /v1/report/{agent_id}         — spend report (query: days=30) — open read
+GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — open read
-GET  /v1/alerts/{agent_id}         — alerts for agent — open read
+GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
 
@@ -318,10 +320,14 @@ Tools exposed at POST /mcp/:
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
+Note: the REST endpoints above (GET /v1/report, GET /v1/alerts) require
+X-Agent-Secret or X-Workspace-Key; the MCP tools ledger_report/ledger_alerts
+remain open reads.
+
 Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
 AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
 The /mcp/ endpoint itself does not require this header (MCP tool calls are
-not version-gated); reads (/v1/report, /v1/tokens, /v1/alerts) are unaffected too.
+not version-gated); GET /v1/tokens is still an open read.
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 

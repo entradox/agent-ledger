@@ -126,6 +126,23 @@ def _idempotency_gate(request: Request, agent_id: str, op: str):
     return None
 
 
+def _authorize_agent_read(agent_id: str, request: Request) -> None:
+    """Reads used to be fully open (pre-workspace design). Now require
+    either the agent's own secret or its workspace's key — checked via
+    identity.authorize_agent_access(), the same function the claim gate
+    (ledger_engine.ensure_agent_secret) resolves identity through. This
+    wrapper's only job is pulling headers off Request and raising the
+    HTTP error — it holds no credential-comparison logic of its own."""
+    import identity
+    if not identity.authorize_agent_access(
+            agent_id,
+            agent_secret=request.headers.get("x-agent-secret", ""),
+            workspace_key=request.headers.get("x-workspace-key", "")):
+        raise HTTPException(401, detail=error_envelope(
+            401, "this agent's data requires its agent_secret or workspace_key",
+            code="agent_secret_mismatch"))
+
+
 def _log_event(kind):
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,7 +277,8 @@ def create_budget(req: BudgetRequest, request: Request):
     return result
 
 @router.get("/v1/report/{agent_id}")
-def get_report(agent_id: str, days: int = 30):
+def get_report(agent_id: str, request: Request, days: int = 30):
+    _authorize_agent_read(agent_id, request)
     r = report(agent_id, days)
     return {"agent_id": r.agent_id, "period": r.period,
             "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
@@ -269,16 +287,18 @@ def get_report(agent_id: str, days: int = 30):
             "plan": r.plan, "pro_until": r.pro_until}
 
 @router.get("/v1/report/{agent_id}/html", response_class=HTMLResponse)
-def get_report_html(agent_id: str, days: int = 30):
-    """Human-readable version of /v1/report/{agent_id} — same open read (no
-    secret required), just rendered instead of raw JSON. This is the page an
-    agent's owner (or the agent itself, sharing a link) actually looks at,
-    rather than curl-ing JSON to see if a budget is close to tripping."""
+def get_report_html(agent_id: str, request: Request, days: int = 30):
+    """Human-readable version of /v1/report/{agent_id} — same
+    workspace/agent-scoped read (requires X-Agent-Secret or X-Workspace-Key),
+    just rendered instead of raw JSON. This is the page an agent's owner (or
+    the agent itself, sharing a link) actually looks at, rather than
+    curl-ing JSON to see if a budget is close to tripping."""
     from ledger_engine import validate_agent_id
     try:
         validate_agent_id(agent_id)
     except ValidationError as e:
         raise HTTPException(422, str(e))
+    _authorize_agent_read(agent_id, request)
     r = report(agent_id, days)
     budget = r.budget_status or {}
     cap_cents = budget.get("monthly_cap_cents")
@@ -335,12 +355,13 @@ h1{{font-size:20px;margin-bottom:2px}} .sub{{color:#8b949e;font-size:12px;margin
     return HTMLResponse(content=page_html)
 
 @router.get("/v1/alerts/{agent_id}")
-def get_alerts(agent_id: str):
+def get_alerts(agent_id: str, request: Request):
     from ledger_engine import validate_agent_id
     try:
         validate_agent_id(agent_id)
     except ValidationError as e:
         raise HTTPException(422, str(e))
+    _authorize_agent_read(agent_id, request)
     alerts_path = DATA_DIR / "agents" / agent_id / "alerts.jsonl"
     if not alerts_path.exists():
         return {"count": 0, "alerts": []}

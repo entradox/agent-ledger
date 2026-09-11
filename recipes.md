@@ -79,16 +79,22 @@ if __name__ == "__main__":
 Pattern name: `weekly_report`
 
 ```python
-"""AgentLedger — weekly spend P&L across every agent you track."""
+"""AgentLedger — weekly spend P&L across every agent you track.
+
+GET /v1/report now requires a credential: either the agent's own
+agent_secret, or (as used here) the workspace_key covering all of your
+agent_ids at once."""
 import requests
 
 BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 
 
-def weekly_pnl(agent_ids):
+def weekly_pnl(agent_ids, workspace_key):
     rows = []
+    headers = {"X-Workspace-Key": workspace_key}
     for agent_id in agent_ids:
-        r = requests.get(f"{BASE}/v1/report/{agent_id}", params={"days": 7}, timeout=10)
+        r = requests.get(f"{BASE}/v1/report/{agent_id}", params={"days": 7},
+                          headers=headers, timeout=10)
         r.raise_for_status()
         rep = r.json()
         rows.append({"agent_id": agent_id,
@@ -99,7 +105,8 @@ def weekly_pnl(agent_ids):
 
 
 if __name__ == "__main__":
-    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"]):
+    workspace_key = "YOUR_SAVED_WORKSPACE_KEY"
+    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"], workspace_key):
         print(f"{row['agent_id']:24s} ${row['spend_usd']:.2f}  anomalies={len(row['anomalies'])}")
 ```
 

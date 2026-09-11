@@ -260,6 +260,6 @@ def test_report_endpoint_exposes_token_budget_status(client):
                                "amount_cents": 0, "service": "gpt-4o",
                                "tokens_in": 300, "tokens_out": 0,
                                "agent_secret": secret}, headers=_headers())
-    r = tc.get("/v1/report/api-agent-5")
+    r = tc.get("/v1/report/api-agent-5", headers={"X-Agent-Secret": secret})
     assert r.status_code == 200
     assert r.json()["budget_status"]["monthly_tokens_used"] == 300

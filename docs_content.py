@@ -31,8 +31,9 @@ curl -X POST {BASE_URL}/v1/track \\
 
 No signup: the first write for a new `agent_id` mints an `agent_secret` in
 the response — save it, every later write to that `agent_id` must include
-it as `"agent_secret"`. Reads (`/v1/report`, `/v1/tokens`, `/v1/alerts`)
-never require a secret.
+it as `"agent_secret"`. Reads: `GET /v1/report` and `GET /v1/alerts` require
+an `X-Agent-Secret` or `X-Workspace-Key` header (either credential proving
+access to that `agent_id`); `GET /v1/tokens` stays an open read.
 
 Retries: send the same `Idempotency-Key` on a retried write and you get back
 the exact cached response from the first attempt instead of a second write.
@@ -60,9 +61,9 @@ REST_ENDPOINTS_MD = f"""## REST Endpoints
 GET  /health                       — liveness
 POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret)
-GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — open read
+GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{{agent_id}}         — token burn report — open read
-GET  /v1/alerts/{{agent_id}}         — alerts for agent — open read
+GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (X-Al-Admin)
 GET  /v1/metrics                   — owner-only: funnel + revenue + reach telemetry
 GET  /stats                        — usage counters
@@ -215,16 +216,22 @@ if __name__ == "__main__":
     spend_or_block("cost-guarded-agent", secret, 4900, "api_call")
     spend_or_block("cost-guarded-agent", secret, 500, "api_call")  # likely 402
 ''',
-    "weekly_report": f'''"""AgentLedger — weekly spend P&L across every agent you track."""
+    "weekly_report": f'''"""AgentLedger — weekly spend P&L across every agent you track.
+
+GET /v1/report now requires a credential: either the agent's own
+agent_secret, or (as used here) the workspace_key covering all of your
+agent_ids at once."""
 import requests
 
 BASE = "{BASE_URL}"
 
 
-def weekly_pnl(agent_ids):
+def weekly_pnl(agent_ids, workspace_key):
     rows = []
+    headers = {{"X-Workspace-Key": workspace_key}}
     for agent_id in agent_ids:
-        r = requests.get(f"{{BASE}}/v1/report/{{agent_id}}", params={{"days": 7}}, timeout=10)
+        r = requests.get(f"{{BASE}}/v1/report/{{agent_id}}", params={{"days": 7}},
+                          headers=headers, timeout=10)
         r.raise_for_status()
         rep = r.json()
         rows.append({{"agent_id": agent_id,
@@ -235,7 +242,8 @@ def weekly_pnl(agent_ids):
 
 
 if __name__ == "__main__":
-    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"]):
+    workspace_key = "YOUR_SAVED_WORKSPACE_KEY"
+    for row in weekly_pnl(["research-agent-v2", "cost-guarded-agent"], workspace_key):
         print(f"{{row['agent_id']:24s}} ${{row['spend_usd']:.2f}}  anomalies={{len(row['anomalies'])}}")
 ''',
     "retry_safe_writes": f'''"""AgentLedger — retry-safe writes with Idempotency-Key."""
