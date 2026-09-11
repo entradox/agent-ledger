@@ -350,7 +350,9 @@ not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
-Free during beta. Contact: entradox@icloud.com
+Pricing is as described above (free tier = 3 agents per workspace; Pro =
+$19/mo, unlimited agents; first 50 workspaces get Pro free for 1 year).
+Contact: entradox@icloud.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
 

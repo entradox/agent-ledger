@@ -55,10 +55,12 @@ class BudgetRequest(BaseModel):
 
 def _claim_or_401(agent_id: str, provided_secret: Optional[str],
                  workspace_key: Optional[str] = None):
-    """Shared auth gate for every write endpoint. Mints a secret on first use
-    of a new agent_id (no signup), verifies it on every later write, and
-    enforces the beta agent-slot cap. New claims on a workspace-bound
-    agent_id require a valid workspace_key. Raises HTTPException on failure."""
+    """Shared auth gate for every write endpoint. Claiming a NEW agent_id
+    requires a valid workspace_key (obtained by signing in at /login or by
+    paying via POST /v1/billing/x402); that first write mints the agent's
+    own secret, which every later write to that agent_id must carry instead.
+    Also enforces the workspace's agent-slot cap. Raises HTTPException on
+    failure."""
     try:
         return ensure_agent_secret(agent_id, provided_secret, workspace_key=workspace_key)
     except AuthError as e:

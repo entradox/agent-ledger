@@ -231,7 +231,7 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
     """Owner-only: full cross-tenant listing of every agent ever claimed on
     this instance, with totals. Requires the operator's admin_secret — this
     is a portfolio-wide view, not a per-agent report (use ledger_report for
-    that, which needs no secret).
+    that — it requires that agent's agent_secret or its workspace_key).
 
     Args:
         admin_secret: operator admin secret (not the same as an agent_secret)

@@ -19,12 +19,19 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
-# Surfaces a caller actually reads before integrating.
-DOC_FILES = ("README.md", "status.html", "recipes.md")
+# Surfaces a caller actually reads before integrating. The two .py files are
+# here because their docstrings ARE the integration docs for the MCP surface
+# and the claim gate — an agent reads the tool docstring, not README.md, and
+# both had drifted into claiming reads need no credential / claims need no
+# signup after the workspace-identity phase changed both.
+DOC_FILES = ("README.md", "status.html", "recipes.md",
+             "al_mcp_http.py", "routes_agents.py")
 
 # Claims that are no longer true. "no login" is deliberately absent: the
 # x402 path genuinely requires none.
-STALE_CLAIMS = ("no signup", "No signup", "first write claims it")
+STALE_CLAIMS = ("no signup", "No signup", "first write claims it",
+                "which needs no secret", "needs no secret",
+                "no secret needed")
 
 
 @pytest.fixture(autouse=True)
