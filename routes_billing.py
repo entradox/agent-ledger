@@ -202,10 +202,11 @@ def x402_billing(request: Request):
     # the SDK verified the payment against — the one field whose meaning is
     # unambiguous. Defence in depth: under the real SDK that pay_to comes from
     # this service's own X402_PAY_TO config, so a mismatch means the route and
-    # the treasury config have drifted apart. Enforced only when
-    # X402_RECEIVING_ADDRESS is configured; an unset value means the operator
-    # has not declared a receiving address yet.
-    expected_recipient = os.environ.get("X402_RECEIVING_ADDRESS", "")
+    # the treasury config have drifted apart. X402_RECEIVING_ADDRESS defaults
+    # to X402_PAY_TO so the two can never silently diverge when an operator
+    # only sets one (the common case) — set X402_RECEIVING_ADDRESS explicitly
+    # only if it must differ from X402_PAY_TO for a real reason.
+    expected_recipient = os.environ.get("X402_RECEIVING_ADDRESS") or os.environ.get("X402_PAY_TO", "")
     if expected_recipient:
         recipient = result.get("recipient")
         if not recipient or str(recipient).lower() != expected_recipient.lower():
