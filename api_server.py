@@ -260,20 +260,28 @@ across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status
 
-## Ownership (no signup — but not open-write either)
+## Ownership (a workspace_key claims; an agent_secret writes)
 
-The first write (POST /v1/track or /v1/budget) to a new agent_id mints an
-`agent_secret` and returns it once, e.g. {"agent_secret": "...", "_note": "..."}.
-Save it — every later write to that same agent_id must include it in the body
-as "agent_secret", or the request is rejected with 401. Reads /v1/report,
-/v1/tokens, and /v1/alerts all require an X-Agent-Secret or X-Workspace-Key
-header (either credential proving access to that agent_id) — missing/wrong
-gets 401.
-Launch window: the first 50 agent_ids ever claimed get Pro free for 1 year
-(no action needed — claiming inside the window mints the grant automatically).
-After that window closes, beta caps total non-Pro claimed agents at 3
-site-wide; a 4th new non-Pro agent_id then gets 402 until upgrading ($19/mo,
-unlimited agents). Amounts per entry are capped at $100,000 and must be >= 0.
+Claiming a NEW agent_id requires a workspace_key in the body of the first
+write (POST /v1/track or /v1/budget). Get one by signing in at /login, or
+self-serve with no human at all by paying via POST /v1/billing/x402 (the
+paying wallet becomes the workspace identity). Missing or invalid key on a
+new claim gets 401 workspace_key_required.
+That first write mints an `agent_secret` and returns it once, e.g.
+{"agent_secret": "...", "_note": "..."}. Save it — every later write to that
+same agent_id must include it in the body as "agent_secret" (the
+workspace_key is never needed again for that agent), or the request is
+rejected with 401. Reads /v1/report, /v1/tokens, and /v1/alerts all require
+an X-Agent-Secret or X-Workspace-Key header (either credential proving
+access to that agent_id) — missing/wrong gets 401. A logged-in browser
+session cookie also authorizes reads for that session's own workspace.
+Launch window: the first 50 WORKSPACES ever created get Pro free for 1 year
+(no action needed — signing up inside the window mints the grant
+automatically; it expires one year later).
+Outside that window a free workspace is capped at 3 agents; a 4th new
+agent_id gets 402 until upgrading ($19/mo, unlimited agents). The cap is
+per workspace, not site-wide. Amounts per entry are capped at $100,000 and
+must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
 cross the monthly/daily cap is rejected with 402, not just logged.
 Dollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/
@@ -298,17 +306,22 @@ GET  /health                       — liveness
 POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
      body: {"agent_id": str, "rail": str, "amount_cents": int (0-10000000), "service": str,
             "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional),
+            "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
 POST /v1/budget                    — set budget caps (mints/verifies agent_secret); once set,
                                       track() blocks entries that would cross the cap
      body: {"agent_id": str, "monthly_cents": int (0-10000000), "daily_cents": int (optional, 0-10000000),
             "monthly_tokens": int (optional, token-burn cap), "daily_tokens": int (optional, token-burn cap),
+            "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
+GET  /login                        — Google sign-in; issues a workspace_key on first login
+POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
+                                      (X-PAYMENT header; the paying wallet IS the identity)
 
 ## MCP
 
@@ -316,17 +329,19 @@ Registry: io.github.entradox/agent-ledger
 Remote:   https://agent-ledger-production-0ff8.up.railway.app/mcp/
 
 Tools exposed at POST /mcp/:
-  ledger_track          — record a spend entry (agent_secret param, same rules as above)
-  ledger_set_budget     — set a budget cap (agent_secret param, same rules as above)
-  ledger_report         — get a spend report (open read)
-  ledger_alerts         — get alerts for an agent (open read)
+  ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
+  ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
+  ledger_report         — get a spend report (agent_secret or workspace_key param)
+  ledger_alerts         — get alerts for an agent (agent_secret or workspace_key param)
   ledger_list_agents    — owner-only (admin_secret param)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
-Note: the REST endpoints above (GET /v1/report, GET /v1/tokens, GET
-/v1/alerts) require X-Agent-Secret or X-Workspace-Key; the MCP tools
-ledger_report/ledger_alerts remain open reads.
+Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
+take agent_secret/workspace_key parameters and enforce the same access rule
+as GET /v1/report and GET /v1/alerts — there is no unauthenticated read path
+on either surface. Only the meta-doc tools (ledger_api_docs,
+ledger_examples) are open, and they expose no agent data.
 
 Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
 AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
@@ -376,22 +391,33 @@ AGENT_JSON = {
     "api_base": "https://agent-ledger-production-0ff8.up.railway.app/v1",
     "openapi": "https://agent-ledger-production-0ff8.up.railway.app/openapi.json",
     "auth": {
-        "type": "self_issued_secret",
-        "field": "agent_secret",
-        "description": "No signup. The first POST /v1/track or /v1/budget for a new "
-                        "agent_id mints an agent_secret in the response body — save it, "
-                        "every later write to that agent_id must include it. Reads "
+        "type": "workspace_key",
+        "field": "workspace_key",
+        "description": "Get a workspace_key by signing in at /login, or with no human "
+                        "at all by paying via POST /v1/billing/x402 (the paying wallet "
+                        "becomes the workspace identity). Claiming a NEW agent_id "
+                        "requires that workspace_key in the first POST /v1/track or "
+                        "/v1/budget body; that call mints an agent_secret in the "
+                        "response — save it, every later write to that agent_id must "
+                        "include it and needs no workspace_key. Reads "
                         "(report/alerts/tokens) require agent_secret or workspace_key, "
                         "sent as X-Agent-Secret or X-Workspace-Key.",
     },
     "pricing": {
         "model": "freemium",
         "amount_usd": 19.00,
-        "description": "Free during beta. Pro is $19/mo for unlimited agents "
-                        "(free tier is capped). Launch window: first 50 agents to "
-                        "claim a slot get Pro free for 1 year.",
+        "description": "Free tier is 3 agents per workspace. Pro is $19/mo for "
+                        "unlimited agents. Launch window: the first 50 workspaces "
+                        "created get Pro free for 1 year.",
     },
     "capabilities": [
+        {"id": "mint_workspace_x402",
+         "description": "Self-serve workspace + workspace_key for an agent with a "
+                        "wallet — no human, no login. Present an x402 payment in the "
+                        "X-PAYMENT header; the paying wallet becomes the workspace "
+                        "identity. Do this first: a workspace_key is required to "
+                        "claim a new agent_id.",
+         "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
         {"id": "set_budget", "description": "Set monthly/daily budget caps for an agent",

@@ -29,11 +29,19 @@ curl -X POST {BASE_URL}/v1/track \\
   -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query"}}'
 ```
 
-No signup: the first write for a new `agent_id` mints an `agent_secret` in
-the response — save it, every later write to that `agent_id` must include
-it as `"agent_secret"`. Reads: `GET /v1/report`, `GET /v1/tokens`, and
+Claiming a NEW `agent_id` requires a `workspace_key` in that first write's
+body (add `"workspace_key":"wk_live_..."` to the example above). Get one by
+signing in at `{BASE_URL}/login`, or with no human at all via
+`POST /v1/billing/x402` — the paying wallet becomes the workspace identity.
+Without it, a new claim is rejected with 401 `workspace_key_required`.
+
+That first write mints an `agent_secret` in the response — save it, every
+later write to that `agent_id` must include it as `"agent_secret"` and needs
+no `workspace_key` again. Reads: `GET /v1/report`, `GET /v1/tokens`, and
 `GET /v1/alerts` all require an `X-Agent-Secret` or `X-Workspace-Key` header
-(either credential proving access to that `agent_id`).
+(either credential proving access to that `agent_id`). The MCP read tools
+take the same two credentials as parameters — there is no unauthenticated
+read path on either surface.
 
 Retries: send the same `Idempotency-Key` on a retried write and you get back
 the exact cached response from the first attempt instead of a second write.
@@ -44,10 +52,10 @@ MCP_TOOLS_MD = f"""## MCP Tools
 
 | Tool | Read/Write | Description |
 |---|---|---|
-| `ledger_track` | write | record a spend entry (`agent_secret` required after the first call) |
-| `ledger_set_budget` | write | set monthly/daily budget caps (enforced going forward) |
-| `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies |
-| `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts |
+| `ledger_track` | write | record a spend entry (`workspace_key` to claim a new `agent_id`, `agent_secret` thereafter) |
+| `ledger_set_budget` | write | set monthly/daily budget caps (same credentials as `ledger_track`) |
+| `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies (`agent_secret` or `workspace_key`) |
+| `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts (`agent_secret` or `workspace_key`) |
 | `ledger_list_agents` | read, owner-only | full cross-tenant listing, needs `admin_secret` |
 | `ledger_api_docs` | read | this documentation, filtered by topic |
 | `ledger_examples` | read | complete runnable recipe snippets |
@@ -59,8 +67,11 @@ REST_ENDPOINTS_MD = f"""## REST Endpoints
 
 ```
 GET  /health                       — liveness
-POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
-POST /v1/budget                    — set budget caps (mints/verifies agent_secret)
+GET  /login                        — Google sign-in; issues a workspace_key on first login
+POST /v1/billing/x402              — self-serve workspace_key for an agent with a wallet
+                                      (X-PAYMENT header; paying wallet = workspace identity)
+POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
+POST /v1/budget                    — set budget caps (workspace_key claims, agent_secret writes)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
@@ -84,17 +95,21 @@ Every error response — REST and MCP alike — uses the same typed envelope:
 | HTTP status | type | seen on |
 |---|---|---|
 | 400 | invalid_request_error | missing/invalid `AL-API-Version`, oversized `Idempotency-Key` |
-| 401 | authentication_error | missing/wrong `agent_secret` |
-| 402 | budget_error | budget cap exceeded, beta agent-slot cap exceeded |
+| 401 | authentication_error | missing/wrong `agent_secret`; missing/invalid `workspace_key` on a NEW claim; no credential on a read |
+| 402 | budget_error | budget cap exceeded, workspace agent-slot cap exceeded |
 | 403 | permission_error | scope/ownership denied |
 | 404 | not_found_error | unknown agent_id or resource |
 | 409 | conflict_error | `Idempotency-Key` already in flight |
 | 422 | validation_error | malformed `agent_id`, bad rail, out-of-range amount |
 
 Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
-`agent_secret_mismatch`, `beta_cap_exceeded`, `budget_exceeded`,
-`invalid_amount`, `version_header`, `idempotency_key_too_long`,
-`idempotency_conflict`."""
+`agent_secret_mismatch`, `workspace_key_required`, `beta_cap_exceeded`,
+`budget_exceeded`, `invalid_amount`, `version_header`,
+`idempotency_key_too_long`, `idempotency_conflict`, `x402_no_tx_hash`.
+
+MCP tools cannot raise HTTP status codes, so they return the same
+information in the payload as `{"error": "<message>", "error_code": "<code>"}`
+using these same `code` values."""
 
 IDEMPOTENCY_MD = """## Idempotency
 
@@ -163,6 +178,11 @@ import requests
 BASE = "{BASE_URL}"
 HEADERS = {{"Content-Type": "application/json", "AL-API-Version": "{AL_API_VERSION}"}}
 
+# Claiming a new agent_id needs your workspace_key (sign in at
+# {BASE_URL}/login, or
+# POST /v1/billing/x402 if your agent has a wallet). After the first call the
+# minted agent_secret is what authenticates every later write.
+WORKSPACE_KEY = "wk_live_..."
 agent_secret = None  # fill in after the first successful call
 
 
@@ -171,6 +191,8 @@ def track_spend(agent_id, rail, amount_cents, service, **extra):
             "service": service, **extra}}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{{BASE}}/v1/track", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -189,10 +211,18 @@ BASE = "{BASE_URL}"
 HEADERS = {{"Content-Type": "application/json", "AL-API-Version": "{AL_API_VERSION}"}}
 
 
+# A new agent_id is claimed with your workspace_key; afterwards the minted
+# agent_secret authenticates writes. Sign in at
+# {BASE_URL}/login to get one.
+WORKSPACE_KEY = "wk_live_..."
+
+
 def set_budget(agent_id, monthly_cents, agent_secret=None, daily_cents=0):
     body = {{"agent_id": agent_id, "monthly_cents": monthly_cents, "daily_cents": daily_cents}}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{{BASE}}/v1/budget", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -260,6 +290,9 @@ def track_once(agent_id, rail, amount_cents, service, agent_secret=None, idem_ke
     body = {{"agent_id": agent_id, "rail": rail, "amount_cents": amount_cents, "service": service}}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        # claiming a new agent_id — needs the workspace_key from /login
+        body["workspace_key"] = "wk_live_..."
     for attempt in range(3):
         try:
             r = requests.post(f"{{BASE}}/v1/track", json=body, headers=headers, timeout=5)

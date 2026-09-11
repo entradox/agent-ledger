@@ -14,6 +14,11 @@ import requests
 BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
+# Claiming a new agent_id needs your workspace_key (sign in at
+# https://agent-ledger-production-0ff8.up.railway.app/login, or
+# POST /v1/billing/x402 if your agent has a wallet). After the first call the
+# minted agent_secret is what authenticates every later write.
+WORKSPACE_KEY = "wk_live_..."
 agent_secret = None  # fill in after the first successful call
 
 
@@ -22,6 +27,8 @@ def track_spend(agent_id, rail, amount_cents, service, **extra):
             "service": service, **extra}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{BASE}/v1/track", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -46,10 +53,18 @@ BASE = "https://agent-ledger-production-0ff8.up.railway.app"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
 
+# A new agent_id is claimed with your workspace_key; afterwards the minted
+# agent_secret authenticates writes. Sign in at
+# https://agent-ledger-production-0ff8.up.railway.app/login to get one.
+WORKSPACE_KEY = "wk_live_..."
+
+
 def set_budget(agent_id, monthly_cents, agent_secret=None, daily_cents=0):
     body = {"agent_id": agent_id, "monthly_cents": monthly_cents, "daily_cents": daily_cents}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        body["workspace_key"] = WORKSPACE_KEY
     r = requests.post(f"{BASE}/v1/budget", json=body, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -129,6 +144,9 @@ def track_once(agent_id, rail, amount_cents, service, agent_secret=None, idem_ke
     body = {"agent_id": agent_id, "rail": rail, "amount_cents": amount_cents, "service": service}
     if agent_secret:
         body["agent_secret"] = agent_secret
+    else:
+        # claiming a new agent_id — needs the workspace_key from /login
+        body["workspace_key"] = "wk_live_..."
     for attempt in range(3):
         try:
             r = requests.post(f"{BASE}/v1/track", json=body, headers=headers, timeout=5)
