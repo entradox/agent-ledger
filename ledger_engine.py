@@ -233,7 +233,10 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
             "https://agent-ledger-production-0ff8.up.railway.app/login "
             "(or pay via x402 at /v1/billing/x402) to get one")
 
-    agent_cap = workspace.get("agent_cap")
+    # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
+    # has agent_cap=None stored, so reading the field directly would leave a
+    # first-50 workspace unbounded forever.
+    agent_cap = workspace_engine.effective_agent_cap(workspace)
     if check_cap and agent_cap is not None:
         claimed_in_workspace = sum(
             1 for d in (DATA_DIR / "agents").glob("*")

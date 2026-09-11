@@ -15,6 +15,10 @@ from typing import Optional
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 WORKSPACE_SCARCITY_CAP = 50
 WORKSPACE_FREE_AGENT_CAP = 3
+# Reused from ledger_engine, where the retired per-agent scarcity grant used
+# the same one-year duration — imported rather than re-literal'd so the two
+# can never drift apart.
+from ledger_engine import SCARCITY_PRO_DURATION_SECONDS  # noqa: E402
 
 
 class WorkspaceError(Exception):
@@ -117,6 +121,11 @@ def create_workspace(*, owner_email: Optional[str] = None,
         "agent_cap": None if is_scarcity else WORKSPACE_FREE_AGENT_CAP,
         "created_at": time.time(),
         "pro_scarcity": is_scarcity,
+        # The scarcity window is "Pro free for a YEAR", not forever. Mirrors
+        # the per-agent pro_until this replaced (ledger_engine's
+        # SCARCITY_PRO_DURATION_SECONDS). A Stripe-paid workspace has no
+        # pro_until — subscriptions don't expire this way.
+        "pro_until": (time.time() + SCARCITY_PRO_DURATION_SECONDS) if is_scarcity else None,
     }
     _write_workspace(record)
     (_index_dir("by_key_hash") / _hash(raw_key)).write_text(workspace_id)
@@ -164,10 +173,45 @@ def mark_pro(workspace_id: str, stripe_customer_id: str) -> None:
         raise WorkspaceError(f"workspace not found: {workspace_id}")
     record["plan"] = "pro"
     record["agent_cap"] = None
+    # A paid subscription supersedes any scarcity grant: clear the expiry so
+    # a first-50 workspace that later subscribes doesn't inherit the grant's
+    # one-year clock.
+    record["pro_until"] = None
     record["stripe_customer_id"] = stripe_customer_id
     _write_workspace(record)
 
 
 def is_workspace_pro(workspace_id: str) -> bool:
+    """Pro via one of two routes, checked in this order:
+
+    1. A Stripe subscription (mark_pro) — plan == "pro" with no pro_until.
+       Subscriptions don't expire on a timer; cancellation is a separate,
+       out-of-scope webhook.
+    2. A scarcity grant — plan == "pro" WITH a pro_until, which expires one
+       year after the workspace was created. Without this check a first-50
+       workspace would be Pro forever, which is not what was offered.
+    """
     record = get_workspace(workspace_id)
-    return bool(record and record["plan"] == "pro")
+    if not record or record.get("plan") != "pro":
+        return False
+    pro_until = record.get("pro_until")
+    if pro_until is None:
+        return True
+    return time.time() < pro_until
+
+
+def effective_agent_cap(record: dict) -> Optional[int]:
+    """The agent cap actually in force for a workspace record, right now.
+
+    `agent_cap` is None (unbounded) for Pro workspaces. For a SCARCITY Pro
+    workspace that is what the stored field says forever — so the grant's
+    one-year expiry has to be applied here, or the expiry would be purely
+    cosmetic and a first-50 workspace would keep unlimited agents for life.
+    An expired scarcity grant falls back to the free-tier cap.
+    """
+    if record.get("agent_cap") is not None:
+        return record["agent_cap"]
+    pro_until = record.get("pro_until")
+    if pro_until is not None and time.time() >= pro_until:
+        return WORKSPACE_FREE_AGENT_CAP
+    return None

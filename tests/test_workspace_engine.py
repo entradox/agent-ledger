@@ -75,6 +75,53 @@ def test_mark_pro_and_is_workspace_pro(engine):
     assert engine.get_workspace(ws_id)["stripe_customer_id"] == "cus_123"
 
 
+def test_scarcity_grant_has_a_one_year_expiry(engine):
+    """I1: the offer is "Pro free for a YEAR" — the grant must carry an
+    expiry, not be unbounded."""
+    import ledger_engine
+    ws_id, _ = engine.create_workspace(owner_email="scarce@example.com")
+    record = engine.get_workspace(ws_id)
+    assert record["pro_scarcity"] is True
+    assert record["pro_until"] is not None
+    expected = record["created_at"] + ledger_engine.SCARCITY_PRO_DURATION_SECONDS
+    assert abs(record["pro_until"] - expected) < 5
+
+
+def test_expired_scarcity_grant_is_no_longer_pro(engine, monkeypatch):
+    ws_id, _ = engine.create_workspace(owner_email="expiring@example.com")
+    assert engine.is_workspace_pro(ws_id) is True
+
+    record = engine.get_workspace(ws_id)
+    record["pro_until"] = record["created_at"] - 1  # already lapsed
+    engine._write_workspace(record)
+    assert engine.is_workspace_pro(ws_id) is False
+
+
+def test_expired_scarcity_grant_falls_back_to_the_free_agent_cap(engine):
+    """The expiry has to reach the thing that actually enforces limits —
+    agent_cap is stored as None for a scarcity workspace forever, so reading
+    the raw field would keep it unbounded for life."""
+    ws_id, _ = engine.create_workspace(owner_email="capcheck@example.com")
+    record = engine.get_workspace(ws_id)
+    assert engine.effective_agent_cap(record) is None  # grant still live
+
+    record["pro_until"] = record["created_at"] - 1
+    engine._write_workspace(record)
+    assert engine.effective_agent_cap(engine.get_workspace(ws_id)) \
+        == engine.WORKSPACE_FREE_AGENT_CAP
+
+
+def test_stripe_pro_never_expires(engine):
+    """Paid subscriptions have no pro_until — and subscribing clears any
+    scarcity expiry the workspace was carrying."""
+    ws_id, _ = engine.create_workspace(owner_email="payer@example.com")
+    engine.mark_pro(ws_id, "cus_abc")
+    record = engine.get_workspace(ws_id)
+    assert record["pro_until"] is None
+    assert engine.is_workspace_pro(ws_id) is True
+    assert engine.effective_agent_cap(record) is None
+
+
 def test_first_50_workspaces_get_scarcity_pro(engine):
     for i in range(50):
         ws_id, _ = engine.create_workspace(owner_email=f"u{i}@example.com")
