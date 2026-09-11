@@ -419,3 +419,33 @@ def token_report(agent_id: str, request: Request, days: int = 30):
         by_model[m] = by_model.get(m, 0) + t_in + t_out
     return {"agent_id": agent_id, "days": days, "tokens_in": tin, "tokens_out": tout,
             "total_tokens": tin + tout, "by_model": by_model, "entries": entries}
+
+
+@router.delete("/v1/agents/{agent_id}")
+def delete_agent(agent_id: str, request: Request):
+    """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
+    are per-product, so the operator can clear test/demo agents to free slots."""
+    from ledger_engine import validate_agent_id, _delete_agent_row
+    import hmac
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
+        raise HTTPException(401, "owner only")
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    import shutil
+    agent_dir = DATA_DIR / "agents" / agent_id
+    if not agent_dir.exists():
+        raise HTTPException(404, f"agent not found: {agent_id}")
+    # D-819: the row goes FIRST, then the dir. A dir removed without its row
+    # is an orphan row that diverges the scarcity counter from the window
+    # gate — if the row delete fails, abort with BOTH intact rather than
+    # leaving a silent orphan behind.
+    try:
+        _delete_agent_row(agent_id)
+    except Exception as e:
+        raise HTTPException(500, detail=error_envelope(
+            500, f"could not delete agent record for '{agent_id}': {e}"))
+    shutil.rmtree(agent_dir)
+    return {"deleted": agent_id}

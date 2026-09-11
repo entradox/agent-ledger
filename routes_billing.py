@@ -96,6 +96,28 @@ async def stripe_webhook(request: Request):
     return {"registered": True, "email": email, "plan": plan}
 
 
+@router.get("/v1/billing/{email}")
+def billing_status(email: str, token: str = ""):
+    """Customer plan lookup — OWNER-ONLY (Opus audit round 3: was an open
+    email-enumeration oracle). Token = HMAC-SHA256("billing:<email>",
+    AL_ADMIN_SECRET), truncated to 32 hex chars; the operator computes it,
+    customers never see billing state of other emails."""
+    import hashlib as _h, secrets as _secrets, hmac as _hmac
+    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
+    # keyed digest: sha256(secret || email) truncated to 128 bits — constant-time compare
+    expected_token = _h.sha256(admin_secret.encode() + b"billing:" + email.lower().encode()).hexdigest()[:32] if admin_secret else ""
+    if not (admin_secret and token and expected_token) or not _secrets.compare_digest(token, expected_token):
+        raise HTTPException(401, "owner only (billing status is not public)")
+    for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
+        try:
+            r = json.loads(line)
+            if r.get("email", "").lower() == email.lower() and r.get("status") == "active":
+                return {"email": email, "plan": r.get("plan"), "status": "active"}
+        except Exception:
+            continue
+    return {"email": email, "plan": "beta", "status": "free_during_beta"}
+
+
 @router.post("/v1/billing/checkout")
 def create_checkout(request: Request):
     import identity

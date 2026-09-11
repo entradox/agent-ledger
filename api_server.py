@@ -23,7 +23,7 @@ from ledger_engine import (
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
-    idempotency_release, scarcity_claims_left, _delete_agent_row,
+    idempotency_release, scarcity_claims_left,
 )
 import metrics
 
@@ -430,57 +430,8 @@ def connect_beacon(event: str):
             pass
     return JSONResponse(content={"ok": True})
 
-from routes_billing import router as billing_router, CUSTOMERS_FILE
+from routes_billing import router as billing_router
 app.include_router(billing_router)
-
-@app.delete("/v1/agents/{agent_id}")
-def delete_agent(agent_id: str, request: Request):
-    """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots
-    are per-product, so the operator can clear test/demo agents to free slots."""
-    from ledger_engine import validate_agent_id
-    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    if not admin_secret or not hmac.compare_digest(request.headers.get("x-al-admin", ""), admin_secret):
-        raise HTTPException(401, "owner only")
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    import shutil
-    agent_dir = DATA_DIR / "agents" / agent_id
-    if not agent_dir.exists():
-        raise HTTPException(404, f"agent not found: {agent_id}")
-    # D-819: the row goes FIRST, then the dir. A dir removed without its row
-    # is an orphan row that diverges the scarcity counter from the window
-    # gate — if the row delete fails, abort with BOTH intact rather than
-    # leaving a silent orphan behind.
-    try:
-        _delete_agent_row(agent_id)
-    except Exception as e:
-        raise HTTPException(500, detail=error_envelope(
-            500, f"could not delete agent record for '{agent_id}': {e}"))
-    shutil.rmtree(agent_dir)
-    return {"deleted": agent_id}
-
-@app.get("/v1/billing/{email}")
-def billing_status(email: str, token: str = ""):
-    """Customer plan lookup — OWNER-ONLY (Opus audit round 3: was an open
-    email-enumeration oracle). Token = HMAC-SHA256("billing:<email>",
-    AL_ADMIN_SECRET), truncated to 32 hex chars; the operator computes it,
-    customers never see billing state of other emails."""
-    import hashlib as _h, secrets as _secrets, hmac as _hmac
-    admin_secret = os.environ.get("AL_ADMIN_SECRET", "")
-    # keyed digest: sha256(secret || email) truncated to 128 bits — constant-time compare
-    expected_token = _h.sha256(admin_secret.encode() + b"billing:" + email.lower().encode()).hexdigest()[:32] if admin_secret else ""
-    if not (admin_secret and token and expected_token) or not _secrets.compare_digest(token, expected_token):
-        raise HTTPException(401, "owner only (billing status is not public)")
-    for line in (CUSTOMERS_FILE.read_text().splitlines() if CUSTOMERS_FILE.exists() else []):
-        try:
-            r = json.loads(line)
-            if r.get("email", "").lower() == email.lower() and r.get("status") == "active":
-                return {"email": email, "plan": r.get("plan"), "status": "active"}
-        except Exception:
-            continue
-    return {"email": email, "plan": "beta", "status": "free_during_beta"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8761))
