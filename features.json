@@ -1,0 +1,22 @@
+{
+  "project": "agent-ledger",
+  "updated": "2026-09-10",
+  "features": [
+    {"name": "per-agent spend ledger", "status": "shipped"},
+    {"name": "MCP + REST + CLI parity", "status": "shipped"},
+    {"name": "idempotency + typed errors + version gate", "status": "shipped"},
+    {"name": "scarcity window (first 50 free)", "status": "shipped", "note": "re-scoped to workspaces, this phase"},
+    {"name": "owner dashboard", "status": "shipped", "note": "admin-secret gated, pre-dates workspace identity"},
+    {"name": "per-agent human-readable report page", "status": "shipped"},
+    {"name": "workspace identity core", "status": "shipped", "note": "Tasks 1-4 of docs/superpowers/plans/2026-09-10-workspace-identity.md"},
+    {"name": "google oauth + session dashboard", "status": "shipped", "note": "Task 5"},
+    {"name": "per-workspace stripe billing", "status": "shipped", "note": "Task 6"},
+    {"name": "x402 self-serve workspace minting", "status": "shipped", "note": "Task 7"},
+    {"name": "existing-agent migration to workspaces", "status": "planned", "note": "Task 9"},
+    {"name": "database migration (flat files -> real DB)", "status": "not_started", "note": "deferred per spec 3d, triggered by usage"},
+    {"name": "workspace key rotation/revocation UI", "status": "not_started"},
+    {"name": "per-workspace rate limiting", "status": "not_started"},
+    {"name": "mcp.so / Smithery / PulseMCP directory listings", "status": "not_started"},
+    {"name": "launch post", "status": "not_started", "note": "never auto-published, needs explicit approval"}
+  ]
+}
