@@ -18,26 +18,42 @@ def _record_mcp_call():
         pass
 
 
-def _claim_or_error(agent_id: str, agent_secret: str):
-    """Returns (secret, created, error_message_or_None)."""
-    from ledger_engine import ensure_agent_secret, AuthError, BetaCapExceededError
+def _claim_or_error(agent_id: str, agent_secret: str, workspace_key: str = ""):
+    """Returns (secret, created, error_dict_or_None).
+
+    The error dict mirrors the REST typed-error codes from
+    routes_agents._claim_or_401 so an agent gets the same machine-readable
+    reason on either surface — MCP tools can't raise HTTP status codes, so
+    the code travels in the payload instead. A missing workspace_key on a
+    NEW agent_id is a typed `workspace_key_required` error here, not an
+    unhandled exception (which surfaced as a 500 before this fix).
+    """
+    from ledger_engine import (ensure_agent_secret, AuthError, BetaCapExceededError,
+                               WorkspaceKeyRequiredError)
     try:
-        secret, created = ensure_agent_secret(agent_id, agent_secret or None)
+        secret, created = ensure_agent_secret(
+            agent_id, agent_secret or None, workspace_key=workspace_key or None)
         return secret, created, None
-    except (AuthError, BetaCapExceededError) as e:
-        return None, None, str(e)
+    except AuthError as e:
+        return None, None, {"error": str(e), "error_code": "agent_secret_mismatch"}
+    except BetaCapExceededError as e:
+        return None, None, {"error": str(e), "error_code": "beta_cap_exceeded"}
+    except WorkspaceKeyRequiredError as e:
+        return None, None, {"error": str(e), "error_code": "workspace_key_required"}
 
 
 @mcp.tool(annotations={"title": "Track Agent Spend", "readOnlyHint": False,
                         "destructiveHint": False, "idempotentHint": False})
 def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
                  tokens_in: int = 0, tokens_out: int = 0, model: str = "",
-                 agent_secret: str = "") -> dict:
+                 agent_secret: str = "", workspace_key: str = "") -> dict:
     """Record a spend entry for an AI agent on any payment rail, with optional token counts.
 
-    No signup: the first call for a new agent_id mints an agent_secret and
-    returns it in the response — save it, every later call for that same
-    agent_id must pass it back or the write is rejected. Amounts are capped
+    Claiming a brand-new agent_id requires your workspace_key (get one at
+    /login, or via x402 at POST /v1/billing/x402). That first call mints an
+    agent_secret and returns it in the response — save it, every later call
+    for that same agent_id must pass it back (no workspace_key needed again)
+    or the write is rejected. Amounts are capped
     at $100,000/entry and must be >= 0. If a budget is set for this agent,
     an entry that would cross the monthly/daily cap is blocked, not just
     logged. Include tokens_in/tokens_out + model on every LLM call so token
@@ -52,11 +68,13 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
         tokens_out: completion tokens consumed (0 if unknown)
         model: model name (e.g. "gpt-4o") — token burn is reported per model
         agent_secret: required for every call after the first for this agent_id
+        workspace_key: required when claiming a brand-new agent_id; not
+                       needed once the agent_id has been claimed
     """
     from ledger_engine import track, ValidationError, BudgetExceededError
-    secret, created, err = _claim_or_error(agent_id, agent_secret)
+    secret, created, err = _claim_or_error(agent_id, agent_secret, workspace_key)
     if err:
-        return {"error": err}
+        return err
     meta = {}
     if tokens_in or tokens_out:
         meta = {"tokens_in": tokens_in, "tokens_out": tokens_out}
@@ -79,7 +97,7 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
                         "destructiveHint": True, "idempotentHint": True})
 def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
                       monthly_tokens: int = 0, daily_tokens: int = 0,
-                      agent_secret: str = "") -> dict:
+                      agent_secret: str = "", workspace_key: str = "") -> dict:
     """Set spending caps for an agent. Warns at 80%, blocks spend when exceeded
     — enforced: a ledger_track call that would cross the cap is rejected.
 
@@ -89,9 +107,10 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
     (tokens_in/tokens_out). Set both if the agent uses both.
 
     Monthly cap is required; the rest are optional (0 = no limit).
-    Overwrites any existing budget for the agent. No signup: the first call
-    for a new agent_id mints an agent_secret (returned once — save it); later
-    calls for that agent_id must pass it back.
+    Overwrites any existing budget for the agent. Claiming a brand-new
+    agent_id requires your workspace_key; that first call mints an
+    agent_secret (returned once — save it); later calls for that agent_id
+    must pass the agent_secret back (no workspace_key needed again).
 
     Args:
         agent_id: unique agent identifier
@@ -100,11 +119,13 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
         monthly_tokens: monthly token-burn cap (0 = no cap)
         daily_tokens: daily token-burn cap (0 = no cap)
         agent_secret: required for every call after the first for this agent_id
+        workspace_key: required when claiming a brand-new agent_id; not
+                       needed once the agent_id has been claimed
     """
     from ledger_engine import set_budget, ValidationError
-    secret, created, err = _claim_or_error(agent_id, agent_secret)
+    secret, created, err = _claim_or_error(agent_id, agent_secret, workspace_key)
     if err:
-        return {"error": err}
+        return err
     try:
         b = set_budget(agent_id, monthly_cents, daily_cents,
                        monthly_tokens=monthly_tokens, daily_tokens=daily_tokens)
