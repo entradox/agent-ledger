@@ -19,6 +19,7 @@ from ledger_engine import (
     track, set_budget, get_budget, report, list_agents, _ledger_path,
     ensure_agent_secret, claimed_agent_count, MAX_AMOUNT_CENTS,
     AuthError, ValidationError, BudgetExceededError, BetaCapExceededError,
+    WorkspaceKeyRequiredError,
     validate_agent_id as le_validate_agent_id, pro_active, BETA_AGENT_CAP,
     AL_API_VERSION, error_envelope, IdempotencyKeyTooLongError,
     IdempotencyConflictError, idempotency_begin, idempotency_store,
@@ -139,6 +140,7 @@ class TrackRequest(BaseModel):
     tokens_out: int = Field(default=0, ge=0)
     model: str = ""
     agent_secret: Optional[str] = None
+    workspace_key: Optional[str] = None
 
 class BudgetRequest(BaseModel):
     agent_id: str
@@ -147,6 +149,7 @@ class BudgetRequest(BaseModel):
     monthly_tokens: int = Field(default=0, ge=0)
     daily_tokens: int = Field(default=0, ge=0)
     agent_secret: Optional[str] = None
+    workspace_key: Optional[str] = None
 
 @app.get("/health")
 def health():
@@ -155,12 +158,14 @@ def health():
 import threading as _threading
 import time as _time
 
-def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
+def _claim_or_401(agent_id: str, provided_secret: Optional[str],
+                 workspace_key: Optional[str] = None):
     """Shared auth gate for every write endpoint. Mints a secret on first use
     of a new agent_id (no signup), verifies it on every later write, and
-    enforces the beta agent-slot cap. Raises HTTPException on failure."""
+    enforces the beta agent-slot cap. New claims on a workspace-bound
+    agent_id require a valid workspace_key. Raises HTTPException on failure."""
     try:
-        return ensure_agent_secret(agent_id, provided_secret)
+        return ensure_agent_secret(agent_id, provided_secret, workspace_key=workspace_key)
     except AuthError as e:
         try:
             metrics.record_event("auth_fail")
@@ -175,6 +180,12 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str]):
         except Exception:
             pass
         raise HTTPException(402, detail=error_envelope(402, str(e), code="beta_cap_exceeded"))
+    except WorkspaceKeyRequiredError as e:
+        try:
+            metrics.record_event("workspace_key_required")
+        except Exception:
+            pass
+        raise HTTPException(401, detail=error_envelope(401, str(e), code="workspace_key_required"))
     except ValidationError as e:
         # malformed agent_id (traversal, bad charset) — 422, not a 500
         try:
@@ -213,7 +224,7 @@ def create_track(req: TrackRequest, request: Request):
     # retry or read the cache (Morgan review 2026-09-09). Failed writes
     # release their in-flight row so honest retries re-attempt.
     idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
     cached = _idempotency_gate(request, req.agent_id, "track")
     if cached is not None:
         return cached
@@ -277,7 +288,7 @@ def create_budget(req: BudgetRequest, request: Request):
     # SECURITY ORDER: same as /v1/track — auth before gate; failed writes
     # release the in-flight row. Secret never enters the cache.
     idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret)
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
     cached = _idempotency_gate(request, req.agent_id, "budget")
     if cached is not None:
         return cached

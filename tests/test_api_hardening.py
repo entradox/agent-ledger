@@ -32,10 +32,14 @@ def client(monkeypatch):
 
     import ledger_engine as ledger_engine_mod
     import api_server as api_server_mod
+    import importlib
+    import workspace_engine
+    importlib.reload(workspace_engine)
+    _, ws_key = workspace_engine.create_workspace(owner_email='hardening-fixture@example.com')
     from fastapi.testclient import TestClient
 
     tc = TestClient(api_server_mod.app)
-    yield tc, api_server_mod, ledger_engine_mod
+    yield tc, api_server_mod, ledger_engine_mod, ws_key
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -50,9 +54,9 @@ def _headers(idem_key=None, version=AL_VERSION):
 
 
 def test_same_idempotency_key_returns_cached_response(client):
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     body = {"agent_id": "idem-agent-1", "rail": "manual", "amount_cents": 100,
-            "service": "svc"}
+            "service": "svc", "workspace_key": ws_key}
 
     first = tc.post("/v1/track", json=body, headers=_headers(idem_key="key-abc"))
     assert first.status_code == 200
@@ -77,7 +81,7 @@ def test_same_idempotency_key_returns_cached_response(client):
 
 
 def test_concurrent_same_key_gets_409(client):
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     agent_id = "idem-agent-2"
 
     # simulate another in-flight request holding the same key before this
@@ -85,7 +89,8 @@ def test_concurrent_same_key_gets_409(client):
     status, _ = ledger_engine_mod.idempotency_begin("key-inflight", agent_id, "track")
     assert status == "proceed"
 
-    body = {"agent_id": agent_id, "rail": "manual", "amount_cents": 50, "service": "svc"}
+    body = {"agent_id": agent_id, "rail": "manual", "amount_cents": 50, "service": "svc",
+            "workspace_key": ws_key}
     resp = tc.post("/v1/track", json=body, headers=_headers(idem_key="key-inflight"))
     assert resp.status_code == 409
     err = resp.json()["error"]
@@ -94,8 +99,9 @@ def test_concurrent_same_key_gets_409(client):
 
 
 def test_idempotency_key_over_255_chars_gets_400(client):
-    tc, api_server_mod, ledger_engine_mod = client
-    body = {"agent_id": "idem-agent-3", "rail": "manual", "amount_cents": 50, "service": "svc"}
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
+    body = {"agent_id": "idem-agent-3", "rail": "manual", "amount_cents": 50, "service": "svc",
+            "workspace_key": ws_key}
     long_key = "x" * 256
 
     resp = tc.post("/v1/track", json=body, headers=_headers(idem_key=long_key))
@@ -106,7 +112,7 @@ def test_idempotency_key_over_255_chars_gets_400(client):
 
 
 def test_missing_version_header_gets_400(client):
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     body = {"agent_id": "version-agent-1", "rail": "manual", "amount_cents": 50, "service": "svc"}
 
     resp = tc.post("/v1/track", json=body, headers=_headers(version=None))
@@ -116,7 +122,7 @@ def test_missing_version_header_gets_400(client):
 
 
 def test_invalid_version_header_gets_400(client):
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
     body = {"agent_id": "version-agent-2", "rail": "manual", "amount_cents": 50, "service": "svc"}
 
     resp = tc.post("/v1/track", json=body, headers=_headers(version="2020-01-01"))
@@ -126,16 +132,17 @@ def test_invalid_version_header_gets_400(client):
 
 
 def test_valid_version_header_passes(client):
-    tc, api_server_mod, ledger_engine_mod = client
-    body = {"agent_id": "version-agent-3", "rail": "manual", "amount_cents": 50, "service": "svc"}
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
+    body = {"agent_id": "version-agent-3", "rail": "manual", "amount_cents": 50, "service": "svc",
+            "workspace_key": ws_key}
 
     resp = tc.post("/v1/track", json=body, headers=_headers())
     assert resp.status_code == 200
 
 
 def test_budget_endpoint_also_enforces_version_and_idempotency(client):
-    tc, api_server_mod, ledger_engine_mod = client
-    body = {"agent_id": "budget-agent-1", "monthly_cents": 1000}
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
+    body = {"agent_id": "budget-agent-1", "monthly_cents": 1000, "workspace_key": ws_key}
 
     missing_version = tc.post("/v1/budget", json=body, headers=_headers(version=None))
     assert missing_version.status_code == 400
@@ -150,24 +157,30 @@ def test_budget_endpoint_also_enforces_version_and_idempotency(client):
 
 
 def test_typed_error_envelope_on_auth_and_cap_paths(client, monkeypatch):
-    tc, api_server_mod, ledger_engine_mod = client
+    tc, api_server_mod, ledger_engine_mod, ws_key = client
 
     # 401 — agent already claimed, wrong secret
-    ok_body = {"agent_id": "typed-agent-1", "rail": "manual", "amount_cents": 10, "service": "svc"}
+    ok_body = {"agent_id": "typed-agent-1", "rail": "manual", "amount_cents": 10,
+               "service": "svc", "workspace_key": ws_key}
     tc.post("/v1/track", json=ok_body, headers=_headers())
     bad_secret = dict(ok_body, agent_secret="wrong")
     r401 = tc.post("/v1/track", json=bad_secret, headers=_headers())
     assert r401.status_code == 401
     assert r401.json()["error"]["code"] == "agent_secret_mismatch"
 
-    # 402 — beta agent cap. A claim inside the scarcity window is granted Pro
-    # rather than capped (D-818), so close the window to reach the cap path.
-    from ledger_engine import BETA_AGENT_CAP
-    monkeypatch.setattr(ledger_engine_mod, "SCARCITY_PRO_CAP", 0)
-    for i in range(BETA_AGENT_CAP - 1):
-        b = {"agent_id": f"typed-cap-{i}", "rail": "manual", "amount_cents": 10, "service": "svc"}
+    # 402 — per-workspace free-tier agent cap: the retired site-wide
+    # BETA_AGENT_CAP + SCARCITY_PRO_CAP mechanism no longer exists in
+    # ensure_agent_secret; caps are per-workspace via workspace_engine's
+    # agent_cap field.
+    import workspace_engine
+    workspace_engine.WORKSPACE_SCARCITY_CAP = 0
+    _, cap_key = workspace_engine.create_workspace(owner_email='cap-test@example.com')
+    for i in range(workspace_engine.WORKSPACE_FREE_AGENT_CAP):
+        b = {"agent_id": f"typed-cap-{i}", "rail": "manual", "amount_cents": 10,
+             "service": "svc", "workspace_key": cap_key}
         assert tc.post("/v1/track", json=b, headers=_headers()).status_code == 200
-    over = {"agent_id": "typed-cap-over", "rail": "manual", "amount_cents": 10, "service": "svc"}
+    over = {"agent_id": "typed-cap-over", "rail": "manual", "amount_cents": 10,
+            "service": "svc", "workspace_key": cap_key}
     r402 = tc.post("/v1/track", json=over, headers=_headers())
     assert r402.status_code == 402
     assert r402.json()["error"]["code"] == "beta_cap_exceeded"
@@ -182,9 +195,9 @@ def test_typed_error_envelope_on_auth_and_cap_paths(client, monkeypatch):
 
 def test_idempotency_cache_never_contains_agent_secret(client):
     """The minted agent_secret must not be servable from an idempotent replay."""
-    tc, api, le = client
+    tc, api, le, ws_key = client
     body = {"agent_id": "sec-agent-1", "rail": "manual", "amount_cents": 100,
-            "service": "svc"}
+            "service": "svc", "workspace_key": ws_key}
     first = tc.post("/v1/track", json=body, headers=_headers(idem_key="sec-key-1"))
     assert first.status_code == 200
     secret = first.json()["agent_secret"]
@@ -199,9 +212,9 @@ def test_idempotency_cache_never_contains_agent_secret(client):
 def test_unauthenticated_caller_cannot_poison_idempotency_row(client):
     """Auth must precede the gate: wrong secret + in-flight key = 401, and the
     row is NOT reserved, so the legitimate owner's retry still succeeds."""
-    tc, api, le = client
+    tc, api, le, ws_key = client
     body = {"agent_id": "sec-agent-2", "rail": "manual", "amount_cents": 100,
-            "service": "svc"}
+            "service": "svc", "workspace_key": ws_key}
     first = tc.post("/v1/track", json=body, headers=_headers(idem_key="own-key"))
     assert first.status_code == 200
     secret = first.json()["agent_secret"]
@@ -225,9 +238,9 @@ def test_unauthenticated_caller_cannot_poison_idempotency_row(client):
 def test_failed_write_releases_idempotency_row(client):
     """A post-auth 402 failure must not hold the key hostage — same-key
     retry with a valid amount re-attempts (row released, not cached)."""
-    tc, api, le = client
+    tc, api, le, ws_key = client
     body = {"agent_id": "sec-agent-3", "rail": "manual", "amount_cents": 100,
-            "service": "svc"}
+            "service": "svc", "workspace_key": ws_key}
     first = tc.post("/v1/track", json=body, headers=_headers(idem_key="fail-key"))
     assert first.status_code == 200
     secret = first.json()["agent_secret"]
