@@ -430,71 +430,8 @@ def connect_beacon(event: str):
             pass
     return JSONResponse(content={"ok": True})
 
-# ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
-CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
-
-def _append_customer(rec: dict):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CUSTOMERS_FILE, "a") as f:
-        f.write(json.dumps(rec) + "\n")
-
-@app.post("/stripe/webhook")
-async def stripe_webhook(request: Request):
-    """Fulfillment: checkout.session.completed -> customers.jsonl (HMAC-verified)."""
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
-    secret = os.environ.get("STRIPE_WEBHOOK_SECRET_AL", "")
-    if not secret:
-        # Fail closed: an unsigned/unverifiable webhook must never mutate state
-        # (customers.jsonl, pro.flag). Missing secret on the service = config
-        # error, and silently accepting the event would be an open write path.
-        raise HTTPException(500, "webhook secret not configured — event rejected")
-    try:
-        parts = dict(p.split("=", 1) for p in sig.split(","))
-        expected = hmac.new(secret.encode(), f"{parts.get('t','')}.".encode() + payload, hashlib.sha256).hexdigest()
-        if not parts.get("t") or not hmac.compare_digest(parts.get("v1", ""), expected):
-            raise HTTPException(400, "bad signature")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(400, "signature verification failed")
-    event = json.loads(payload)
-    event_type = event.get("type", "")
-    if event_type.startswith("checkout.session.") and event_type not in (
-            "checkout.session.completed", "checkout.session.expired"):
-        # a checkout session that opened (and hasn't hit a terminal state)
-        # counts as revenue-funnel entry — leading indicator of purchase intent.
-        # completed/expired excluded so Stripe retries and dead sessions never
-        # inflate the funnel (Morgan review, 2026-09-09).
-        try:
-            metrics.record_event("checkout_started")
-        except Exception:
-            pass
-    if event_type != "checkout.session.completed":
-        return {"received": True, "ignored": event.get("type")}
-    sess = event["data"]["object"]
-    email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
-    if not email:
-        return {"registered": False, "reason": "no email on session"}
-    amount = sess.get("amount_total") or 0
-    plan = "pro" if amount == 1900 else "unknown"
-    _append_customer({"ts": time.time(), "email": email, "plan": plan,
-                      "amount_total": amount, "stripe_session": sess.get("id", ""),
-                      "status": "active", "authority": "confirmed-at-checkout"})
-    try:
-        metrics.record_event("checkout_completed", amount_cents=amount)
-    except Exception:
-        pass
-    if plan == "pro":
-        from ledger_engine import activate_pro
-        activate_pro()
-    try:
-        from send_onboarding_email import send_onboarding_email
-        send_onboarding_email(email, plan)
-    except Exception as e:
-        import logging
-        logging.warning(f"onboarding email skipped: {e}")
-    return {"registered": True, "email": email, "plan": plan}
+from routes_billing import router as billing_router, CUSTOMERS_FILE
+app.include_router(billing_router)
 
 @app.delete("/v1/agents/{agent_id}")
 def delete_agent(agent_id: str, request: Request):
