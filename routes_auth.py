@@ -8,16 +8,28 @@ import secrets as _secrets_mod
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ledger_engine import DATA_DIR
+from ledger_engine import DATA_DIR, error_envelope
 
 router = APIRouter()
+
+_GOOGLE_NOT_CONFIGURED = HTTPException(503, detail=error_envelope(
+    503, "Google login is not configured on this deployment.",
+    code="login_not_configured"))
+
+_GOOGLE_EXCHANGE_FAILED = HTTPException(400, detail=error_envelope(
+    400, "Google sign-in could not be completed.",
+    code="google_exchange_failed"))
 
 
 @router.get("/login")
 def login():
     state = _secrets_mod.token_urlsafe(16)
-    from oauth_google import google_auth_url
-    resp = RedirectResponse(google_auth_url(state))
+    from oauth_google import GoogleNotConfigured, google_auth_url
+    try:
+        auth_url = google_auth_url(state)
+    except GoogleNotConfigured:
+        raise _GOOGLE_NOT_CONFIGURED
+    resp = RedirectResponse(auth_url)
     resp.set_cookie("al_oauth_state", state, httponly=True, max_age=600)
     return resp
 
@@ -25,10 +37,15 @@ def login():
 def google_callback(code: str, state: str, request: Request):
     if request.cookies.get("al_oauth_state") != state:
         raise HTTPException(400, "invalid oauth state")
-    from oauth_google import exchange_code
+    from oauth_google import GoogleExchangeFailed, GoogleNotConfigured, exchange_code
     import workspace_engine
     from session_auth import sign_session
-    userinfo = exchange_code(code)
+    try:
+        userinfo = exchange_code(code)
+    except GoogleNotConfigured:
+        raise _GOOGLE_NOT_CONFIGURED
+    except GoogleExchangeFailed:
+        raise _GOOGLE_EXCHANGE_FAILED
     # create_workspace is idempotent per google_sub (Task 1): a FIRST login
     # mints the workspace and returns its raw_key (shown once, below); a
     # RETURNING login gets the same workspace_id back and raw_key is None.
