@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
-# agent-ledger deterministic deploy — CLI canonical path.
-# Why this exists (2026-09-10): GitHub App auto-deploy was never wired for this
-# service; every deploy was a manual CLI push, and one merge sat undeployed for
-# an hour while /health stayed green. This script makes `railway up` safe:
-# guardrails before, hash ground-truth after. Run from repo root: ./deploy.sh
+# agent-ledger deterministic deploy — CLI path + post-deploy ground truth.
+#
+# TRIGGER REALITY (corrected 2026-09-11): GitHub auto-deploy IS wired for this
+# service. The live deployment's meta carries `branch: main` and `commitHash`,
+# so MERGING OR PUSHING TO MAIN DEPLOYS TO PRODUCTION AUTOMATICALLY. This
+# script is therefore not the normal path — it is the manual/forced path, and
+# its real value is the verification (sections 3, 6, 8): before/after hashes,
+# the deployed-bytes-vs-working-tree check, and the trigger report.
+#
+# The historical note below is kept because it is why this file exists.
+# (2026-09-10): every deploy was a manual CLI push, and one merge sat undeployed
+# for an hour while /health stayed green. Hence the guardrails and hashes.
+#
+# NOTE: sections 6 checks only api_server.py + ledger_engine.py. For a release
+# touching more than those two, use the fuller verifier instead:
+#   bash ~/AI-Workbench/projects/agent-ledger/verify-deploy.sh
+#   (checks all 11 shipped modules, the image's installed dependency set, and
+#    the live behavioural contracts — added after the 2026-09-11 release, whose
+#    two production defects were both invisible to these two hashes.)
 #
 # Usage: ./deploy.sh [--allow-dirty]
 set -euo pipefail
