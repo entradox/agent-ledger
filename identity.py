@@ -39,19 +39,43 @@ def resolve_session(cookie_value: Optional[str]) -> Optional[str]:
     return verify_session(cookie_value)
 
 
+def _agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> bool:
+    """True if agent_id's workspace_id.txt names exactly this workspace."""
+    if not workspace_id:
+        return False
+    from ledger_engine import DATA_DIR
+    ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
+    return ws_file.exists() and ws_file.read_text().strip() == workspace_id
+
+
 def authorize_agent_access(agent_id: str, *, agent_secret: Optional[str] = None,
-                            workspace_key: Optional[str] = None) -> bool:
-    """True if EITHER credential proves the caller may access agent_id's
-    data — used for read authorization (Task 4). Not used for claiming a
-    brand-new agent_id (that's ensure_agent_secret's workspace_key
-    precondition, a different operation: claiming vs. accessing)."""
+                            workspace_key: Optional[str] = None,
+                            session_cookie: Optional[str] = None) -> bool:
+    """True if ANY of the three credentials proves the caller may access
+    agent_id's data — used for read authorization (Task 4). Not used for
+    claiming a brand-new agent_id (that's ensure_agent_secret's
+    workspace_key precondition, a different operation: claiming vs.
+    accessing).
+
+    session_cookie is the browser path: the dashboard renders links to
+    /v1/report/{agent_id}/html, and a browser following one of those sends
+    only its al_session cookie. It resolves to a workspace_id and is then
+    checked against the agent's workspace_id.txt exactly as workspace_key
+    is — same file, same comparison — so a session never grants access to
+    another workspace's agents.
+    """
     if resolve_agent_secret(agent_id, agent_secret):
         return True
-    if workspace_key:
-        workspace_id = resolve_workspace_key(workspace_key)
-        if workspace_id:
-            from ledger_engine import DATA_DIR
-            ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
-            if ws_file.exists() and ws_file.read_text().strip() == workspace_id:
-                return True
+    if workspace_key and _agent_belongs_to_workspace(
+            agent_id, resolve_workspace_key(workspace_key)):
+        return True
+    if session_cookie:
+        try:
+            session_workspace = resolve_session(session_cookie)
+        except RuntimeError:
+            # AL_SESSION_SECRET not configured — an unverifiable cookie is
+            # treated as no credential (fail closed), not a 500 on a read.
+            session_workspace = None
+        if _agent_belongs_to_workspace(agent_id, session_workspace):
+            return True
     return False

@@ -127,17 +127,24 @@ def _idempotency_gate(request: Request, agent_id: str, op: str):
 
 
 def _authorize_agent_read(agent_id: str, request: Request) -> None:
-    """Reads used to be fully open (pre-workspace design). Now require
-    either the agent's own secret or its workspace's key — checked via
-    identity.authorize_agent_access(), the same function the claim gate
-    (ledger_engine.ensure_agent_secret) resolves identity through. This
-    wrapper's only job is pulling headers off Request and raising the
-    HTTP error — it holds no credential-comparison logic of its own."""
+    """Reads used to be fully open (pre-workspace design). Now require the
+    agent's own secret, its workspace's key, or a logged-in session cookie
+    for that workspace — all checked via identity.authorize_agent_access(),
+    the same function the claim gate (ledger_engine.ensure_agent_secret)
+    resolves identity through. This wrapper's only job is pulling headers
+    and cookies off Request and raising the HTTP error — it holds no
+    credential-comparison logic of its own.
+
+    The cookie arm exists because the dashboard links to
+    /v1/report/{agent_id}/html and a browser following that link sends no
+    headers at all; it is authorized through the same workspace-ownership
+    comparison as X-Workspace-Key, never a special case."""
     import identity
     if not identity.authorize_agent_access(
             agent_id,
             agent_secret=request.headers.get("x-agent-secret", ""),
-            workspace_key=request.headers.get("x-workspace-key", "")):
+            workspace_key=request.headers.get("x-workspace-key", ""),
+            session_cookie=request.cookies.get("al_session", "")):
         raise HTTPException(401, detail=error_envelope(
             401, "this agent's data requires its agent_secret or workspace_key",
             code="agent_secret_mismatch"))
