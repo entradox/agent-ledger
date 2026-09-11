@@ -29,23 +29,23 @@ def google_callback(code: str, state: str, request: Request):
     import workspace_engine
     from session_auth import sign_session
     userinfo = exchange_code(code)
-    # create_workspace is idempotent per google_sub (Task 1): a returning
-    # user gets their EXISTING workspace_id back with a freshly reissued
-    # raw_key (their old key stops working, per Task 1's _reissue_key
-    # fix) — always returns (workspace_id, raw_key) in both the new-user
-    # and returning-user case, so there is exactly one code path here,
-    # not two branches that can drift (the earlier draft of this task had
-    # a returning-user branch that never captured raw_key — a real
-    # NameError, fixed by using create_workspace's own idempotency
-    # instead of duplicating the lookup).
+    # create_workspace is idempotent per google_sub (Task 1): a FIRST login
+    # mints the workspace and returns its raw_key (shown once, below); a
+    # RETURNING login gets the same workspace_id back and raw_key is None.
+    # None is the correct answer there — only the key's hash is stored, so
+    # there is nothing to re-show, and minting a fresh one would silently
+    # break the key the user is already using (which is exactly what this
+    # route used to do on every single login).
     workspace_id, raw_key = workspace_engine.create_workspace(
         owner_email=userinfo["email"], google_sub=userinfo["google_sub"])
     resp = RedirectResponse("/dashboard")
     resp.set_cookie("al_session", sign_session(workspace_id), httponly=True, max_age=2592000)
-    # One-time key reveal: the raw key only exists right here. Carry it to
-    # the dashboard's first load via a short-lived cookie the dashboard
-    # route reads-and-deletes, so a page refresh never shows it twice.
-    resp.set_cookie("al_key_reveal", raw_key, httponly=True, max_age=30)
+    # One-time key reveal: the raw key only exists right here, on a first
+    # login. Carry it to the dashboard's first load via a short-lived cookie
+    # the dashboard route reads-and-deletes, so a page refresh never shows
+    # it twice.
+    if raw_key:
+        resp.set_cookie("al_key_reveal", raw_key, httponly=True, max_age=30)
     resp.delete_cookie("al_oauth_state")
     return resp
 
@@ -68,8 +68,8 @@ def dashboard_page(request: Request):
         f'<p style="color:#d4af37"><b>Your workspace_key (save this now — shown once):</b><br>'
         f'<code>{html.escape(reveal_key)}</code></p>'
         if reveal_key else
-        '<p>Workspace key already shown once. <a href="/login">Log in again</a> to reissue '
-        'a new one if you lost it (this invalidates the old key).</p>'
+        '<p>Your workspace_key was shown once at signup. Key recovery is not '
+        'available yet in this version — logging in again will not reissue it.</p>'
     )
     agent_rows = "".join(
         f'<li><a href="/v1/report/{html.escape(d.name)}/html">{html.escape(d.name)}</a></li>'

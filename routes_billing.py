@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from ledger_engine import DATA_DIR
 import metrics
@@ -125,6 +126,25 @@ def create_checkout(request: Request):
 
 @router.post("/v1/billing/x402")
 def x402_billing(request: Request):
+    """Mint (or resolve) a workspace from a settled x402 payment.
+
+    The settlement transaction hash is the idempotency key, per spec 3b —
+    implemented on the SAME idempotency store /v1/track uses
+    (idempotency_begin/store/release in ledger_engine), not a second
+    bespoke mechanism. Consequences:
+
+    - Replaying the SAME tx_hash returns the byte-identical original
+      response, including the key minted the first time. A true no-op.
+    - A NEW tx_hash from an ALREADY-KNOWN wallet (a second real payment)
+      resolves to that wallet's existing workspace and returns
+      workspace_key: null — a key was already issued for this wallet and
+      only its hash is stored, so it cannot be re-shown. Nothing is
+      invalidated (the previous behavior silently reissued, breaking the
+      key the agent was already using).
+    """
+    from ledger_engine import (idempotency_begin, idempotency_store,
+                               idempotency_release, error_envelope,
+                               IdempotencyKeyTooLongError, IdempotencyConflictError)
     payment_header = request.headers.get("x-payment", "")
     if not payment_header:
         raise HTTPException(402, "X-PAYMENT header required")
@@ -132,5 +152,39 @@ def x402_billing(request: Request):
     result = x402_verify.verify_payment(payment_header)
     if not result["verified"]:
         raise HTTPException(402, "payment not verified")
-    workspace_id, raw_key = workspace_engine.create_workspace(wallet_address=result["payer_wallet"])
-    return {"workspace_id": workspace_id, "workspace_key": raw_key}
+    wallet = result["payer_wallet"]
+    tx_hash = result.get("tx_hash")
+    if not tx_hash:
+        # Without a settlement tx_hash there is no replay key, so a resubmit
+        # could not be told apart from a fresh payment. Fail closed rather
+        # than mint on an undedupable payment.
+        raise HTTPException(402, detail=error_envelope(
+            402, "settlement transaction hash missing — payment cannot be "
+                 "deduplicated, refusing to mint", code="x402_no_tx_hash"))
+
+    try:
+        status, cached = idempotency_begin(tx_hash, wallet, "x402_mint")
+    except IdempotencyKeyTooLongError as e:
+        raise HTTPException(400, detail=error_envelope(
+            400, str(e), code="idempotency_key_too_long"))
+    except IdempotencyConflictError as e:
+        raise HTTPException(409, detail=error_envelope(
+            409, str(e), code="idempotency_conflict"))
+    if status == "cached":
+        return JSONResponse(status_code=cached["status_code"],
+                            content=cached["response"])
+
+    try:
+        workspace_id, raw_key = workspace_engine.create_workspace(wallet_address=wallet)
+    except Exception:
+        idempotency_release(tx_hash, wallet, "x402_mint")
+        raise
+
+    payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
+    if raw_key is None:
+        payload["message"] = (
+            "A workspace_key was already issued for this wallet and is shown "
+            "only once at mint time — it cannot be re-issued in this version. "
+            "This payment resolved to your existing workspace.")
+    idempotency_store(tx_hash, wallet, "x402_mint", payload, 200)
+    return payload

@@ -77,20 +77,30 @@ def get_workspace_by_wallet(wallet_address: str) -> Optional[dict]:
 
 def create_workspace(*, owner_email: Optional[str] = None,
                       google_sub: Optional[str] = None,
-                      wallet_address: Optional[str] = None) -> tuple[str, str]:
+                      wallet_address: Optional[str] = None
+                      ) -> tuple[str, Optional[str]]:
     """Idempotent per identity dimension: calling again with the same
     google_sub or wallet_address returns the SAME workspace (no duplicate
-    minted), with a freshly generated key each time (old key invalidated —
-    acceptable for now since there's no rotation UI yet; a repeat call is
-    effectively a "lost my key" recovery path)."""
+    minted) and `None` for the key.
+
+    It returns None rather than a fresh key deliberately. The raw key only
+    ever exists at mint time (only its hash is stored — that is the entire
+    point), so there is nothing to hand back on a lookup. The earlier
+    behavior — silently reissuing, and thereby INVALIDATING, the key on
+    every call — made an identity lookup a destructive side effect: every
+    Google login broke the user's existing key, and every repeat x402
+    payment (including a replayed one) did the same. Reissue is now an
+    explicit, separately-named action (see reissue_key below), never an
+    implicit consequence of "who is this caller".
+    """
     if google_sub:
         existing = get_workspace_by_google_sub(google_sub)
         if existing:
-            return existing["workspace_id"], _reissue_key(existing["workspace_id"])
+            return existing["workspace_id"], None
     if wallet_address:
         existing = get_workspace_by_wallet(wallet_address)
         if existing:
-            return existing["workspace_id"], _reissue_key(existing["workspace_id"])
+            return existing["workspace_id"], None
 
     workspace_id = "ws_" + secrets.token_urlsafe(16)
     raw_key = "wk_live_" + secrets.token_urlsafe(32)
@@ -117,8 +127,19 @@ def create_workspace(*, owner_email: Optional[str] = None,
     return workspace_id, raw_key
 
 
-def _reissue_key(workspace_id: str) -> str:
-    """Generate a new key and invalidate the old one by deleting its index entry."""
+def reissue_key(workspace_id: str) -> str:
+    """Mint a new workspace_key and INVALIDATE the old one by deleting its
+    index entry. Destructive and irreversible for anyone still holding the
+    previous key — so it is only ever called where reissue is the caller's
+    genuine, disclosed intent.
+
+    As of this phase nothing calls it automatically: there is no "I lost my
+    key" recovery flow yet (key rotation/revocation is explicitly out of
+    scope for this phase — see the design spec's "Explicitly out of scope").
+    It exists as the building block that flow will use, kept separate from
+    create_workspace precisely so an identity lookup can never reissue by
+    accident.
+    """
     record = get_workspace(workspace_id)
     if record is None:
         raise WorkspaceError(f"workspace not found: {workspace_id}")
