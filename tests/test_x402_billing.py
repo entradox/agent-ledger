@@ -134,14 +134,20 @@ def test_settlement_to_our_address_mints(client, monkeypatch):
     assert r.json()["workspace_key"]
 
 
+class _FakeURL:
+    path = "/v1/billing/x402"
+
+    def __str__(self):
+        return "http://test/v1/billing/x402"
+
+
 class _FakeRequest:
     """Minimal stand-in for a Starlette Request, enough for the SDK adapter."""
     def __init__(self, payment="pay-hdr"):
         self.method = "POST"
         self.headers = {"x-payment": payment} if payment else {}
         self.query_params = {}
-        self.url = type("U", (), {"path": "/v1/billing/x402"})()
-        self.url.__class__.__str__ = lambda s: "http://test/v1/billing/x402"
+        self.url = _FakeURL()
 
 
 def _install_fake_server(monkeypatch, outcome, settle=None):
@@ -217,6 +223,19 @@ def test_verify_payment_failed_settlement_is_not_verified(monkeypatch):
     out = x402_verify.verify_payment(_FakeRequest())
     assert out["verified"] is False
     assert out["error"] == "insufficient_funds"
+
+
+def test_verify_payment_refuses_when_no_settlement_to_bind(monkeypatch):
+    """A 'no-payment-required' outcome has no payer and no tx_hash — minting
+    on it would bind a workspace to nothing."""
+    from x402.http.types import HTTPProcessResult
+
+    outcome = HTTPProcessResult(type="no-payment-required", response=None,
+                                payment_payload=None, payment_requirements=None)
+    x402_verify = _install_fake_server(monkeypatch, outcome, settle=None)
+    out = x402_verify.verify_payment(_FakeRequest())
+    assert out["verified"] is False
+    assert out["tx_hash"] is None
 
 
 def test_verify_payment_raises_when_unconfigured(monkeypatch):

@@ -182,6 +182,14 @@ def verify_payment(request) -> dict:
         return {"verified": False, "payer_wallet": None, "tx_hash": None,
                 "unpaid_response": _instructions_to_dict(outcome.response)}
 
+    if outcome.payment_payload is None or outcome.payment_requirements is None:
+        # "no-payment-required" (route somehow unpriced) — there is no
+        # settlement, so no payer and no tx_hash to bind a workspace to.
+        # Refuse rather than call process_settlement with None.
+        return {"verified": False, "payer_wallet": None, "tx_hash": None,
+                "error": "no payment was required for this route — refusing "
+                         "to mint without a settlement"}
+
     settle = resource_server.process_settlement(
         outcome.payment_payload, outcome.payment_requirements, ctx)
     if not settle.success:
