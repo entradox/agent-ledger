@@ -121,3 +121,16 @@ def create_checkout(request: Request):
     with urllib.request.urlopen(req, timeout=10) as resp:
         session = json.loads(resp.read())
     return {"checkout_url": session["url"]}
+
+
+@router.post("/v1/billing/x402")
+def x402_billing(request: Request):
+    payment_header = request.headers.get("x-payment", "")
+    if not payment_header:
+        raise HTTPException(402, "X-PAYMENT header required")
+    import x402_verify, workspace_engine
+    result = x402_verify.verify_payment(payment_header)
+    if not result["verified"]:
+        raise HTTPException(402, "payment not verified")
+    workspace_id, raw_key = workspace_engine.create_workspace(wallet_address=result["payer_wallet"])
+    return {"workspace_id": workspace_id, "workspace_key": raw_key}
