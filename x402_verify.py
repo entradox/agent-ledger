@@ -24,4 +24,13 @@ def verify_payment(payment_header: str) -> dict:
         "verified": bool(result.get("verified")),
         "payer_wallet": result.get("payer"),
         "tx_hash": result.get("transaction_hash"),
+        # Settlement detail, surfaced so the route can sanity-check what was
+        # actually paid and to whom before minting anything. Field names on
+        # the facilitator side are part of the same unconfirmed placeholder
+        # schema as the ones above — .get() throughout, so an absent field is
+        # None and the caller decides whether that is fatal (the route
+        # rejects a missing recipient when a receiving address is configured).
+        "recipient": result.get("recipient") or result.get("pay_to"),
+        "amount": result.get("amount"),
+        "asset": result.get("asset"),
     }

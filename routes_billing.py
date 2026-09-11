@@ -155,8 +155,12 @@ def x402_billing(request: Request):
     (idempotency_begin/store/release in ledger_engine), not a second
     bespoke mechanism. Consequences:
 
-    - Replaying the SAME tx_hash returns the byte-identical original
-      response, including the key minted the first time. A true no-op.
+    - Replaying the SAME tx_hash returns the same workspace_id, but the
+      raw workspace_key is REDACTED from the cached replay. The key is
+      shown exactly once, in the original response; a replay must not
+      re-expose it to anyone who can name the tx_hash. Same precedent as
+      /v1/track and /v1/budget, which strip the minted agent_secret from
+      their cached payloads for the same reason.
     - A NEW tx_hash from an ALREADY-KNOWN wallet (a second real payment)
       resolves to that wallet's existing workspace and returns
       workspace_key: null — a key was already issued for this wallet and
@@ -174,7 +178,30 @@ def x402_billing(request: Request):
     result = x402_verify.verify_payment(payment_header)
     if not result["verified"]:
         raise HTTPException(402, "payment not verified")
-    wallet = result["payer_wallet"]
+    wallet = result.get("payer_wallet")
+    if not wallet:
+        # Same defensive shape as the tx_hash guard below. A settlement with
+        # no payer is an identity we cannot key a workspace to; attempting it
+        # anyway surfaced as an unhandled sqlite3.IntegrityError -> 500
+        # instead of a typed, actionable error.
+        raise HTTPException(402, detail=error_envelope(
+            402, "payer wallet missing from settlement — no identity to bind "
+                 "a workspace to, refusing to mint", code="x402_no_payer_wallet"))
+    # Settlement sanity: a verified payment of ANY size to ANY recipient must
+    # not mint a workspace. Only the recipient is checked here — the
+    # facilitator response schema is still an unconfirmed placeholder (see
+    # x402_verify.py), so this deliberately validates the one field whose
+    # meaning is unambiguous rather than a schema we have not confirmed.
+    # Enforced only when X402_RECEIVING_ADDRESS is configured; an unset value
+    # means the operator has not declared a receiving address yet.
+    expected_recipient = os.environ.get("X402_RECEIVING_ADDRESS", "")
+    if expected_recipient:
+        recipient = result.get("recipient")
+        if not recipient or str(recipient).lower() != expected_recipient.lower():
+            raise HTTPException(402, detail=error_envelope(
+                402, "settlement recipient does not match this service's "
+                     "receiving address — refusing to mint",
+                code="x402_recipient_mismatch"))
     tx_hash = result.get("tx_hash")
     if not tx_hash:
         # Without a settlement tx_hash there is no replay key, so a resubmit
@@ -208,5 +235,13 @@ def x402_billing(request: Request):
             "A workspace_key was already issued for this wallet and is shown "
             "only once at mint time — it cannot be re-issued in this version. "
             "This payment resolved to your existing workspace.")
-    idempotency_store(tx_hash, wallet, "x402_mint", payload, 200)
+    # SECURITY: the raw workspace_key must never be persisted in the
+    # idempotency cache — a replayable cached response would re-expose it to
+    # anyone who can name the settlement tx_hash. Same rule (and same shape)
+    # as the minted agent_secret on /v1/track and /v1/budget.
+    cached_payload = dict(payload)
+    cached_payload.pop("workspace_key", None)
+    cached_payload["_note"] = ("workspace_key is shown once at claim time and is "
+                               "not included in cached (idempotent) replays.")
+    idempotency_store(tx_hash, wallet, "x402_mint", cached_payload, 200)
     return payload
