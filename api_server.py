@@ -38,6 +38,9 @@ app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 from routes_agents import router as agents_router
 app.include_router(agents_router)
 
+from routes_auth import router as auth_router
+app.include_router(auth_router)
+
 
 @app.exception_handler(HTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
