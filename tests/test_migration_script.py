@@ -80,8 +80,26 @@ def test_rerun_is_idempotent_and_reissues_nothing(data_dir):
     raw_key = first.stdout.split("key shown once): ")[1].strip().splitlines()[0]
     ws_id = workspace_engine.get_workspace_by_key(raw_key)["workspace_id"]
 
+    before = len(list((data_dir / "workspaces").glob("*.json")))
     second = _run(data_dir, "--owner-email", "op@example.com", "--google-sub", "g-op")
     assert second.returncode == 0, second.stderr
-    assert "Reusing existing workspace" in second.stdout
+    # Everything migrated on run 1, so run 2 has nothing to do and must not
+    # call create_workspace at all — inside the launch window that would burn
+    # a scarcity slot for zero agents.
+    assert "Nothing to migrate" in second.stdout
+    assert len(list((data_dir / "workspaces").glob("*.json"))) == before
     # the original key still resolves to the same workspace
     assert workspace_engine.get_workspace_by_key(raw_key)["workspace_id"] == ws_id
+
+
+def test_no_agents_to_migrate_mints_nothing(data_dir):
+    """Running against an instance with nothing to migrate must not create a
+    workspace (and therefore must not consume a scarcity slot)."""
+    import shutil
+    shutil.rmtree(data_dir / "agents", ignore_errors=True)
+    (data_dir / "agents").mkdir(parents=True, exist_ok=True)
+    r = _run(data_dir, "--owner-email", "op@example.com", "--google-sub", "g-none")
+    assert r.returncode == 0, r.stderr
+    assert "Nothing to migrate" in r.stdout
+    assert not (data_dir / "workspaces").exists() or \
+        list((data_dir / "workspaces").glob("*.json")) == []

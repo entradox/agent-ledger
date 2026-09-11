@@ -50,6 +50,14 @@ def main():
             "!! migrated agents will not appear on your dashboard.\n"
             "!! Log in once, read your google_sub out of the workspace record\n"
             "!! it creates, and re-run with --google-sub <sub>.\n")
+    if not to_migrate:
+        # create_workspace() is not free: inside the launch window it consumes
+        # one of the 50 scarcity slots. Minting a workspace for zero agents
+        # burns a slot nobody asked for and cannot be undone.
+        print("Nothing to migrate — no workspace created "
+              "(minting one would consume a scarcity slot for no agents).")
+        return
+
     if args.dry_run:
         print("--dry-run: no changes made")
         return
