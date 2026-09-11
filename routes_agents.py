@@ -28,6 +28,9 @@ import metrics
 
 router = APIRouter()
 
+# Module-level constants (same pattern as api_server.py)
+COUNTS_FILE = DATA_DIR / "counts.jsonl"
+
 
 class TrackRequest(BaseModel):
     agent_id: str
@@ -124,11 +127,9 @@ def _idempotency_gate(request: Request, agent_id: str, op: str):
 
 
 def _log_event(kind):
-    data_dir = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
-    counts_file = data_dir / "counts.jsonl"
     try:
-        data_dir.mkdir(parents=True, exist_ok=True)
-        with open(counts_file, "a") as f:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        with open(COUNTS_FILE, "a") as f:
             f.write(json.dumps({"ts": time.time(), "kind": kind}) + "\n")
     except Exception:
         pass

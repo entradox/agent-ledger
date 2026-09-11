@@ -139,7 +139,7 @@ def test_billing_path_email_never_reaches_metrics(client):
 def test_ip_hash_refuses_unsalted(monkeypatch):
     """No AL_METRICS_SALT → no ip_hash at all (unsalted hash = reversible)."""
     monkeypatch.delenv("AL_METRICS_SALT", raising=False)
-    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http"):
+    for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
     import api_server as api_server_mod
 
@@ -150,9 +150,11 @@ def test_ip_hash_refuses_unsalted(monkeypatch):
     assert api_server_mod._ip_hash(FakeRequest()) is None
 
     monkeypatch.setenv("AL_METRICS_SALT", "some-secret-salt-value")
-    sys.modules.pop("api_server", None)
+    for mod in ("api_server", "routes_agents"):
+        sys.modules.pop(mod, None)
     import importlib
     api_server_mod = importlib.import_module("api_server")
     h = api_server_mod._ip_hash(FakeRequest())
     assert h is not None and len(h) == 12
-    sys.modules.pop("api_server", None)
+    for mod in ("api_server", "routes_agents"):
+        sys.modules.pop(mod, None)
