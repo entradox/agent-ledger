@@ -198,7 +198,15 @@ def get_metrics(request: Request):
         "sum_amount_cents_completed": amount_sums.get("checkout_completed", 0),
     }
 
-    reach = {path: unique_ips.get(f"path:{path}", 0) for path in sorted(REACH_PATHS)}
+    # File-backed, so the reach number survives a deploy instead of resetting
+    # to zero (the in-memory set is process-lifetime). Falls back to memory if
+    # the file can't be read.
+    try:
+        durable = metrics.reach_from_file()
+    except Exception:
+        durable = {}
+    reach = {path: max(durable.get(f"path:{path}", 0), unique_ips.get(f"path:{path}", 0))
+             for path in sorted(REACH_PATHS)}
 
     # The step funnel (D-1163): where do signups actually stop?
     onboarding = {}
