@@ -236,6 +236,18 @@ def create_track(req: TrackRequest, request: Request):
     idempotency_store(idem_key, req.agent_id, "track", cached_payload, 200)
     try:
         metrics.record_event("track_ok")
+        # Activation (D-1163): `created` means this same call CLAIMED the
+        # agent, i.e. the workspace's first successful write. That is the step
+        # that separates a real signup from a workspace nobody ever used.
+        if created:
+            try:
+                import identity
+                ws = identity.resolve_workspace_key(req.workspace_key)
+                if ws:
+                    metrics.record_onboarding("agent_claimed", ws)
+                    metrics.record_onboarding("track_written", ws)
+            except Exception:
+                pass
     except Exception:
         pass
     return result

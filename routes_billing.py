@@ -67,6 +67,19 @@ async def stripe_webhook(request: Request):
             metrics.record_event("checkout_started")
         except Exception:
             pass
+    if event_type == "checkout.session.expired":
+        # Backstop, not a real-time signal: Stripe expires an unpaid session
+        # ~24h after it is created, so an abandonment recorded here is up to a
+        # day old. The client beacon (start_checkout_click) is what catches the
+        # click itself; this catches the case where the buyer never came back.
+        sess = (event.get("data") or {}).get("object") or {}
+        try:
+            metrics.record_onboarding("checkout_abandoned",
+                                      sess.get("client_reference_id") or "")
+        except Exception:
+            pass
+        return {"received": True, "ignored": event_type}
+
     if event_type != "checkout.session.completed":
         return {"received": True, "ignored": event.get("type")}
     sess = event["data"]["object"]
@@ -80,6 +93,9 @@ async def stripe_webhook(request: Request):
                       "status": "active", "authority": "confirmed-at-checkout"})
     try:
         metrics.record_event("checkout_completed", amount_cents=amount)
+        metrics.record_onboarding("checkout_completed",
+                                  sess.get("client_reference_id") or "",
+                                  amount_cents=amount)
     except Exception:
         pass
     if plan == "pro":

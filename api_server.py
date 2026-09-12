@@ -11,7 +11,7 @@ Endpoints:
   GET  /stats                        — usage counters
   GET  /.well-known/agent.json       — AEO capability manifest
 """
-import html, json, os, sys, time, hmac, hashlib
+import html, json, os, re, sys, time, hmac, hashlib
 from pathlib import Path
 from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -200,6 +200,13 @@ def get_metrics(request: Request):
 
     reach = {path: unique_ips.get(f"path:{path}", 0) for path in sorted(REACH_PATHS)}
 
+    # The step funnel (D-1163): where do signups actually stop?
+    onboarding = {}
+    try:
+        onboarding = metrics.onboarding_funnel()
+    except Exception:
+        pass
+
     agents = list_agents()
     with_data = sum(1 for a in agents if a.get("has_data"))
     squatted = sum(1 for a in agents if not a.get("has_data"))
@@ -207,6 +214,7 @@ def get_metrics(request: Request):
     return {
         "service": "agent-ledger",
         "version": app.version,
+        "onboarding": onboarding,
         "funnel": funnel,
         "checkout_funnel": checkout_funnel,
         "reach": reach,
@@ -509,26 +517,49 @@ no human in the loop at all:</p>
 
 
 def _start_key_html(workspace_id: str, raw_key: str, checkout: str) -> str:
+    """The post-mint page.
+
+    The layout here is a conversion decision, not decoration (D-1163). This
+    page's message is "you are done, and it is free". The previous version made
+    the $19 upgrade the ONLY primary (gold) button on the page — a plausible
+    way to walk a free-tier visitor into a card form they never wanted, and we
+    have a live abandoned checkout that looks exactly like that. So: the free
+    state is the visual peak, the next ACTION is claiming an agent, and the
+    upgrade is an explicitly optional, visually subordinate link.
+    """
     key_block = (f'<div class="key">{html.escape(raw_key)}</div>' if raw_key else
                  '<div class="key">a key was already issued for this workspace and is '
                  'shown only once, at mint time</div>')
+    # Fire-and-forget, and deliberately not required for navigation: the link
+    # must work with JS disabled and with the beacon failing.
+    beacon = ("if(navigator.sendBeacon){navigator.sendBeacon("
+              "'/v1/_beacon?event=start_checkout_click&ws="
+              + html.escape(workspace_id, quote=True) + "');}")
     return _page("AgentLedger — your workspace", f"""
-<h1>Your workspace is <span>live</span></h1>
+<h1>You're <span>set up</span></h1>
 <div class="sub">workspace_id: {html.escape(workspace_id)}</div>
 <div class="card">
 <p><b>Your workspace_key — shown once:</b></p>
 {key_block}
 <div class="warn">Save it now. It is not emailed, and it cannot be displayed again.</div>
-<p class="mut">Claim your first agent by sending it as <code>workspace_key</code> on the first
-<code>POST /v1/track</code>. That call returns the agent's own <code>agent_secret</code>,
-which authenticates every write after it. Working examples:
-<a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
+<p><b>Nothing to pay.</b> This workspace is on the free tier: up to 3 agents, every rail,
+budget caps that block, alerts, reports and the MCP server included. No card, no expiry,
+no signup.</p>
 </div>
 <div class="card">
-<p><b>Upgrade this workspace to Pro — $19/mo</b> (unlimited tracked agents).</p>
-<a class="btn" href="{html.escape(checkout, quote=True)}" rel="noopener">Continue to payment →</a>
-<p class="mut">The link carries this workspace's id, so the upgrade lands on <i>this</i>
-workspace. The free tier needs no card and does not expire.</p>
+<p><b>Next: claim your first agent.</b> Send this key as <code>workspace_key</code> on the
+first <code>POST /v1/track</code> for a new <code>agent_id</code>. That call returns the
+agent's own <code>agent_secret</code>, which authenticates every write after it.</p>
+<pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track -H "Content-Type: application/json" -H "AL-API-Version: 2026-09-01" -d '{{"agent_id":"my-agent","rail":"manual","amount_cents":100,"service":"test","workspace_key":"YOUR_KEY"}}'</pre>
+<p class="mut">Full working examples: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
+<p class="mut">Or connect over MCP — <code>claude mcp add --transport http agent-ledger
+https://agent-ledger-production-0ff8.up.railway.app/mcp/</code> — and let the agent do it.</p>
+</div>
+<div class="card">
+<p><b>Optional, and not needed today: Pro — $19/mo</b> for unlimited tracked agents.</p>
+<p class="mut">Only matters past 3 agents. Same workspace, same key, nothing to migrate.</p>
+<a class="plain" href="{html.escape(checkout, quote=True)}" rel="noopener"
+   onclick="{beacon}">Upgrade to Pro →</a>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
 """)
@@ -600,6 +631,14 @@ def start_mint(request: Request):
         return HTMLResponse(_start_limited_html(), status_code=429)
     import workspace_engine
     workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False)
+    # Onboarding step 1/2 (D-1163). Workspace id only — never the key, never an IP.
+    try:
+        metrics.record_onboarding("workspace_minted", workspace_id,
+                                  plan="free", grant_scarcity=False)
+        if raw_key:
+            metrics.record_onboarding("key_revealed", workspace_id)
+    except Exception:
+        pass
     checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
     # no-store: the key is shown exactly once and can never be re-revealed, so
     # a cache (or a browser's back-forward cache) holding this response would
@@ -609,15 +648,27 @@ def start_mint(request: Request):
                         headers={"Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})
 
+_WS_ID_RE = re.compile(r"^ws_[A-Za-z0-9_\-]{10,64}$")
+
+
 @app.get("/v1/_beacon")
-def connect_beacon(event: str):
+def connect_beacon(event: str, ws: str = ""):
     """Fire-and-forget telemetry beacon for static-page interactions that have
-    no natural server round-trip (launch-kit v0.3 item 4). Only the
-    status.html Connect section uses this today, hence the closed allowlist —
-    an open `event` value would let a caller write arbitrary metric kinds."""
+    no natural server round-trip (launch-kit v0.3 item 4). The allowlist is
+    closed on purpose — an open `event` value would let a caller write
+    arbitrary metric kinds, and an open `ws` would let them invent workspaces
+    in the onboarding stream. Both are validated here."""
     if event == "connect_page_view":
         try:
             metrics.record_event("connect_page_view")
+        except Exception:
+            pass
+    elif event == "start_checkout_click" and _WS_ID_RE.match(ws or ""):
+        # The upgrade button on the post-mint page is a plain link to Stripe:
+        # no server round-trip, so without this the click leaves no trace and
+        # the funnel has a hole exactly where conversion is decided.
+        try:
+            metrics.record_onboarding("checkout_clicked", ws)
         except Exception:
             pass
     return JSONResponse(content={"ok": True})

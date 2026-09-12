@@ -67,6 +67,78 @@ def record_event(kind: str, *, ip_bucket: str = None, **fields):
         pass
 
 
+# ── Onboarding funnel (D-1163) ────────────────────────────────────────────
+# A per-WORKSPACE step stream, deliberately separate from the `http` reach
+# counters: reach answers "was the page seen", this answers "where did the
+# signup stop". Keyed by workspace_id (an opaque random id), never by an IP
+# hash and never by a credential — `record_onboarding` strips both.
+ONBOARDING_STEPS = (
+    "workspace_minted",    # POST /start created the workspace
+    "key_revealed",        # the one-time key was actually shown
+    "checkout_clicked",    # the upgrade button was pressed (client beacon)
+    "checkout_completed",  # Stripe says it was paid
+    "checkout_abandoned",  # Stripe says the session expired unpaid
+    "agent_claimed",       # the workspace claimed its first agent_id
+    "track_written",       # and wrote its first spend entry (same call)
+)
+
+_FORBIDDEN_ONBOARDING_FIELDS = ("ip_hash", "workspace_key", "agent_secret",
+                                "agent_secret_hash", "workspace_key_hash")
+
+
+def record_onboarding(step: str, workspace_id: str = "", **fields):
+    """Record one onboarding step. Silently ignores an unknown step name so a
+    typo can never widen the stream, and strips anything that could carry a
+    credential or an IP into an event log that is read by humans."""
+    if step not in ONBOARDING_STEPS:
+        return
+    for bad in _FORBIDDEN_ONBOARDING_FIELDS:
+        fields.pop(bad, None)
+    record_event("onboarding", step=step, workspace_id=workspace_id or "", **fields)
+
+
+def onboarding_funnel() -> dict:
+    """Per-step DISTINCT-workspace counts plus the drop-off between adjacent
+    steps, computed by scanning metrics.jsonl. Called only from the
+    admin-gated /v1/metrics, never on a request hot path."""
+    seen = {step: set() for step in ONBOARDING_STEPS}
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                if '"onboarding"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                step = rec.get("step")
+                ws = rec.get("workspace_id") or ""
+                if step in seen and ws:
+                    seen[step].add(ws)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    steps = []
+    prev = None
+    for step in ONBOARDING_STEPS:
+        n = len(seen[step])
+        entry = {"step": step, "workspaces": n,
+                 # Present on every step, including the first, so a consumer
+                 # never has to special-case index 0 to read the shape.
+                 "dropped_from_previous": max(0, prev - n) if prev is not None else None,
+                 "conversion_from_previous": (
+                     round(n / prev, 3) if prev else None) if prev is not None else None}
+        steps.append(entry)
+        prev = n
+    return {"steps": steps,
+            "note": ("distinct workspaces that reached each step. "
+                     "checkout_completed is real money; checkout_abandoned "
+                     "arrives ~24h late (Stripe expiry), so a recent "
+                     "abandonment can lag.")}
+
+
 def snapshot() -> dict:
     """Return total + last-24h counts per kind, plus unique-ip-hash counts per
     bucket (kind, or a custom ip_bucket like "path:/status"). The unique set
