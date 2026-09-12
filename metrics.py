@@ -60,6 +60,12 @@ def record_event(kind: str, *, ip_bucket: str = None, **fields):
                 _amount_sums[kind] += amount
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         rec = {"kind": kind, "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+        # ip_bucket is a named parameter, so it is NOT inside `fields` — without
+        # this it lived only in the in-memory bucket key and never reached the
+        # file, which is why the durable reach read found nothing to count. It is
+        # a route label like "path:/start", never an address.
+        if ip_bucket:
+            rec["ip_bucket"] = ip_bucket
         rec.update(fields)
         with open(METRICS_FILE, "a") as f:
             f.write(json.dumps(rec) + "\n")
@@ -137,6 +143,44 @@ def onboarding_funnel() -> dict:
                      "checkout_completed is real money; checkout_abandoned "
                      "arrives ~24h late (Stripe expiry), so a recent "
                      "abandonment can lag.")}
+
+
+def reach_from_file() -> dict:
+    """Distinct ip_hash per reach bucket, computed from metrics.jsonl.
+
+    The in-memory `_unique_ips` set is process-lifetime, so it resets to zero on
+    every deploy — which meant the reach number fell from 17 to 2 after a
+    restart and read as "the traffic stopped" when nothing had stopped. Reach is
+    the number used to judge whether distribution is working, so it has to
+    survive a deploy. Reads the file (admin-only caller, ~1MB today).
+    """
+    buckets = defaultdict(set)
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                if '"kind": "http"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                bucket = rec.get("ip_bucket")
+                ip = rec.get("ip_hash")
+                if not bucket and ip and rec.get("path"):
+                    # Events written before ip_bucket was persisted still carry
+                    # the path and an ip_hash, and the middleware's bucket rule
+                    # was exactly f"path:{path}" — so history is recoverable
+                    # instead of restarting the count at zero. Safe for paths
+                    # that were never reach-bucketed: the caller only looks up
+                    # REACH_PATHS keys.
+                    bucket = f"path:{rec['path']}"
+                if bucket and ip:
+                    buckets[bucket].add(ip)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return {b: len(ips) for b, ips in buckets.items()}
 
 
 def snapshot() -> dict:

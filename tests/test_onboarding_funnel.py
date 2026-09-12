@@ -208,3 +208,31 @@ def test_metrics_exposes_the_onboarding_block(client):
     assert steps["workspace_minted"]["workspaces"] == 1
     # the pre-existing blocks must survive
     assert "funnel" in body and "reach" in body and "checkout_funnel" in body
+
+
+def test_reach_survives_a_restart(client):
+    """Reach is the number used to judge whether distribution is working, so it
+    must not reset when the service redeploys. The in-memory unique-ip set is
+    process-lifetime — after the D-1163 deploy it fell from 17 to 2 and read as
+    "the traffic stopped" when nothing had. This pins the file-backed path."""
+    import importlib
+    import metrics
+    metrics.record_event("http", path="/", method="GET", status=200,
+                         ip_hash="aaaa1111", ip_bucket="path:/")
+    metrics.record_event("http", path="/", method="GET", status=200,
+                         ip_hash="bbbb2222", ip_bucket="path:/")
+    importlib.reload(metrics)          # simulate a redeploy: fresh in-memory state
+    assert metrics.reach_from_file().get("path:/") == 2
+
+
+def test_reach_reconstructs_the_bucket_for_events_written_before_the_fix(client):
+    """The reach counter restarted at zero after the D-1163 deploy partly
+    because older lines carried an ip_hash and a path but no ip_bucket. Rather
+    than throw that history away, the bucket is derived from the path — which is
+    exactly the rule the middleware used."""
+    import importlib
+    import metrics
+    metrics.record_event("http", path="/start", method="GET", status=200,
+                         ip_hash="cccc3333")          # no ip_bucket, like the old lines
+    importlib.reload(metrics)
+    assert metrics.reach_from_file().get("path:/start") == 1
