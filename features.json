@@ -69,6 +69,11 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "custom domain — aiagentscity.com live with TLS",
+   "status": "shipped",
+   "note": "ab17965 (BUG-5). Both hosts serve 200 with valid certs; Porkbun ALIAS apex + CNAME www to the Railway service, MX/SPF/NS untouched so email forwarding survives. 44 infrastructure-host references replaced across client, manifests, docs and onboarding email; a test now fails if any public surface mentions up.railway.app. Railway host still SERVES (health checks) but is advertised nowhere."
+  },
+  {
    "name": "cache-tier pricing (Claude) — input is three prices, not one",
    "status": "shipped",
    "note": "8b12a93. Anthropic bills input at 1x fresh / 1.25x 5m cache write / 2x 1h cache write / 0.1x cache read. Priced against a real Claude Code session: $15.22 true vs $112.85 at the flat rate (7.4x). 13 Claude entries now verified:true from Anthropic's pricing page; OpenAI entries stay false and say so. 15 tests."
