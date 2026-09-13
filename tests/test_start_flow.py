@@ -96,13 +96,34 @@ def test_post_start_payment_link_targets_the_workspace_it_just_minted(client, mo
     assert f"https://buy.stripe.com/test_link?client_reference_id={ws_id}" in r.text
 
 
-@pytest.mark.parametrize("path", ("/login", "/logout", "/dashboard",
-                                  "/auth/google/callback"))
+@pytest.mark.parametrize("path", ("/login", "/logout", "/auth/google/callback"))
 def test_google_auth_routes_are_gone_not_just_broken(client, path):
     """Vanished, not 503: an agent-first product has no human login, and a
     typed 503 on a route that still exists implies the feature is merely
-    unconfigured. Google OAuth returns when a real reason for it exists."""
+    unconfigured. Google OAuth returns when a real reason for it exists.
+
+    /dashboard was in this list because it used to BE a Google surface. It is
+    now a real page authenticated by the workspace key, so it moved out — the
+    property being pinned here is "no human login", not "no dashboard".
+    """
     assert client.get(path).status_code == 404
+
+
+def test_the_dashboard_is_a_workspace_surface_not_a_login(client):
+    """The replacement for the removed Google dashboard: no account, no cookie,
+    no session — the key is pasted in the browser and sent as a header."""
+    r = client.get("/dashboard")
+    assert r.status_code == 200
+    body = r.text.lower()
+    assert "workspace key" in body
+    for gone in ("google", "sign in", "log in", "login", "oauth", "email address",
+                 "forgot", "account"):
+        assert gone not in body, f"the dashboard still references {gone!r}"
+    # The key field IS type="password" — masking a credential is the point. Pin
+    # that the only password field on the page is the key input, so a future
+    # login form cannot appear unnoticed.
+    assert body.count('type="password"') == 1
+    assert "wk_live_" in body
 
 
 def test_post_start_creates_the_free_tier_not_the_paid_one(client):

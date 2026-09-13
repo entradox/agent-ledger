@@ -149,6 +149,11 @@ class SpendReport:
     anomalies: list
     plan: str = "free"
     pro_until: Optional[float] = None
+    # Per-day spend, oldest first. It was already computed here for anomaly
+    # detection and then thrown away; the dashboard and the CSV need the same
+    # numbers, and recomputing them elsewhere is how two surfaces start
+    # disagreeing about what a day cost.
+    daily_series: list = field(default_factory=list)
 
 
 def _agent_dir(agent_id: str) -> Path:
@@ -766,6 +771,38 @@ def _check_budget(agent_id: str):
                    f"Monthly budget {pct:.0f}% used: ${monthly/100:.2f} of ${budget.monthly_cap_cents/100:.2f}")
 
 
+def read_alerts(agent_id: str, limit: int = 20) -> list:
+    """The agent's alert feed, newest first.
+
+    Each row carries a numeric `ts` alongside the stored ISO `timestamp`, so a
+    caller merging several agents' feeds into one dashboard list can sort
+    without re-parsing dates and without inventing a second date format.
+    """
+    path = _alerts_path(agent_id)
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines()[-200:]:
+        try:
+            a = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(a, dict):
+            continue
+        ts = a.get("ts")
+        if not isinstance(ts, (int, float)):
+            try:
+                ts = datetime.fromisoformat(
+                    str(a.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
+            except Exception:
+                ts = 0
+        a["ts"] = ts
+        a.setdefault("agent_id", agent_id)
+        out.append(a)
+    out.sort(key=lambda a: a["ts"], reverse=True)
+    return out[:limit]
+
+
 def _log_alert(agent_id: str, alert_type: str, message: str):
     """Write an alert to the agent's feed AND push it to the workspace's
     registered destinations (D-1218).
@@ -816,22 +853,38 @@ def _log_alert_daily(agent_id: str, alert_type: str, message: str):
     _log_alert(agent_id, alert_type, message)
 
 
+def entries_since(agent_id: str, days: int = 30,
+                  include_tokens: bool = False) -> list:
+    """Raw ledger rows for an agent inside the window, oldest first.
+
+    The single reader. The report, the workspace summary, the dashboard and the
+    CSV export all call this rather than walking ledger.jsonl themselves, so
+    they cannot drift into disagreeing about what was spent.
+
+    Zero-cent rail="tokens" rows are burn bookkeeping, not spend, and are
+    excluded unless include_tokens is set — those rows exist so token burn has
+    somewhere to live without pretending to be money.
+    """
+    ledger = _ledger_path(agent_id)
+    if not ledger.exists():
+        return []
+    cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
+    out = []
+    for line in open(ledger):
+        try:
+            e = json.loads(line)
+            if not include_tokens and e.get("rail") == "tokens":
+                continue
+            if datetime.fromisoformat(e["timestamp"]).timestamp() >= cutoff:
+                out.append(e)
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
 def report(agent_id: str, days: int = 30) -> SpendReport:
     validate_agent_id(agent_id)
-    ledger = _ledger_path(agent_id)
-    entries = []
-    if ledger.exists():
-        cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
-        for line in open(ledger):
-            try:
-                e = json.loads(line)
-                if e.get("rail") == "tokens":
-                    continue  # zero-cent token-count rows are burn data, not spend
-                ts = datetime.fromisoformat(e["timestamp"]).timestamp()
-                if ts >= cutoff:
-                    entries.append(e)
-            except (KeyError, ValueError):
-                continue
+    entries = entries_since(agent_id, days)
 
     by_rail = {}
     by_service = {}
@@ -872,10 +925,13 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
                                                and monthly_tokens > budget.monthly_token_cap)
 
     plan_info = is_pro(agent_id)
+    series = [{"date": day, "spend_cents": cents}
+              for day, cents in sorted(daily_totals.items())]
     return SpendReport(agent_id=agent_id, period=f"last_{days}d", total_spend_cents=total,
                        by_rail=by_rail, by_service=by_service, entry_count=len(entries),
                        budget_status=budget_status, anomalies=anomalies,
-                       plan=plan_info["plan"], pro_until=plan_info["pro_until"])
+                       plan=plan_info["plan"], pro_until=plan_info["pro_until"],
+                       daily_series=series)
 
 
 def list_agents() -> list:
@@ -902,3 +958,126 @@ def list_agents() -> list:
                            "total_spend_cents": 0, "has_data": False,
                            "plan": plan_info["plan"], "pro_until": plan_info["pro_until"]})
     return sorted(agents, key=lambda x: x["total_spend_cents"], reverse=True)
+
+
+def workspace_agents(workspace_id: str) -> list:
+    """The agent_ids claimed in this workspace, sorted.
+
+    Membership is answered by each agent's own workspace_id.txt — the same file
+    every other ownership gate reads (identity.agent_belongs_to_workspace), so a
+    dashboard cannot show an agent the write path would refuse, or hide one it
+    would accept.
+    """
+    import identity
+    if not workspace_id:
+        return []
+    return sorted(a["agent_id"] for a in list_agents()
+                  if identity.workspace_of_agent(a["agent_id"]) == workspace_id)
+
+
+def token_totals(agent_id: str, days: int = 30) -> tuple:
+    """(tokens_in, tokens_out) for the window.
+
+    Reads ONLY rail="tokens" rows, and the counts are at the TOP level of the
+    entry (track() promotes **meta to keys — see the note in the tokens route).
+    Summing every row's token keys would double-count: the proxy writes the burn
+    onto BOTH the dollar row and its own 0-cent tokens row.
+    """
+    tin = tout = 0
+    for e in entries_since(agent_id, days, include_tokens=True):
+        if e.get("rail") != "tokens":
+            continue
+        tin += int(e.get("tokens_in") or 0)
+        tout += int(e.get("tokens_out") or 0)
+    return tin, tout
+
+
+def workspace_summary(workspace_id: str, days: int = 30) -> dict:
+    """Everything the dashboard shows, in one read.
+
+    Per-agent rows plus workspace totals, a daily series summed across agents,
+    and the recent alert feed. Built from the same report() every other surface
+    uses, so the dashboard and a per-agent report can never disagree.
+    """
+    import time as _t
+    agent_ids = workspace_agents(workspace_id)
+    rows, by_rail, by_service, daily = [], {}, {}, {}
+    spend_total = tokens_in_total = tokens_out_total = 0
+
+    for aid in agent_ids:
+        r = report(aid, days)
+        tin, tout = token_totals(aid, days)
+        budget = r.budget_status or {}
+        cap = budget.get("monthly_cap_cents") or 0
+        used = budget.get("monthly_spend_cents") or 0
+        pct = round(used / cap * 100, 1) if cap else 0
+        if budget.get("exceeded") or budget.get("token_exceeded"):
+            status = "exceeded"
+        elif pct >= 80:
+            status = "warning"
+        else:
+            status = "ok"
+        entries = entries_since(aid, days, include_tokens=True)
+        last_ts = entries[-1]["timestamp"] if entries else None
+
+        rows.append({
+            "agent_id": aid,
+            "tier": r.plan,
+            "spend_cents_30d": r.total_spend_cents,
+            "tokens_in_30d": tin,
+            "tokens_out_30d": tout,
+            "budget": {"monthly_cents": cap, "used_pct": pct, "status": status},
+            "last_event_ts": last_ts,
+            "anomaly": bool(r.anomalies),
+        })
+        spend_total += r.total_spend_cents
+        tokens_in_total += tin
+        tokens_out_total += tout
+        for k, v in r.by_rail.items():
+            by_rail[k] = by_rail.get(k, 0) + v
+        for k, v in r.by_service.items():
+            by_service[k] = by_service.get(k, 0) + v
+        for point in r.daily_series:
+            daily[point["date"]] = daily.get(point["date"], 0) + point["spend_cents"]
+
+    alerts = []
+    for aid in agent_ids:
+        alerts.extend(read_alerts(aid, limit=20))
+    alerts.sort(key=lambda a: a.get("ts") or 0, reverse=True)
+
+    return {
+        "workspace_id": workspace_id,
+        "days": days,
+        "agents": rows,
+        "totals": {"spend_cents_30d": spend_total,
+                   "tokens_in_30d": tokens_in_total,
+                   "tokens_out_30d": tokens_out_total,
+                   "by_rail": by_rail, "by_service": by_service},
+        "daily_series": [{"date": d, "spend_cents": c}
+                         for d, c in sorted(daily.items())],
+        "alerts": alerts[:20],
+    }
+
+
+def export_rows(agent_ids: list, days: int = 30) -> list:
+    """Flat rows for CSV: one line per ledger entry, timestamps included.
+
+    Only rows that represent money or burn — every rail is exported, because
+    "which rail did this come from" is exactly what someone opening the CSV is
+    trying to find out.
+    """
+    out = []
+    for aid in agent_ids:
+        for e in entries_since(aid, days, include_tokens=True):
+            out.append({
+                "timestamp": e.get("timestamp", ""),
+                "agent_id": aid,
+                "rail": e.get("rail", ""),
+                "service": e.get("service", ""),
+                "amount_cents": e.get("amount_cents", 0),
+                "tokens_in": e.get("tokens_in", ""),
+                "tokens_out": e.get("tokens_out", ""),
+                "model": e.get("model", ""),
+            })
+    out.sort(key=lambda r: r["timestamp"])
+    return out

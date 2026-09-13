@@ -41,6 +41,9 @@ app.include_router(agents_router)
 # The proxy (D-1222): the only surface where a cap stops money rather than a
 # ledger write. Pass-through — the caller's provider credential is forwarded,
 # never stored.
+from routes_workspace import router as workspace_router
+app.include_router(workspace_router)
+
 from routes_proxy import router as proxy_router
 app.include_router(proxy_router)
 
