@@ -540,7 +540,8 @@ def create_webhook(req: WebhookRequest, request: Request):
     report URL. Never a secret, never a prompt, never a response.
     """
     import alert_delivery
-    workspace_id = _workspace_key_or_401(request)
+    workspace_id = _workspace_key_or_401(
+        request, purpose="configuring alert delivery")
     try:
         entry = alert_delivery.register(workspace_id, req.url, req.events,
                                        kind=req.kind, label=req.label)
@@ -556,7 +557,8 @@ def create_webhook(req: WebhookRequest, request: Request):
 def list_webhooks(request: Request):
     """This workspace's registered alert destinations."""
     import alert_delivery
-    workspace_id = _workspace_key_or_401(request)
+    workspace_id = _workspace_key_or_401(
+        request, purpose="configuring alert delivery")
     entries = alert_delivery.load_registry(workspace_id)
     return {"count": len(entries), "webhooks": entries,
             "events": list(alert_delivery.EVENTS)}
@@ -567,7 +569,8 @@ def list_deliveries(request: Request, limit: int = 50):
     """Delivery receipts, newest last. A failure here is visible on purpose —
     a silently dropped alert is the exact thing this feature exists to stop."""
     import alert_delivery
-    workspace_id = _workspace_key_or_401(request)
+    workspace_id = _workspace_key_or_401(
+        request, purpose="configuring alert delivery")
     items = alert_delivery.recent_deliveries(workspace_id, limit=max(1, min(limit, 200)))
     failed = [i for i in items if i.get("status") != "delivered"]
     return {"count": len(items), "failed": len(failed), "deliveries": items}
@@ -577,7 +580,8 @@ def list_deliveries(request: Request, limit: int = 50):
 def delete_webhook(webhook_id: str, request: Request):
     """Remove one registered destination."""
     import alert_delivery
-    workspace_id = _workspace_key_or_401(request)
+    workspace_id = _workspace_key_or_401(
+        request, purpose="configuring alert delivery")
     if not re.match(r"^wh_[a-f0-9]{16}$", webhook_id or ""):
         raise HTTPException(422, detail=error_envelope(422, "malformed webhook id",
                                                        code="invalid_webhook"))
@@ -589,7 +593,8 @@ def delete_webhook(webhook_id: str, request: Request):
 
 
 def _workspace_key_or_401(request: Request,
-                          body_key: Optional[str] = None) -> str:
+                          body_key: Optional[str] = None,
+                          purpose: str = "this endpoint") -> str:
     """Credential-lifecycle gate (D-1216): ONLY the workspace_key authorizes
     rotating or revoking an agent_secret — never the agent_secret itself.
 
@@ -609,7 +614,7 @@ def _workspace_key_or_401(request: Request,
     workspace_id = identity.resolve_workspace_key(raw)
     if not workspace_id:
         raise HTTPException(401, detail=error_envelope(
-            401, "rotating or revoking an agent_secret requires a valid X-Workspace-Key",
+            401, f"{purpose} requires a valid X-Workspace-Key",
             code="workspace_key_required"))
     return workspace_id
 
@@ -649,7 +654,9 @@ def rotate_secret(agent_id: str, request: Request,
     different workspace is 403.
     """
     from ledger_engine import rotate_agent_secret as _rotate, AuthError as _LedgerAuthError
-    workspace_id = _workspace_key_or_401(request, body.workspace_key if body else None)
+    workspace_id = _workspace_key_or_401(
+        request, body.workspace_key if body else None,
+        purpose="rotating or revoking an agent_secret")
     _claimed_or_404(agent_id)
     _owned_or_403(agent_id, workspace_id)
     try:
@@ -672,7 +679,9 @@ def revoke_secret(agent_id: str, request: Request,
     history.
     """
     from ledger_engine import revoke_agent_secret as _revoke, AuthError as _LedgerAuthError
-    workspace_id = _workspace_key_or_401(request, body.workspace_key if body else None)
+    workspace_id = _workspace_key_or_401(
+        request, body.workspace_key if body else None,
+        purpose="rotating or revoking an agent_secret")
     _claimed_or_404(agent_id)
     _owned_or_403(agent_id, workspace_id)
     try:

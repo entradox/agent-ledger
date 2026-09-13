@@ -222,6 +222,17 @@ def test_registration_requires_a_workspace_key(env, sink):
     assert tc.get("/v1/webhooks/deliveries").status_code == 401
 
 
+def test_the_401_says_what_the_caller_was_actually_doing(env, sink):
+    """The shared workspace-key gate was written for rotate/revoke. Reusing it
+    verbatim told webhook callers they were 'rotating or revoking an
+    agent_secret' — a machine-readable false instruction to an agent, which is
+    the defect class this codebase keeps having to fix."""
+    tc, _, _ = env
+    body = tc.get("/v1/webhooks").text
+    assert "alert delivery" in body
+    assert "rotating or revoking" not in body
+
+
 def test_list_then_delete(env, sink):
     tc, key, _ = env
     created = _register(tc, key, sink).json()["webhook"]
