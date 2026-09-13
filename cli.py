@@ -144,11 +144,30 @@ def cmd_share(args):
     print(f"(read-only, expires in {r['ttl_days']} days)", file=sys.stderr)
 
 
+def _engine_or_explain():
+    """The client package ships the CLI, not the engine.
+
+    Called from _mode_banner, which is the single place a command discovers it
+    is about to run in local mode — putting it in each command is how one of
+    them ends up without it and crashes with a ModuleNotFoundError instead of
+    saying what to do.
+    """
+    try:
+        import ledger_engine  # noqa: F401
+    except ImportError:
+        print("local mode needs the ledger engine, which ships with the service, "
+              "not with the client package. Point at a deployed instance instead: "
+              "--api-base https://agent-ledger-production-0ff8.up.railway.app "
+              "(or set AGENT_LEDGER_API_BASE).", file=sys.stderr)
+        sys.exit(1)
+
+
 def _mode_banner(args):
     base = _api_base(args)
     if base:
         print(f"[remote: {base}]", file=sys.stderr)
     else:
+        _engine_or_explain()
         data_dir = os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger"))
         print(f"[local: {data_dir} — NOT production unless this is your prod data dir]", file=sys.stderr)
     return base
@@ -185,7 +204,6 @@ def cmd_track(args):
             body["workspace_key"] = args.workspace_key
         print(json.dumps(_remote_request(base, "POST", "/v1/track", body), indent=2))
         return
-    _engine_or_explain()
     from ledger_engine import track
     _local_claim(args)
     entry = track(args.agent_id, args.rail, args.amount_cents, args.service)
@@ -244,19 +262,6 @@ def cmd_alerts(args):
     for line in open(alerts_path):
         a = json.loads(line)
         print(f"  [{a['type']}] {a['message']}")
-
-
-def _engine_or_explain():
-    """The client package ships the CLI, not the engine — local mode is for
-    someone running the service from the repo."""
-    try:
-        import ledger_engine  # noqa: F401
-    except ImportError:
-        print("local mode needs the ledger engine, which ships with the service, "
-              "not with the client package. Point at a deployed instance instead: "
-              "--api-base https://agent-ledger-production-0ff8.up.railway.app "
-              "(or set AGENT_LEDGER_API_BASE).", file=sys.stderr)
-        sys.exit(1)
 
 
 def cmd_list(args):

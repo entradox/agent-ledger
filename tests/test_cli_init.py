@@ -74,6 +74,32 @@ def _run_cli(argv):
         sys.argv = old
 
 
+# ── the client-only package ───────────────────────────────────────────────
+
+@pytest.mark.parametrize("argv", [
+    ["track", "--agent-id", "x", "--rail", "manual", "--amount-cents", "1", "--service", "s"],
+    ["set-budget", "--agent-id", "x", "--monthly-cents", "100"],
+    ["report", "--agent-id", "x"],
+    ["alerts", "--agent-id", "x"],
+    ["list"],
+])
+def test_every_local_command_explains_itself_without_the_engine(argv, monkeypatch, capsys):
+    """The client package ships the CLI, not the service.
+
+    Found by actually installing the package and running it: `report` crashed
+    with a raw ModuleNotFoundError while `track` printed a helpful message,
+    because the guard had been added to one command instead of to the single
+    place local mode begins. This walks EVERY local command.
+    """
+    monkeypatch.setitem(sys.modules, "ledger_engine", None)   # import raises
+    with pytest.raises(SystemExit) as e:
+        _run_cli(argv)
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "--api-base" in err, "the user was not told how to reach a real instance"
+    assert "Traceback" not in err
+
+
 # ── init ──────────────────────────────────────────────────────────────────
 
 def test_init_writes_a_usable_env_file(live, tmp_path):
