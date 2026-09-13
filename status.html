@@ -47,7 +47,7 @@ ul.tick li b{color:var(--t)}
     <ul>
       <li>Up to 3 agents per workspace</li>
       <li>All rails: x402, MPP, api_key, manual</li>
-      <li>Budget caps with real enforcement</li>
+      <li>Budget caps that block the write when crossed</li>
       <li>Token burn per agent &amp; per model</li>
       <li>Alerts, 30-day reports, MCP + REST + CLI</li>
     </ul>
@@ -80,7 +80,7 @@ ul.tick li b{color:var(--t)}
   <li><b>Four rails in one ledger</b> — x402, MPP, API keys, manual entries. Mix them; the P&amp;L stays whole.</li>
   <li><b>Token burn per agent and per model</b> — pass <code>tokens_in</code>/<code>tokens_out</code>/<code>model</code>; <code>GET /v1/tokens/{agent_id}</code> returns in/out totals and a by-model breakdown.</li>
   <li><b>Caps that actually block</b> — monthly and daily dollar caps, plus independent token caps. A <code>track()</code> that would cross one is rejected with <code>402 budget_exceeded</code> <i>before</i> it is recorded. Warnings fire at 80%.</li>
-  <li><b>Spending-spike alerts</b> — anomalies are computed into every report and surfaced per agent in the alerts feed.</li>
+  <li><b>Spending-spike alerts</b> — anomalies are computed into every report and surfaced per agent in the alerts feed and <b>pushed</b> to any webhook or email you register (POST /v1/webhooks).</li>
   <li><b>Reports</b> — 30-day totals by rail and service, plus a human-readable page per agent at <code>/v1/report/{agent_id}/html</code>.</li>
   <li><b>Credential-gated reads</b> — reports, tokens and alerts require the agent's <code>agent_secret</code> or the workspace's <code>workspace_key</code>. No unauthenticated read path, on REST or MCP.</li>
   <li><b>MCP + REST + CLI parity</b> — the same ledger and the same credential rules on all three surfaces, with idempotent writes and one typed error envelope.</li>
@@ -136,9 +136,18 @@ ul.tick li b{color:var(--t)}
   <p>AgentLedger is $19, bills per workspace, and is built per-<b>agent</b> with caps that block. The unit of accounting is the agent, not the request — which is the question you actually ask when you run twenty named agents: <i>which one is burning money, and how do I stop it?</i></p>
 </div>
 
+<div class="card">
+  <p><b>Cost metadata only.</b> A spend entry stores the agent id, rail, service label, amount,
+  token counts, model and timestamp. There is no field for prompt or response content: none is
+  collected and none is stored — not before the proxy, and not after it.</p>
+</div>
+
 <div class="mut">
   AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger<br>
   Agent-readable: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a> · <a href="/server.json" style="color:#8b949e">/server.json</a> · <a href="/.well-known/agent.json" style="color:#8b949e">/.well-known/agent.json</a> · <a href="/openapi.json" style="color:#8b949e">/openapi.json</a> · <a href="/health" style="color:#8b949e">/health</a><br>
+  <a href="/privacy" style="color:#8b949e">Privacy</a> ·
+  <a href="/terms" style="color:#8b949e">Terms</a> ·
+  <a href="/status" style="color:#8b949e">Status</a><br>
   Contact: <a href="mailto:entradox@icloud.com" style="color:#8b949e">entradox@icloud.com</a>
 </div>
 

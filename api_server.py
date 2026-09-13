@@ -273,7 +273,13 @@ Per-agent spend management — the Datadog for agent spending. Track spend
 across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
-Human/agent status page: GET /status
+Human/agent status page: GET /status (live health, version, uptime, counters)
+Privacy: GET /privacy · Terms: GET /terms
+
+Data handling: cost metadata only — agent id, rail, service label, amount, token
+counts, model, timestamp. There is no field for prompt or response content; none
+is collected and none is stored. Prompts and responses are never used to train
+models, and your data is never sold.
 
 ## Ownership (a workspace_key claims; an agent_secret writes)
 
@@ -498,7 +504,9 @@ AGENT_JSON = {
          "endpoint": "/v1/agents/{agent_id}/revoke-secret", "method": "POST", "free": True},
     ],
     "contact": "entradox@icloud.com",
-    "legal": "Parmanand LLC. Beta software, provided as-is.",
+    "legal": ("Parmanand LLC. Beta software, provided as-is. "
+              "Privacy: /privacy · Terms: /terms. Cost metadata only — prompts "
+              "and responses are never stored."),
 }
 
 @app.get("/.well-known/agent.json")
@@ -519,9 +527,162 @@ def front_door():
     return _status_html()
 
 
+_BOOT_TS = _time.time()
+
+_LEGAL_SHELL = """<!doctype html><html><head><meta charset="utf-8">
+<title>{title} — AgentLedger</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;
+padding:40px 18px;line-height:1.7}}
+.w{{max-width:680px;margin:0 auto}}
+.brand{{font-size:12px;color:#8b949e;letter-spacing:.06em;text-transform:uppercase}}
+h1{{font-size:24px;margin:8px 0 4px}} h2{{font-size:15px;margin:26px 0 6px}}
+p,li{{color:#c9d1d9;font-size:14px}} .mut{{color:#8b949e;font-size:12px}}
+a{{color:#79c0ff}}
+</style></head><body><div class="w">
+<div class="brand">AgentLedger</div>
+<h1>{title}</h1>
+<div class="mut">Last updated 2026-09-13 · plain-language summary, not legal advice.
+Questions: <a href="mailto:entradox@icloud.com">entradox@icloud.com</a></div>
+{body}
+<p style="margin-top:28px"><a href="/">← AgentLedger</a></p>
+</div></body></html>"""
+
+PRIVACY_BODY = """
+<h2>What is stored</h2>
+<p>Per spend entry: the agent id, the payment rail, the service label, the amount, token counts,
+the model name and a timestamp. Per workspace: the workspace id, a hash of the workspace key, the
+plan and billing state, and — if you register one — an alert destination (a URL or an email
+address). Keys and secrets are stored as hashes or as files readable only by the service.</p>
+
+<h2>What is never stored</h2>
+<p>Prompts and model responses. There is no field for them: the ledger records cost metadata, and
+the service has no code path that writes message content to storage. That is true of the hosted
+ledger today and is a design constraint on the proxy, which will meter cost without retaining
+payloads. The <i>service</i> and <i>model</i> fields are free-text labels you supply — do not put
+anything sensitive in a service name.</p>
+
+<h2>Who processes it</h2>
+<p>Railway hosts the service and its storage volume. Stripe processes payments and receives the
+billing details you give it — we never see your card number. Alert email, if you enable it, is sent
+through the operator's SMTP provider to the address you chose. Nothing else receives your data.</p>
+
+<h2>What we do not do</h2>
+<p>We do not sell, rent or share your data, and we do not use it to train models.</p>
+
+<h2>Retention and deletion</h2>
+<p>Ledger data is kept while your workspace exists. Deleting an agent removes its ledger and
+secret; the operator can delete a workspace and its data on request. Alert delivery receipts are
+kept to a rolling window.</p>
+
+<h2>Cookies and tracking</h2>
+<p>The marketing page and API set no advertising cookies. Aggregate counters (workspaces minted,
+requests) are collected without storing IP addresses — the service hashes them with a salt and
+keeps only the hash.</p>
+
+<h2>Contact</h2>
+<p>AgentLedger is operated by Parmanand LLC. Privacy questions and deletion requests:
+<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>.</p>
+"""
+
+TERMS_BODY = """
+<h2>The service</h2>
+<p>AgentLedger is beta software provided as-is. It records agent spend, enforces the budget caps you
+configure, and reports on both. It is a bookkeeping and guardrail tool — not a payment processor, a
+bank, or a financial adviser, and not a guarantee that a third-party provider will not charge you.</p>
+
+<h2>What a budget cap does</h2>
+<p>A cap rejects the ledger write that would cross it, with HTTP 402. It stops the <i>recording</i>
+of a spend, not the underlying charge, unless the spend went through the AgentLedger proxy. Do not
+rely on a cap as your only protection against a runaway agent.</p>
+
+<h2>Your responsibilities</h2>
+<p>You are responsible for the credentials you hold (workspace keys, agent secrets, provider API
+keys), for what your agents do, and for the accuracy of what they report. Keep your agent secrets
+secret; anyone holding one can write to that agent.</p>
+
+<h2>Acceptable use</h2>
+<p>Do not use the service to break the law, to attack other systems, or to resell it as your own
+without agreement. Per-entry amounts are capped, and rate and storage limits are enforced to keep
+the service available for everyone.</p>
+
+<h2>Plans and payment</h2>
+<p>The free tier covers 3 agents per workspace. Pro is $19/month for unlimited agents on the same
+workspace, billed by Stripe, cancellable at any time. The first 50 workspaces created receive Pro
+free for one year.</p>
+
+<h2>Availability and liability</h2>
+<p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
+extent the law allows, Parmanand LLC's total liability is limited to the amount you paid in the
+preceding three months. Nothing here excludes liability that cannot lawfully be excluded.</p>
+
+<h2>Changes</h2>
+<p>These terms may change as the product does; material changes will be noted on this page with a
+new date. Continued use after a change is acceptance of it.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:entradox@icloud.com">entradox@icloud.com</a></p>
+"""
+
+
+def _health_page() -> str:
+    """A real status page.
+
+    Before D-1219 `/status` served the same marketing HTML as `/`, so the
+    product had no status page at all. This reads the same counters the API
+    serves, so it cannot quietly become decorative.
+    """
+    up = int(_time.time() - _BOOT_TS)
+    hours, rem = divmod(up, 3600)
+    minutes, seconds = divmod(rem, 60)
+    try:
+        from ledger_engine import scarcity_claims_left
+        scarce = scarcity_claims_left()
+    except Exception:
+        scarce = "unavailable"
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>AgentLedger — status</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<style>
+body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;
+padding:40px 18px;line-height:1.7}}
+.w{{max-width:640px;margin:0 auto}}
+.brand{{font-size:12px;color:#8b949e;letter-spacing:.06em;text-transform:uppercase}}
+h1{{font-size:22px;margin:8px 0 16px}}
+.row{{display:flex;justify-content:space-between;gap:14px;padding:7px 0;
+border-bottom:1px solid #21262d;font-size:14px}}
+.row:last-child{{border:0}} .k{{color:#8b949e}} .ok{{color:#3fb950}}
+.mut{{color:#8b949e;font-size:12px;margin-top:18px}} a{{color:#79c0ff}}
+</style></head><body><div class="w">
+<div class="brand">AgentLedger status</div>
+<h1><span class="ok">●</span> Operational</h1>
+<div class="row"><span class="k">service</span><span>agent-ledger</span></div>
+<div class="row"><span class="k">version</span><span>{app.version}</span></div>
+<div class="row"><span class="k">uptime (this instance)</span><span>{hours}h {minutes}m {seconds}s</span></div>
+<div class="row"><span class="k">claimed agents</span><span>{claimed_agent_count()}</span></div>
+<div class="row"><span class="k">launch-window slots left</span><span>{scarce}</span></div>
+<div class="row"><span class="k">liveness</span><span><a href="/health">/health</a></span></div>
+<div class="row"><span class="k">counters</span><span><a href="/stats">/stats</a></span></div>
+<div class="mut">Refreshes every 60s. These are the live counters the API serves, not a static page.
+Uptime is per instance — a deploy restarts the process. ·
+<a href="/">AgentLedger</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
+</div></body></html>"""
+
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page():
-    return _status_html()
+    """Live health. See _health_page()."""
+    return _health_page()
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page():
+    return _LEGAL_SHELL.format(title="Privacy", body=PRIVACY_BODY)
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms_page():
+    return _LEGAL_SHELL.format(title="Terms", body=TERMS_BODY)
 
 
 PAYMENT_LINK = os.environ.get(

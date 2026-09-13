@@ -126,6 +126,22 @@ def test_error_doc_lists_the_rotation_codes():
     assert "not_your_agent" in errors
 
 
+def test_llms_txt_states_the_data_handling_position():
+    """The strongest trust statement a spend tracker has, and the one the
+    audit found invisible. It must not quietly disappear from the manifest."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "prompt or response content" in txt
+    assert "/privacy" in txt and "/terms" in txt
+
+
+def test_agent_json_legal_names_the_pages():
+    import api_server
+    legal = api_server.AGENT_JSON["legal"]
+    assert "/privacy" in legal and "/terms" in legal
+    assert "never stored" in legal
+
+
 def test_llms_txt_documents_alert_delivery():
     """The webhook routes are how an alert reaches a human without polling."""
     import api_server

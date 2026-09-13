@@ -38,13 +38,26 @@ def client(monkeypatch):
     return TestClient(api_server.app)
 
 
-def test_front_door_is_the_status_page_not_a_404(client):
+def test_front_door_serves_the_product_page(client):
     """The front door 404'd until D-1162: `api_server.py` never had a root
-    route, so the only human page was /status."""
+    route, so the only human page was /status.
+
+    The final line here used to assert `client.get("/status").text == r.text` —
+    that the front door and /status were byte-identical. That assertion pinned
+    the defect rather than the requirement: /status was documented to agents as
+    the "status page" while serving the pricing page, so the product had no
+    status page at all (audit BUG-5). D-1219 gave /status its own live-health
+    implementation, so the two are now deliberately different and this test
+    asserts the split instead.
+    """
     r = client.get("/")
     assert r.status_code == 200
     assert 'href="/start"' in r.text
-    assert client.get("/status").text == r.text
+    assert "Your agents spend money" in r.text
+    status = client.get("/status")
+    assert status.status_code == 200
+    assert status.text != r.text
+    assert "Operational" in status.text
 
 
 def test_get_start_does_not_mint_a_workspace(client):
