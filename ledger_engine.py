@@ -759,12 +759,53 @@ def _check_budget(agent_id: str):
 
 
 def _log_alert(agent_id: str, alert_type: str, message: str):
+    """Write an alert to the agent's feed AND push it to the workspace's
+    registered destinations (D-1218).
+
+    Every alert in the product flows through here, which is exactly why the
+    delivery hook lives here and not at the call sites: a new alert type
+    cannot be silently un-delivered, which is the failure mode of hooking each
+    raise individually. Delivery is fire-and-forget inside dispatch(), so a
+    slow or dead endpoint can never slow down or break this write.
+    """
     alert = {"agent_id": agent_id, "type": alert_type, "message": message,
              "timestamp": datetime.now(timezone.utc).isoformat()}
     alerts_path = _alerts_path(agent_id)
     alerts_path.parent.mkdir(parents=True, exist_ok=True)
     with open(alerts_path, "a") as f:
         f.write(json.dumps(alert) + "\n")
+    try:
+        import alert_delivery
+        alert_delivery.dispatch(alert_delivery.event_for(alert_type),
+                                agent_id=agent_id, message=message)
+    except Exception:
+        # An alert that was logged but not pushed is still a recorded alert.
+        # Never let transport failure turn into a failed write.
+        pass
+
+
+def _log_alert_daily(agent_id: str, alert_type: str, message: str):
+    """Log at most one alert of this type per UTC day.
+
+    Used for events that fire on a REJECTED write: a client retrying in a loop
+    must not turn the alert feed into a denial-of-attention attack, but a
+    genuine second incident on a later day still has to surface.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    path = _alerts_path(agent_id)
+    if path.exists():
+        try:
+            for line in path.read_text().splitlines()[-200:]:
+                try:
+                    a = json.loads(line)
+                except Exception:
+                    continue
+                if (a.get("type") == alert_type
+                        and str(a.get("timestamp", "")).startswith(today)):
+                    return
+        except Exception:
+            pass
+    _log_alert(agent_id, alert_type, message)
 
 
 def report(agent_id: str, days: int = 30) -> SpendReport:

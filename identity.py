@@ -40,6 +40,20 @@ def _agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> b
     return ws_file.exists() and ws_file.read_text().strip() == workspace_id
 
 
+def workspace_of_agent(agent_id: str) -> Optional[str]:
+    """The workspace_id an agent_id is claimed in, or None.
+
+    The reverse of agent_belongs_to_workspace — needed where the agent is the
+    starting point and the workspace must be found (alert delivery resolves
+    which workspace's destinations to fan an event out to, D-1218).
+    """
+    from ledger_engine import DATA_DIR
+    ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
+    if not ws_file.exists():
+        return None
+    return ws_file.read_text().strip() or None
+
+
 def agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> bool:
     """Public name for the ownership probe. The credential-lifecycle routes
     (rotate/revoke, D-1216) need to answer exactly this question — does this

@@ -117,6 +117,9 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Multi-rail neutral** — x402, MPP, API keys, manual entries; not locked to one payment rail
 - **Budget enforcement** — warns at 80% of cap, blocks spend when exceeded
 - **Anomaly detection** — spending-spike alerts per agent
+- **Alerts that arrive** — push budget warnings (80%), real budget blocks, and
+  anomalies to a webhook URL or an email address; every delivery attempt is
+  receipted, failures included
 - **Audit trails** — every entry persisted with rail, service, and timestamp
 - **Shareable report links** — `POST /v1/report/{agent_id}/share` mints a read-only,
   expiring URL that opens in a plain browser (no header, no credential); revoke the

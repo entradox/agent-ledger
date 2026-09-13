@@ -126,6 +126,27 @@ def test_error_doc_lists_the_rotation_codes():
     assert "not_your_agent" in errors
 
 
+def test_llms_txt_documents_alert_delivery():
+    """The webhook routes are how an alert reaches a human without polling."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "/v1/webhooks" in txt
+    assert "budget.warning" in txt
+
+
+def test_agent_json_advertises_alert_delivery():
+    import api_server
+    ids = {c["id"] for c in api_server.AGENT_JSON["capabilities"]}
+    assert "register_alert_webhook" in ids
+
+
+def test_error_doc_lists_webhook_codes():
+    from docs_content import get_api_docs
+    errors = get_api_docs("errors")
+    assert "invalid_webhook" in errors
+    assert "webhook_not_found" in errors
+
+
 def test_llms_txt_documents_share_links():
     """The share URL is the only read path a browser can use. If it vanishes
     from the manifest, agents stop telling humans how to read a report."""

@@ -111,7 +111,26 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `idempotency_key_too_long`, `idempotency_conflict`, `x402_no_tx_hash`,
 `agent_not_claimed` (rotate/revoke on an agent_id nobody claimed),
 `not_your_agent` (that agent_id belongs to a different workspace),
-`invalid_ttl` (share link ttl_days outside 1-90).
+`invalid_ttl` (share link ttl_days outside 1-90),
+`invalid_webhook` (bad destination url/email, unknown event name, or too many
+destinations), `webhook_not_found` (delete of an id not in your workspace).
+
+### Alert delivery
+
+An alert you have to poll is not an alert. `POST /v1/webhooks` registers where
+this workspace's alerts should go — an http(s) URL or an email address — and
+`GET /v1/webhooks/deliveries` returns receipts for every attempt, successes and
+failures alike, so a silent drop is visible rather than assumed.
+
+Events: `alert.raised` (anything unmapped — subscribing to it can never miss
+something), `budget.warning` (80% of a cap), `budget.exceeded` (a write was
+actually **blocked**; this is the only moment it is real, because the entry
+that would cross 100% never lands), and `anomaly.detected` (spend spike).
+
+Payloads carry cost metadata only — event, agent_id, message, timestamp,
+report URL. Never a credential, never a prompt, never a response. Destinations
+are SSRF-checked: a URL resolving to a private, loopback or link-local address
+is refused.
 
 ### Sharing a report with a human
 

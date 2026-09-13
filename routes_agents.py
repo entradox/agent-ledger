@@ -6,6 +6,7 @@ of it living inside the app's every-endpoint monolith."""
 import html
 import json
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -217,6 +218,14 @@ def create_track(req: TrackRequest, request: Request):
         raise HTTPException(422, detail=error_envelope(422, str(e)))
     except BudgetExceededError as e:
         idempotency_release(idem_key, req.agent_id, "track")
+        # A blocked write is the ONLY way "budget exceeded" is ever real: the
+        # entry that would cross 100% never lands, so _check_budget (which runs
+        # after a successful write) can never see it. Alert at the rejection.
+        try:
+            from ledger_engine import _log_alert_daily
+            _log_alert_daily(req.agent_id, "budget_blocked", str(e))
+        except Exception:
+            pass
         raise HTTPException(402, detail=error_envelope(402, str(e)))
     if req.rail != "tokens" and tok_meta:
         track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
@@ -510,6 +519,73 @@ def token_report(agent_id: str, request: Request, days: int = 30):
 
 class RotateSecretRequest(BaseModel):
     workspace_key: Optional[str] = None
+
+
+class WebhookRequest(BaseModel):
+    url: str
+    events: Optional[list] = None
+    kind: str = "webhook"
+    label: str = ""
+
+
+@router.post("/v1/webhooks")
+def create_webhook(req: WebhookRequest, request: Request):
+    """Register a destination for this workspace's alerts.
+
+    Workspace-scoped (X-Workspace-Key). `kind` is "webhook" for an http(s) URL
+    or "email" for an address. Events: alert.raised, budget.warning (80%),
+    budget.exceeded, anomaly.detected — omit `events` to receive all of them.
+
+    Payloads carry cost metadata only: event, agent_id, message, timestamp,
+    report URL. Never a secret, never a prompt, never a response.
+    """
+    import alert_delivery
+    workspace_id = _workspace_key_or_401(request)
+    try:
+        entry = alert_delivery.register(workspace_id, req.url, req.events,
+                                       kind=req.kind, label=req.label)
+    except alert_delivery.WebhookError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_webhook"))
+    return {"webhook": entry,
+            "_note": ("Events are delivered as they happen, with retries. Every "
+                      "attempt is recorded — GET /v1/webhooks/deliveries shows "
+                      "what was delivered and what was not.")}
+
+
+@router.get("/v1/webhooks")
+def list_webhooks(request: Request):
+    """This workspace's registered alert destinations."""
+    import alert_delivery
+    workspace_id = _workspace_key_or_401(request)
+    entries = alert_delivery.load_registry(workspace_id)
+    return {"count": len(entries), "webhooks": entries,
+            "events": list(alert_delivery.EVENTS)}
+
+
+@router.get("/v1/webhooks/deliveries")
+def list_deliveries(request: Request, limit: int = 50):
+    """Delivery receipts, newest last. A failure here is visible on purpose —
+    a silently dropped alert is the exact thing this feature exists to stop."""
+    import alert_delivery
+    workspace_id = _workspace_key_or_401(request)
+    items = alert_delivery.recent_deliveries(workspace_id, limit=max(1, min(limit, 200)))
+    failed = [i for i in items if i.get("status") != "delivered"]
+    return {"count": len(items), "failed": len(failed), "deliveries": items}
+
+
+@router.delete("/v1/webhooks/{webhook_id}")
+def delete_webhook(webhook_id: str, request: Request):
+    """Remove one registered destination."""
+    import alert_delivery
+    workspace_id = _workspace_key_or_401(request)
+    if not re.match(r"^wh_[a-f0-9]{16}$", webhook_id or ""):
+        raise HTTPException(422, detail=error_envelope(422, "malformed webhook id",
+                                                       code="invalid_webhook"))
+    if not alert_delivery.unregister(workspace_id, webhook_id):
+        raise HTTPException(404, detail=error_envelope(
+            404, f"no such webhook in this workspace: {webhook_id}",
+            code="webhook_not_found"))
+    return {"deleted": webhook_id}
 
 
 def _workspace_key_or_401(request: Request,

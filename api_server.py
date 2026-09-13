@@ -347,6 +347,14 @@ POST /v1/agents/{agent_id}/rotate-secret — RECOVER a lost agent_secret: mints 
 POST /v1/agents/{agent_id}/revoke-secret — invalidate an agent's secret, keep its ledger
                                       (workspace_key ONLY; the agent_id stays claimed, so no other
                                       workspace can take it over; rotate back in when you want it writing)
+POST /v1/webhooks                  — register an alert destination for this workspace
+                                      (X-Workspace-Key; kind "webhook" http(s) URL or "email")
+GET  /v1/webhooks                  — list this workspace's destinations
+GET  /v1/webhooks/deliveries       — delivery receipts, successes AND failures
+DELETE /v1/webhooks/{id}           — remove one destination
+                                      Events: alert.raised, budget.warning (80%), budget.exceeded,
+                                      anomaly.detected. Omit events to get all. Payloads carry cost
+                                      metadata only — never a secret, prompt, or response.
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
@@ -472,6 +480,12 @@ AGENT_JSON = {
                         "invalidating the previous credential immediately. Workspace_key only — "
                         "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
          "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
+        {"id": "register_alert_webhook",
+         "description": "Register a destination (http(s) URL or email) for this workspace's alerts — "
+                        "budget.warning at 80%, budget.exceeded when a write is actually blocked, and "
+                        "anomaly.detected. Delivered on the event with retries; every attempt is "
+                        "recorded, including failures. Cost metadata only, never prompt content.",
+         "endpoint": "/v1/webhooks", "method": "POST", "free": True},
         {"id": "share_report_link",
          "description": "Mint a read-only, expiring URL for an agent's human-readable report page — "
                         "a browser cannot send X-Agent-Secret as a header, so this is how a report "
