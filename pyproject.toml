@@ -20,7 +20,7 @@ wrapper = ["httpx>=0.27"]
 agent-ledger = "cli:main"
 
 [project.urls]
-Homepage = "https://agent-ledger-production-0ff8.up.railway.app"
+Homepage = "https://aiagentscity.com"
 
 [tool.setuptools]
 # Two modules, deliberately. This package is the CLIENT: the wrapper that

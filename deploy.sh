@@ -25,7 +25,7 @@ set -euo pipefail
 export PATH="$HOME/.npm-global/bin:$PATH"
 cd "$(dirname "$0")"
 
-SERVICE_URL="https://agent-ledger-production-0ff8.up.railway.app"
+SERVICE_URL="https://aiagentscity.com"
 KEY_FILES="api_server.py ledger_engine.py"
 
 # ── 1. preflight ────────────────────────────────────────────────────────────
