@@ -49,6 +49,16 @@ PROVIDERS = {
         "credential_header": "x-api-key",
         "usage_in": "input_tokens",
         "usage_out": "output_tokens",
+        # Anthropic reports the three input buckets SEPARATELY, and
+        # `input_tokens` counts only the uncached remainder. OpenAI's and
+        # DeepSeek's `prompt_tokens` are totals that already include the cached
+        # part. Summing one convention and not the other would misprice every
+        # call, so the convention is declared here instead of assumed.
+        "usage_in_excludes_cache": True,
+        "usage_cache_hit": "cache_read_input_tokens",
+        "usage_cache_write_5m": "cache_creation.ephemeral_5m_input_tokens",
+        "usage_cache_write_1h": "cache_creation.ephemeral_1h_input_tokens",
+        "usage_cache_write_total": "cache_creation_input_tokens",
     },
 }
 
@@ -150,22 +160,35 @@ def _cents(tokens: int, per_million_usd: float) -> float:
 
 
 def cost_cents_exact(model: str, tokens_in: int, tokens_out: int,
-                     cache_hit_in: int = 0) -> Optional[float]:
+                     cache_hit_in: int = 0, cache_write_5m_in: int = 0,
+                     cache_write_1h_in: int = 0) -> Optional[float]:
     """Exact cost in cents (fractional). None when the model is unpriced.
 
-    A price entry may carry a `cache_hit` rate, used for the cached portion of
-    the input. When it does not, every input token is charged the standard
-    rate, which is the conservative direction for a spend cap.
+    Input is billed in up to three tiers: fresh (standard rate), read from
+    cache, and written to cache. Cache writes cost MORE than fresh input
+    (Claude: 1.25x for 5-minute, 2x for 1-hour) and cache reads cost far less
+    (0.1x). A model whose entry carries no cache rates charges every input
+    token the standard rate — the conservative direction for a cap, but wrong
+    for a cache-heavy workload, where it is wrong in both directions at once.
+
+    Cache buckets are clamped against each other in order (hit, then 5m, then
+    1h) so an over-reported bucket can never produce a negative fresh count.
     """
     entry = lookup(model)
     if not entry:
         return None
-    hit_rate = entry.get("cache_hit")
-    if hit_rate is None:
-        return _cents(tokens_in, entry.get("in", 0)) + _cents(tokens_out, entry.get("out", 0))
-    hit = max(0, min(int(cache_hit_in or 0), int(tokens_in)))
-    miss = int(tokens_in) - hit
-    return (_cents(miss, entry.get("in", 0)) + _cents(hit, hit_rate)
+    in_rate = entry.get("in", 0)
+    total_in = int(tokens_in)
+
+    hit = max(0, min(int(cache_hit_in or 0), total_in))
+    write_5m = max(0, min(int(cache_write_5m_in or 0), total_in - hit))
+    write_1h = max(0, min(int(cache_write_1h_in or 0), total_in - hit - write_5m))
+    fresh = total_in - hit - write_5m - write_1h
+
+    return (_cents(fresh, in_rate)
+            + _cents(hit, entry.get("cache_hit", in_rate))
+            + _cents(write_5m, entry.get("cache_write_5m", in_rate))
+            + _cents(write_1h, entry.get("cache_write_1h", in_rate))
             + _cents(tokens_out, entry.get("out", 0)))
 
 
@@ -223,23 +246,44 @@ def usage_tokens(provider: str, data: dict) -> Optional[dict]:
             usage = (data.get("message") or {}).get("usage") or data.get("usage")
         if not isinstance(usage, dict):
             return None
-    tin = usage.get(cfg.get("usage_in", "prompt_tokens"), 0)
+    def _field(path):
+        """Dotted lookup — Anthropic nests its cache-write split one level down."""
+        node = usage
+        for part in path.split("."):
+            if not isinstance(node, dict):
+                return None
+            node = node.get(part)
+        return node if isinstance(node, int) and node >= 0 else None
+
     tout = usage.get(cfg.get("usage_out", "completion_tokens"), 0)
-    if not isinstance(tin, int) or not isinstance(tout, int):
+    if not isinstance(tout, int):
         return None
+
+    hit = _field(cfg["usage_cache_hit"]) if cfg.get("usage_cache_hit") else None
+    write_5m = _field(cfg["usage_cache_write_5m"]) if cfg.get("usage_cache_write_5m") else None
+    write_1h = _field(cfg["usage_cache_write_1h"]) if cfg.get("usage_cache_write_1h") else None
+
+    if cfg.get("usage_in_excludes_cache"):
+        fresh = usage.get(cfg.get("usage_in", "input_tokens"), 0)
+        if not isinstance(fresh, int):
+            return None
+        write_total = _field(cfg["usage_cache_write_total"]) if cfg.get("usage_cache_write_total") else None
+        # Some providers report only the combined cache-write figure. Attribute
+        # the whole of it to the 5-minute tier: it is the cheaper of the two,
+        # so an unknown split under-charges rather than inventing a higher bill.
+        if write_total and not (write_5m or write_1h):
+            write_5m = write_total
+        tin = fresh + (hit or 0) + (write_total or 0)
+    else:
+        tin = usage.get(cfg.get("usage_in", "prompt_tokens"), 0)
+        if not isinstance(tin, int):
+            return None
+        write_5m, write_1h = 0, 0
+
     if tin == 0 and tout == 0:
         return None
-    # Cached input is a SUBSET of the input count, billed far cheaper. Not
-    # reporting it would price every cached token at the cache-miss rate —
-    # DeepSeek's hit rate is ~50x lower, so the error runs one direction and
-    # it runs large.
-    hit = 0
-    cache_key = cfg.get("usage_cache_hit")
-    if cache_key:
-        value = usage.get(cache_key)
-        if isinstance(value, int) and value > 0:
-            hit = min(value, tin)
-    return {"tokens_in": tin, "tokens_out": tout, "cache_hit_in": hit}
+    return {"tokens_in": tin, "tokens_out": tout, "cache_hit_in": hit or 0,
+            "cache_write_5m_in": write_5m or 0, "cache_write_1h_in": write_1h or 0}
 
 
 # ── sub-cent residue: never lose money to integer rounding ─────────────────

@@ -43,6 +43,13 @@ class TrackRequest(BaseModel):
     service: Optional[str] = None
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
+    # Input is billed in up to three tiers. A caller that reports only
+    # tokens_in gets every input token charged at the standard rate; these let
+    # it report the split so cached input is priced as cached input. Claude
+    # Code, for instance, spends most of its input on 1-hour cache writes.
+    cache_hit_in: int = Field(default=0, ge=0)
+    cache_write_5m_in: int = Field(default=0, ge=0)
+    cache_write_1h_in: int = Field(default=0, ge=0)
     model: str = ""
     agent_secret: Optional[str] = None
     workspace_key: Optional[str] = None
@@ -210,7 +217,11 @@ def create_track(req: TrackRequest, request: Request):
                          "AND model, in which case it is computed for you",
                     code="amount_required"))
             import proxy as _proxy
-            exact = _proxy.cost_cents_exact(req.model, req.tokens_in, req.tokens_out)
+            exact = _proxy.cost_cents_exact(
+                req.model, req.tokens_in, req.tokens_out,
+                cache_hit_in=req.cache_hit_in,
+                cache_write_5m_in=req.cache_write_5m_in,
+                cache_write_1h_in=req.cache_write_1h_in)
             if exact is None:
                 raise HTTPException(422, detail=error_envelope(
                     422, f"no price for model '{req.model}' — send amount_cents explicitly, "
@@ -239,6 +250,14 @@ def create_track(req: TrackRequest, request: Request):
         tok_meta = {"tokens_in": req.tokens_in, "tokens_out": req.tokens_out}
         if req.model:
             tok_meta["model"] = req.model
+        # Carried onto the token row too, so the burn report shows HOW the
+        # input was billed (fresh vs cached) and not just the total.
+        if req.cache_hit_in:
+            tok_meta["cache_hit_in"] = req.cache_hit_in
+        if req.cache_write_5m_in:
+            tok_meta["cache_write_5m_in"] = req.cache_write_5m_in
+        if req.cache_write_1h_in:
+            tok_meta["cache_write_1h_in"] = req.cache_write_1h_in
     primary_meta = tok_meta if req.rail == "tokens" else {}
     try:
         entry = track(req.agent_id, req.rail, amount, service, **primary_meta)

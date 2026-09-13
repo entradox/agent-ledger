@@ -219,7 +219,10 @@ def test_pricing_endpoint_shows_the_table_and_its_provenance(env):
     entry = body["models"]["gpt-4o-mini"]
     assert entry["in"] > 0 and entry["out"] > 0
     assert "check them against their provider" in body["_note"]
-    assert body["verified_count"] == 0   # placeholders until an operator confirms
+    # some entries are now confirmed against the provider's own pricing page
+    # (Claude) and some are not (OpenAI); the endpoint has to say which
+    assert body["verified_count"] > 0
+    assert body["count"] > body["verified_count"]
 
 
 # ── identity: the agent is billed, the provider key is only carried ────────

@@ -58,18 +58,23 @@ def _proxy_identity(request: Request) -> str:
 
 
 def _meter(agent_id: str, provider: str, model: str,
-           tokens_in: int, tokens_out: int, cache_hit_in: int = 0) -> int:
+           tokens_in: int, tokens_out: int, cache_hit_in: int = 0,
+           cache_write_5m_in: int = 0, cache_write_1h_in: int = 0) -> int:
     """Record what the call actually cost. Never raises: the provider has
     already charged, so failing here would report a problem the caller cannot
     act on. Uses the ordinary ledger path so caps, alerts and webhooks apply."""
     from ledger_engine import track, _log_alert_daily
-    exact = proxy_core.cost_cents_exact(model, tokens_in, tokens_out, cache_hit_in)
+    exact = proxy_core.cost_cents_exact(model, tokens_in, tokens_out, cache_hit_in,
+                                       cache_write_5m_in, cache_write_1h_in)
     if exact is None:
         # Unpriced model: record the real token burn at zero dollars and make
         # noise. A silent zero would read as 'this agent spends nothing'.
         try:
             track(agent_id, "tokens", 0, provider,
-                  tokens_in=tokens_in, tokens_out=tokens_out, model=model)
+                  tokens_in=tokens_in, tokens_out=tokens_out, model=model,
+                  cache_hit_in=cache_hit_in,
+                  cache_write_5m_in=cache_write_5m_in,
+                  cache_write_1h_in=cache_write_1h_in)
         except Exception:
             pass
         try:
@@ -85,7 +90,9 @@ def _meter(agent_id: str, provider: str, model: str,
     try:
         track(agent_id, "api_key", cents, provider,
               tokens_in=tokens_in, tokens_out=tokens_out, model=model,
-              cache_hit_in=cache_hit_in)
+              cache_hit_in=cache_hit_in,
+              cache_write_5m_in=cache_write_5m_in,
+              cache_write_1h_in=cache_write_1h_in)
     except BudgetExceededError as exc:
         # Post-hoc: the money is already spent. Record the miss loudly rather
         # than discarding the entry and hiding it.
@@ -104,7 +111,10 @@ def _meter(agent_id: str, provider: str, model: str,
     if tokens_in or tokens_out:
         try:
             track(agent_id, "tokens", 0, provider,
-                  tokens_in=tokens_in, tokens_out=tokens_out, model=model)
+                  tokens_in=tokens_in, tokens_out=tokens_out, model=model,
+                  cache_hit_in=cache_hit_in,
+                  cache_write_5m_in=cache_write_5m_in,
+                  cache_write_1h_in=cache_write_1h_in)
         except Exception:
             pass
     return cents

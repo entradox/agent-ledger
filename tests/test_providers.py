@@ -207,5 +207,13 @@ def test_deepseek_prices_carry_their_source_and_are_not_marked_verified():
 def test_the_pricing_endpoint_says_how_many_are_unverified(env):
     tc, key, secret = env
     body = tc.get("/v1/pricing").json()
-    assert body["verified_count"] == 0
+    # The endpoint must report how the numbers were obtained, and must not
+    # imply everything is checked. Some entries are verified (Claude, read off
+    # Anthropic's pricing page) and some are not (OpenAI, never checked).
+    assert body["verified_count"] > 0
+    assert body["count"] > body["verified_count"], (
+        "nothing is flagged unverified — either the table really was fully "
+        "checked, or the flag has stopped meaning anything")
+    assert body["models"]["claude-sonnet-5"]["verified"] is True
+    assert body["models"]["gpt-4o-mini"]["verified"] is False
     assert body["models"]["deepseek-v4-flash"]["cache_hit"] == 0.0028
