@@ -118,6 +118,9 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Budget enforcement** — warns at 80% of cap, blocks spend when exceeded
 - **Anomaly detection** — spending-spike alerts per agent
 - **Audit trails** — every entry persisted with rail, service, and timestamp
+- **Shareable report links** — `POST /v1/report/{agent_id}/share` mints a read-only,
+  expiring URL that opens in a plain browser (no header, no credential); revoke the
+  lot in one call
 - **Credential recovery** — a lost `agent_secret` never bricks an agent_id: the
   workspace_key mints a replacement (`POST /v1/agents/{agent_id}/rotate-secret`) or
   revokes it while keeping the spend history

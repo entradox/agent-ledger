@@ -110,7 +110,18 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `budget_exceeded`, `invalid_amount`, `version_header`,
 `idempotency_key_too_long`, `idempotency_conflict`, `x402_no_tx_hash`,
 `agent_not_claimed` (rotate/revoke on an agent_id nobody claimed),
-`not_your_agent` (that agent_id belongs to a different workspace).
+`not_your_agent` (that agent_id belongs to a different workspace),
+`invalid_ttl` (share link ttl_days outside 1-90).
+
+### Sharing a report with a human
+
+`POST /v1/report/{agent_id}/share` returns a URL that opens in any browser with
+no header and no credential. That is the only way a person can read a report —
+every other read path requires a header a browser cannot send. The token is
+read-only, scoped to one agent_id, expires (7 days default, 90 max) and cannot
+be forged for a different agent. `POST /v1/report/{agent_id}/share/revoke`
+invalidates every link already issued for that agent. An expired, revoked or
+tampered token returns a styled HTML page with a 403, never a JSON error body.
 
 ### Losing an agent_secret
 

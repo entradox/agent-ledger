@@ -331,6 +331,14 @@ POST /v1/budget                    — set budget caps (mints/verifies agent_sec
             "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
+POST /v1/report/{agent_id}/share   — mint a read-only, EXPIRING link to the human report page
+                                      (agent_secret OR workspace_key; default 7 days, max 90)
+POST /v1/report/{agent_id}/share/revoke — kill every outstanding share link for this agent
+GET  /v1/report/{agent_id}/html?t=<token> — the shared page itself. A BROWSER CANNOT SEND A
+                                      HEADER, which is why this exists: open this URL directly,
+                                      no credential, no curl. Bad/expired/revoked token returns a
+                                      styled HTML error page, never raw JSON. The token reads that
+                                      ONE agent_id only — it cannot write, rotate, or read others.
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
 POST /v1/agents/{agent_id}/rotate-secret — RECOVER a lost agent_secret: mints a new one, kills the old
@@ -464,6 +472,12 @@ AGENT_JSON = {
                         "invalidating the previous credential immediately. Workspace_key only — "
                         "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
          "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
+        {"id": "share_report_link",
+         "description": "Mint a read-only, expiring URL for an agent's human-readable report page — "
+                        "a browser cannot send X-Agent-Secret as a header, so this is how a report "
+                        "reaches a person. Scoped to ONE agent_id, read-only, expiring (7 days "
+                        "default, 90 max), revocable in bulk.",
+         "endpoint": "/v1/report/{agent_id}/share", "method": "POST", "free": True},
         {"id": "revoke_agent_secret",
          "description": "Invalidate an agent's secret while keeping its spend history. The "
                         "agent_id stays claimed, so no other workspace can take it over.",

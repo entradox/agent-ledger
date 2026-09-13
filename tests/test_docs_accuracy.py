@@ -126,6 +126,21 @@ def test_error_doc_lists_the_rotation_codes():
     assert "not_your_agent" in errors
 
 
+def test_llms_txt_documents_share_links():
+    """The share URL is the only read path a browser can use. If it vanishes
+    from the manifest, agents stop telling humans how to read a report."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "/v1/report/{agent_id}/share" in txt
+    assert "html?t=" in txt
+
+
+def test_agent_json_advertises_share_report_link():
+    import api_server
+    ids = {c["id"] for c in api_server.AGENT_JSON["capabilities"]}
+    assert "share_report_link" in ids
+
+
 def test_api_docs_quickstart_documents_workspace_key():
     from docs_content import get_api_docs
     quickstart = get_api_docs("quickstart")

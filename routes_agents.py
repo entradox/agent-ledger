@@ -306,20 +306,9 @@ def get_report(agent_id: str, request: Request, days: int = 30):
             "anomalies": r.anomalies, "entry_count": r.entry_count,
             "plan": r.plan, "pro_until": r.pro_until}
 
-@router.get("/v1/report/{agent_id}/html", response_class=HTMLResponse)
-def get_report_html(agent_id: str, request: Request, days: int = 30):
-    """Human-readable version of /v1/report/{agent_id} — same
-    workspace/agent-scoped read (requires X-Agent-Secret or X-Workspace-Key),
-    just rendered instead of raw JSON. This is the page an agent's owner (or
-    the agent itself, sharing a link) actually looks at, rather than
-    curl-ing JSON to see if a budget is close to tripping."""
-    from ledger_engine import validate_agent_id
-    try:
-        validate_agent_id(agent_id)
-    except ValidationError as e:
-        raise HTTPException(422, str(e))
-    _authorize_agent_read(agent_id, request)
-    r = report(agent_id, days)
+def _render_report_page(agent_id: str, r, days: int) -> str:
+    """The report page itself. Shared by the header-auth path and the
+    share-link path so the two can never drift into rendering differently."""
     budget = r.budget_status or {}
     cap_cents = budget.get("monthly_cap_cents")
     token_cap = budget.get("monthly_token_cap")
@@ -372,7 +361,92 @@ h1{{font-size:20px;margin-bottom:2px}} .sub{{color:#8b949e;font-size:12px;margin
 <h3 style="font-size:14px">Anomalies</h3>
 <ul style="font-size:13px;color:#8b949e">{anomaly_rows}</ul>
 </body></html>"""
-    return HTMLResponse(content=page_html)
+    return page_html
+
+
+@router.get("/v1/report/{agent_id}/html", response_class=HTMLResponse)
+def get_report_html(agent_id: str, request: Request, days: int = 30,
+                    t: Optional[str] = None):
+    """Human-readable version of /v1/report/{agent_id} — rendered instead of
+    raw JSON. Two ways in:
+
+      * `X-Agent-Secret` / `X-Workspace-Key` header (the agent's own path), or
+      * `?t=<share token>` minted by POST /v1/report/{agent_id}/share.
+
+    The header path is for agents. The token path exists because a browser
+    cannot send a header — so before D-1217 the "shareable link" these docs
+    advertised could not actually be opened by a human. A bad, expired or
+    revoked token gets a friendly HTML page, never raw JSON.
+    """
+    from ledger_engine import validate_agent_id
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    if t:
+        import share_tokens
+        ok, reason = share_tokens.verify(t, agent_id)
+        if not ok:
+            return HTMLResponse(content=share_tokens.error_page(reason),
+                                status_code=403)
+    else:
+        _authorize_agent_read(agent_id, request)
+    r = report(agent_id, days)
+    return HTMLResponse(content=_render_report_page(agent_id, r, days))
+
+
+@router.post("/v1/report/{agent_id}/share")
+def mint_share_link(agent_id: str, request: Request, ttl_days: int = 7):
+    """Mint a read-only, expiring link to this agent's report page.
+
+    Authorized by the agent's own secret OR its workspace_key: this is a READ
+    grant, so either credential that can already read the report may share it.
+    The token is scoped to THIS agent_id — it cannot write, cannot rotate, and
+    cannot read another agent's report. TTL default 7 days, hard max 90.
+    """
+    from ledger_engine import validate_agent_id
+    import share_tokens
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(
+            422, str(e), code="invalid_agent_id"))
+    _authorize_agent_read(agent_id, request)
+    if ttl_days < 1 or ttl_days > share_tokens.MAX_TTL_DAYS:
+        raise HTTPException(422, detail=error_envelope(
+            422, f"ttl_days must be between 1 and {share_tokens.MAX_TTL_DAYS}",
+            code="invalid_ttl"))
+    token, expires_at = share_tokens.mint(agent_id, ttl_days)
+    base = str(request.base_url).rstrip("/")
+    return {"agent_id": agent_id,
+            "url": f"{base}/v1/report/{agent_id}/html?t={token}",
+            "expires_at": expires_at,
+            "ttl_days": ttl_days,
+            "_note": ("Anyone holding this URL can read this agent's report until it "
+                      "expires. It cannot write and cannot read other agents. "
+                      "POST /v1/report/{agent_id}/share/revoke kills every "
+                      "outstanding link for this agent.")}
+
+
+@router.post("/v1/report/{agent_id}/share/revoke")
+def revoke_share_links(agent_id: str, request: Request):
+    """Invalidate every outstanding share link for this agent_id.
+
+    Bumps the agent's share epoch, so tokens already handed out stop verifying.
+    Same credentials as minting. Safe to call repeatedly.
+    """
+    from ledger_engine import validate_agent_id
+    import share_tokens
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(
+            422, str(e), code="invalid_agent_id"))
+    _authorize_agent_read(agent_id, request)
+    epoch = share_tokens.bump_epoch(agent_id)
+    return {"agent_id": agent_id, "revoked": True, "share_epoch": epoch,
+            "_note": "All previously issued share links for this agent no longer work."}
+
 
 @router.get("/v1/alerts/{agent_id}")
 def get_alerts(agent_id: str, request: Request):
