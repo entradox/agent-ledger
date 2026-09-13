@@ -197,6 +197,9 @@ def report_csv(agent_id: str, request: Request, days: int = 0):
         raise HTTPException(404, detail=error_envelope(
             404, f"agent_id '{agent_id}' is not claimed", code="agent_not_claimed"))
     rows = _entries_csv(agent_id)
+    if days < 0:
+        raise HTTPException(422, detail=error_envelope(
+            422, "days must be >= 0 (0 = all time)", code="invalid_days"))
     if days and days > 0:
         cutoff = datetime.now(timezone.utc).timestamp() - min(days, 365) * 86400
         rows = [e for e in rows

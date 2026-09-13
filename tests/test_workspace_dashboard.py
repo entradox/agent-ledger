@@ -182,11 +182,23 @@ def test_report_csv_for_one_agent(env):
 
 
 def test_report_csv_needs_a_credential(env):
-    tc, _, _, _ = env
+    tc, _, key_b, _ = env
     assert tc.get(f"/v1/report/{AGENT_A}/csv").status_code == 401
     # the WRONG workspace's key must not read A's agent either
     r = tc.get(f"/v1/report/{AGENT_A}/csv", headers={"X-Workspace-Key": "unset"})
     assert r.status_code == 401
+    # and a VALID foreign workspace key must not either — the constraint that
+    # actually matters: an authenticated neighbor cannot read A's entries
+    r = tc.get(f"/v1/report/{AGENT_A}/csv", headers={"X-Workspace-Key": key_b})
+    assert r.status_code == 401
+
+
+def test_report_csv_rejects_negative_days(env):
+    tc, key_a, _, _ = env
+    r = tc.get(f"/v1/report/{AGENT_A}/csv", params={"days": -5},
+               headers={"X-Workspace-Key": key_a})
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "invalid_days"
 
 
 def test_report_csv_days_filter_excludes_old_entries(env):
@@ -215,6 +227,16 @@ def test_dashboard_page_served(env):
     assert "workspace key" in html.lower()         # the key-paste gate
     assert "/v1/workspace/summary" in html         # wired to the real API
     assert "sessionStorage" in html                # key held client-side, not in URLs
+
+
+def test_dashboard_page_wired_to_real_share_response_shape(env):
+    tc, _, _, _ = env
+    # caught in browser QA: the share API returns {url: ...}, not
+    # {share_url: ...} — a silent no-op if the page reads the wrong field.
+    # This static check pins the page against that regression.
+    html = tc.get("/dashboard").text
+    assert "r.url" in html
+    assert "share_url" not in html
 
 
 def test_dashboard_page_loads_no_third_party_origins(env):
