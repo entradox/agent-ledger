@@ -1,0 +1,13 @@
+{
+  "_note": "Per-1M-token USD prices used to meter proxied calls. OPERATOR-MAINTAINED: these are placeholders and MUST be verified against each provider's pricing page before the numbers are trusted. An entry with \"verified\": false is a placeholder. A model that is not listed at all is NOT blocked: the call passes through and an alert fires. GET /v1/pricing shows exactly what is loaded and its provenance.",
+  "_updated": "2026-09-13",
+  "models": {
+    "gpt-4o":            {"in": 2.50,  "out": 10.00, "provider": "openai",    "verified": false},
+    "gpt-4o-mini":       {"in": 0.15,  "out": 0.60,  "provider": "openai",    "verified": false},
+    "gpt-4.1":           {"in": 2.00,  "out": 8.00,  "provider": "openai",    "verified": false},
+    "o4-mini":           {"in": 1.10,  "out": 4.40,  "provider": "openai",    "verified": false},
+    "claude-sonnet-4-5": {"in": 3.00,  "out": 15.00, "provider": "anthropic", "verified": false},
+    "claude-opus-4-1":   {"in": 15.00, "out": 75.00, "provider": "anthropic", "verified": false},
+    "claude-haiku-4-5":  {"in": 1.00,  "out": 5.00,  "provider": "anthropic", "verified": false}
+  }
+}

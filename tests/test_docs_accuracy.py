@@ -142,6 +142,32 @@ def test_agent_json_legal_names_the_pages():
     assert "never stored" in legal
 
 
+def test_llms_txt_documents_the_proxy_and_its_limits():
+    """The proxy is the only real enforcement this product has, and the only
+    place a caller could be misled about what it guarantees."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "/proxy/{provider}" in txt
+    assert "NEVER stored" in txt
+    assert "bypass" in txt          # the honest limit, stated not buried
+    assert "/v1/pricing" in txt
+
+
+def test_the_landing_page_states_the_proxy_limit(page_docs=None):
+    """Enforcement must never be claimed for traffic that skips the proxy."""
+    from pathlib import Path as _P
+    html = (_P(__file__).resolve().parent.parent / "status.html").read_text()
+    assert "not enforced" in html
+    assert "never stored" in html
+
+
+def test_agent_json_advertises_the_proxy_with_the_bypass_stated():
+    import api_server
+    caps = {c["id"]: c for c in api_server.AGENT_JSON["capabilities"]}
+    assert "route_through_proxy" in caps
+    assert "bypass" in caps["route_through_proxy"]["description"]
+
+
 def test_llms_txt_documents_alert_delivery():
     """The webhook routes are how an alert reaches a human without polling."""
     import api_server

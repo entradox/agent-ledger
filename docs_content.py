@@ -133,6 +133,39 @@ report URL. Never a credential, never a prompt, never a response. Destinations
 are SSRF-checked: a URL resolving to a private, loopback or link-local address
 is refused.
 
+### Enforcement: the proxy
+
+Every cap outside the proxy rejects the ledger WRITE that would cross it — the
+provider has already charged your card. `POST /proxy/{provider}/{path}` is the
+other thing: the call is refused before the provider is contacted, so the spend
+does not happen.
+
+```
+X-AL-Agent:  <agent_id>        who gets billed
+X-AL-Secret: <agent_secret>    proves you may write for it
+Authorization: Bearer <your provider key>   (Anthropic: x-api-key)
+```
+
+Point an OpenAI- or Anthropic-compatible client's base URL at
+`/proxy/openai` or `/proxy/anthropic` and leave the model's own path on the end.
+
+Three behaviours worth knowing before you rely on it:
+
+- **Pass-through.** Your provider credential is forwarded and never stored.
+  AgentLedger holds no key of yours, so traffic that bypasses the proxy is not
+  enforced — route it or lose the guarantee.
+- **The estimate is conservative.** The pre-call check uses the prompt size
+  plus the requested `max_tokens` (or a default when the request omits it). A
+  call is blocked when its *worst case* would cross the cap, which can refuse a
+  call that would have fitted. That is the safe direction.
+- **An unpriced model is never blocked and never silently free.** The call goes
+  through and an alert fires, because a silent zero would read as "this agent
+  spends nothing". `GET /v1/pricing` shows the table and its provenance.
+
+Sub-cent calls are not lost to rounding: the remainder is carried per agent and
+paid into the next entry, so a dollar cap cannot be dodged with thousands of
+tiny calls.
+
 ### Sharing a report with a human
 
 `POST /v1/report/{agent_id}/share` returns a URL that opens in any browser with

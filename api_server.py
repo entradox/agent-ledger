@@ -38,6 +38,12 @@ app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 from routes_agents import router as agents_router
 app.include_router(agents_router)
 
+# The proxy (D-1222): the only surface where a cap stops money rather than a
+# ledger write. Pass-through — the caller's provider credential is forwarded,
+# never stored.
+from routes_proxy import router as proxy_router
+app.include_router(proxy_router)
+
 @app.exception_handler(HTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
     """Single source for the typed error envelope on every REST error path
@@ -368,6 +374,23 @@ POST /v1/billing/x402              — self-serve workspace minting for an agent
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 
+## Proxy (enforcement — a cap that stops money, not just a record)
+
+POST /proxy/{provider}/{path}     — provider="openai" or "anthropic"; {path} is the provider's
+                                    own path, e.g. /proxy/openai/v1/chat/completions
+     headers: X-AL-Agent: <agent_id>       (who gets billed)
+              X-AL-Secret: <agent_secret>  (proves you may write for it)
+              Authorization / x-api-key:   YOUR provider credential — forwarded, NEVER stored
+     flow: identify -> ESTIMATE the call's max cost -> if it would cross a cap, 402 to YOU and the
+           provider is never contacted -> otherwise forward -> meter from the provider's real
+           `usage` tokens
+     PASS-THROUGH: AgentLedger holds no provider key. A caller can bypass the proxy entirely, and
+     traffic that does is not enforced. Nothing here claims otherwise.
+     An UNPRICED model is never blocked: the call passes through and an alert fires, because a
+     silent zero would read as "this agent spends nothing".
+GET  /v1/pricing                  — the price table in use + provenance (open read). Unverified
+                                    entries are placeholders: check them against your provider.
+
 ## MCP
 
 Registry: io.github.entradox/agent-ledger
@@ -486,6 +509,14 @@ AGENT_JSON = {
                         "invalidating the previous credential immediately. Workspace_key only — "
                         "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
          "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
+        {"id": "route_through_proxy",
+         "description": "Point your provider base_url at /proxy/{provider} and every call is metered "
+                        "and capped BEFORE it reaches the provider: a call that would cross the "
+                        "budget gets 402 to the caller and the provider is never contacted. "
+                        "Pass-through — send your provider credential in Authorization / x-api-key "
+                        "and AgentLedger forwards it without storing it. Traffic that bypasses the "
+                        "proxy is not enforced.",
+         "endpoint": "/proxy/{provider}/{path}", "method": "POST", "free": True},
         {"id": "register_alert_webhook",
          "description": "Register an http(s) webhook for this workspace's alerts — "
                         "budget.warning at 80%, budget.exceeded when a write is actually blocked, and "

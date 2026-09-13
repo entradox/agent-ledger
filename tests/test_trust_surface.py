@@ -51,11 +51,25 @@ def test_the_landing_page_does_not_claim_enforcement_the_code_does_not_do(page):
     assert "block the write when crossed" in body
 
 
-def test_the_landing_page_does_not_promise_stopped_spend(page):
-    body = page.get("/").text.lower()
-    # phrases that would imply the provider charge itself is prevented
-    for overclaim in ("stops runaway spend", "blocks the spend", "stops the spend"):
-        assert overclaim not in body, f"landing page still implies: {overclaim!r}"
+def test_enforcement_claims_carry_the_proxy_qualification(page):
+    """This test used to forbid any 'stops the spend' phrasing outright, because
+    before D-1222 every such claim was false: a cap rejected the ledger write
+    after the provider had charged.
+
+    The proxy makes the claim true — for proxied traffic. So the rule becomes
+    conditional rather than absolute: if the page says spend is blocked, it must
+    also name the proxy and state that bypassing it is not enforced. A claim
+    that travels without its limit is the thing that was wrong before.
+    """
+    body = page.get("/").text
+    lowered = body.lower()
+    assert "real enforcement" not in lowered
+    for claim in ("blocks the spend", "stops the spend", "stops runaway spend"):
+        if claim in lowered:
+            assert "proxy" in lowered, f"{claim!r} is claimed without naming the proxy"
+            assert "not enforced" in lowered, (
+                f"{claim!r} is claimed without stating that traffic bypassing the "
+                f"proxy is not enforced")
 
 
 def test_the_terms_state_what_a_cap_actually_does(page):

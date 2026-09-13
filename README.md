@@ -115,7 +115,10 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 ## Features
 
 - **Multi-rail neutral** — x402, MPP, API keys, manual entries; not locked to one payment rail
-- **Budget enforcement** — warns at 80% of cap, blocks spend when exceeded
+- **Budget enforcement** — warns at 80% of cap, rejects the ledger write that would cross it
+- **Proxy enforcement (the real thing)** — point your provider `base_url` at `/proxy/{provider}`
+  and a call that would cross the cap is refused *before* the provider is contacted, so the money
+  is never spent. Pass-through: your provider key is forwarded, never stored
 - **Anomaly detection** — spending-spike alerts per agent
 - **Alerts that arrive** — push budget warnings (80%), real budget blocks, and
   anomalies to an http(s) webhook you own; every delivery attempt is receipted,

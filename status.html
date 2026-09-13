@@ -47,7 +47,7 @@ ul.tick li b{color:var(--t)}
     <ul>
       <li>Up to 3 agents per workspace</li>
       <li>All rails: x402, MPP, api_key, manual</li>
-      <li>Budget caps that block the write when crossed</li>
+      <li>Budget caps that block the write when crossed — or route your calls through the <b>proxy</b> and the cap blocks the spend itself</li>
       <li>Token burn per agent &amp; per model</li>
       <li>Alerts, 30-day reports, MCP + REST + CLI</li>
     </ul>
@@ -134,6 +134,14 @@ ul.tick li b{color:var(--t)}
 <div class="card">
   <p>The per-request trace tools run $39–$249/mo — LangSmith $39/seat, W&amp;B $60, Helicone $79, Galileo $100, Datadog LLM $240, Braintrust $249 — they bill per seat or per trace, and none of them enforce a budget cap.</p>
   <p>AgentLedger is $19, bills per workspace, and is built per-<b>agent</b> with caps that block. The unit of accounting is the agent, not the request — which is the question you actually ask when you run twenty named agents: <i>which one is burning money, and how do I stop it?</i></p>
+</div>
+
+<div class="card">
+  <p><b>Enforcement, honestly.</b> A cap on the plain API rejects the ledger <i>write</i> that
+  would cross it — the provider has already charged. Route the same traffic through
+  <code>/proxy/{provider}/…</code> and the call is refused <i>before</i> the provider is contacted,
+  so the money is never spent. The proxy is pass-through: your provider key rides in the request
+  and is never stored. Traffic that bypasses the proxy is not enforced.</p>
 </div>
 
 <div class="card">
