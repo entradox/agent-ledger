@@ -156,3 +156,22 @@ def test_revoke_requires_the_workspace_key(env):
     assert tc.post(f"/v1/agents/{AGENT}/revoke-secret").status_code == 401
     assert tc.post(f"/v1/agents/{AGENT}/revoke-secret",
                    headers={"X-Agent-Secret": old}).status_code == 401
+
+
+def test_an_unauthenticated_caller_cannot_enumerate_claimed_agents(env):
+    """Existence must not be revealed before authentication.
+
+    Checking existence first made the response 404 for an unclaimed agent_id
+    and 401 for a claimed one, so anyone could map real tenants by name —
+    confirmed live on 2026-09-13, where a credential-less probe of
+    'probe-agent' returned agent_not_claimed. Order is now authenticate,
+    authorize, then reveal.
+    """
+    tc, _, _, _ = env
+    r = tc.post("/v1/agents/totally-unknown-agent/rotate-secret")
+    assert r.status_code == 401
+    assert "workspace_key_required" in r.text
+    # ...and the same for an agent that DOES exist: identical answer, no signal.
+    r2 = tc.post(f"/v1/agents/{AGENT}/rotate-secret")
+    assert r2.status_code == 401
+    assert r2.text == r.text

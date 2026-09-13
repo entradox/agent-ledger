@@ -438,8 +438,8 @@ class RotateSecretRequest(BaseModel):
     workspace_key: Optional[str] = None
 
 
-def _require_workspace_owner(agent_id: str, request: Request,
-                             body_key: Optional[str] = None) -> str:
+def _workspace_key_or_401(request: Request,
+                          body_key: Optional[str] = None) -> str:
     """Credential-lifecycle gate (D-1216): ONLY the workspace_key authorizes
     rotating or revoking an agent_secret — never the agent_secret itself.
 
@@ -447,6 +447,12 @@ def _require_workspace_owner(agent_id: str, request: Request,
     was lost. If the agent_secret could rotate, then a leaked agent credential
     would let whoever holds it lock the real owner out of their own agent
     permanently — turning a recovery feature into a takeover primitive.
+
+    Runs BEFORE any existence check, deliberately. Checking existence first
+    made an unauthenticated request answer 404 for an unclaimed agent_id and
+    401 for a claimed one, which lets anyone enumerate real tenants by name
+    (confirmed live 2026-09-13). Order: authenticate, then authorize, then
+    reveal existence.
     """
     import identity
     raw = request.headers.get("x-workspace-key") or (body_key or "")
@@ -455,11 +461,15 @@ def _require_workspace_owner(agent_id: str, request: Request,
         raise HTTPException(401, detail=error_envelope(
             401, "rotating or revoking an agent_secret requires a valid X-Workspace-Key",
             code="workspace_key_required"))
+    return workspace_id
+
+
+def _owned_or_403(agent_id: str, workspace_id: str) -> None:
+    import identity
     if not identity.agent_belongs_to_workspace(agent_id, workspace_id):
         raise HTTPException(403, detail=error_envelope(
             403, f"agent_id '{agent_id}' is not claimed in this workspace",
             code="not_your_agent"))
-    return workspace_id
 
 
 def _claimed_or_404(agent_id: str) -> None:
@@ -489,9 +499,9 @@ def rotate_secret(agent_id: str, request: Request,
     different workspace is 403.
     """
     from ledger_engine import rotate_agent_secret as _rotate, AuthError as _LedgerAuthError
+    workspace_id = _workspace_key_or_401(request, body.workspace_key if body else None)
     _claimed_or_404(agent_id)
-    workspace_id = _require_workspace_owner(agent_id, request,
-                                            body.workspace_key if body else None)
+    _owned_or_403(agent_id, workspace_id)
     try:
         secret = _rotate(agent_id, workspace_id)
     except _LedgerAuthError as e:
@@ -512,9 +522,9 @@ def revoke_secret(agent_id: str, request: Request,
     history.
     """
     from ledger_engine import revoke_agent_secret as _revoke, AuthError as _LedgerAuthError
+    workspace_id = _workspace_key_or_401(request, body.workspace_key if body else None)
     _claimed_or_404(agent_id)
-    workspace_id = _require_workspace_owner(agent_id, request,
-                                            body.workspace_key if body else None)
+    _owned_or_403(agent_id, workspace_id)
     try:
         _revoke(agent_id, workspace_id)
     except _LedgerAuthError as e:

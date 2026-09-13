@@ -52,14 +52,14 @@ def _owned_or_error(agent_id: str, workspace_key: str):
         validate_agent_id(agent_id)
     except ValidationError as e:
         return None, {"error": str(e), "error_code": "invalid_agent_id"}
-    if not agent_exists(agent_id):
-        return None, {"error": f"agent_id '{agent_id}' is not claimed",
-                      "error_code": "agent_not_claimed"}
     workspace_id = identity.resolve_workspace_key(workspace_key or "")
     if not workspace_id:
         return None, {"error": ("rotating or revoking an agent_secret requires the "
                                 "workspace_key that owns this agent_id"),
                       "error_code": "workspace_key_required"}
+    if not agent_exists(agent_id):
+        return None, {"error": f"agent_id '{agent_id}' is not claimed",
+                      "error_code": "agent_not_claimed"}
     if not identity.agent_belongs_to_workspace(agent_id, workspace_id):
         return None, {"error": f"agent_id '{agent_id}' is not claimed in this workspace",
                       "error_code": "not_your_agent"}
