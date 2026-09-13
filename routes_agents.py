@@ -434,6 +434,97 @@ def token_report(agent_id: str, request: Request, days: int = 30):
             "total_tokens": tin + tout, "by_model": by_model, "entries": entries}
 
 
+class RotateSecretRequest(BaseModel):
+    workspace_key: Optional[str] = None
+
+
+def _require_workspace_owner(agent_id: str, request: Request,
+                             body_key: Optional[str] = None) -> str:
+    """Credential-lifecycle gate (D-1216): ONLY the workspace_key authorizes
+    rotating or revoking an agent_secret — never the agent_secret itself.
+
+    The workspace owner must always be able to recover an agent whose secret
+    was lost. If the agent_secret could rotate, then a leaked agent credential
+    would let whoever holds it lock the real owner out of their own agent
+    permanently — turning a recovery feature into a takeover primitive.
+    """
+    import identity
+    raw = request.headers.get("x-workspace-key") or (body_key or "")
+    workspace_id = identity.resolve_workspace_key(raw)
+    if not workspace_id:
+        raise HTTPException(401, detail=error_envelope(
+            401, "rotating or revoking an agent_secret requires a valid X-Workspace-Key",
+            code="workspace_key_required"))
+    if not identity.agent_belongs_to_workspace(agent_id, workspace_id):
+        raise HTTPException(403, detail=error_envelope(
+            403, f"agent_id '{agent_id}' is not claimed in this workspace",
+            code="not_your_agent"))
+    return workspace_id
+
+
+def _claimed_or_404(agent_id: str) -> None:
+    """Validate the id, then require that it is already claimed. Rotation and
+    revocation are recovery operations on an id you own — neither is a claim
+    path, so an unknown id is 404 rather than a silent mint."""
+    from ledger_engine import agent_exists
+    try:
+        le_validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
+    if not agent_exists(agent_id):
+        raise HTTPException(404, detail=error_envelope(
+            404, f"agent_id '{agent_id}' is not claimed", code="agent_not_claimed"))
+
+
+@router.post("/v1/agents/{agent_id}/rotate-secret")
+def rotate_secret(agent_id: str, request: Request,
+                  body: Optional[RotateSecretRequest] = None):
+    """Recover a lost agent_secret: mint a new one for an agent_id you own.
+
+    Authenticated by the WORKSPACE_KEY only — header X-Workspace-Key, or
+    workspace_key in the body. The previous secret stops working the moment
+    this returns; the new one is shown once, the same contract as a first
+    claim. The rotation is written to the agent's audit trail. An unclaimed
+    agent_id is 404 (this is not a claim path), and an agent belonging to a
+    different workspace is 403.
+    """
+    from ledger_engine import rotate_agent_secret as _rotate, AuthError as _LedgerAuthError
+    _claimed_or_404(agent_id)
+    workspace_id = _require_workspace_owner(agent_id, request,
+                                            body.workspace_key if body else None)
+    try:
+        secret = _rotate(agent_id, workspace_id)
+    except _LedgerAuthError as e:
+        raise HTTPException(404, detail=error_envelope(404, str(e), code="agent_not_claimed"))
+    return {"agent_id": agent_id, "agent_secret": secret,
+            "_note": ("Save this agent_secret — it replaced the previous one, which no "
+                      "longer works. It will not be shown again.")}
+
+
+@router.post("/v1/agents/{agent_id}/revoke-secret")
+def revoke_secret(agent_id: str, request: Request,
+                  body: Optional[RotateSecretRequest] = None):
+    """Invalidate an agent_id's secret without deleting its ledger.
+
+    Same workspace_key-only auth as rotate. Writes to the agent then fail with
+    401 agent_secret_mismatch until the owner rotates a new secret in. The id
+    stays CLAIMED, so no other workspace can claim it and inherit the spend
+    history.
+    """
+    from ledger_engine import revoke_agent_secret as _revoke, AuthError as _LedgerAuthError
+    _claimed_or_404(agent_id)
+    workspace_id = _require_workspace_owner(agent_id, request,
+                                            body.workspace_key if body else None)
+    try:
+        _revoke(agent_id, workspace_id)
+    except _LedgerAuthError as e:
+        raise HTTPException(404, detail=error_envelope(404, str(e), code="agent_not_claimed"))
+    return {"agent_id": agent_id, "revoked": True,
+            "_note": ("The previous agent_secret no longer works. The agent's spend "
+                      "history is intact — POST /v1/agents/{agent_id}/rotate-secret "
+                      "issues a new one when you want it writing again.")}
+
+
 @router.delete("/v1/agents/{agent_id}")
 def delete_agent(agent_id: str, request: Request):
     """Remove an agent's ledger entirely. Owner-only (cron secret) — beta slots

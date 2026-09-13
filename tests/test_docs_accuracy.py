@@ -102,6 +102,30 @@ def test_agent_json_pricing_is_per_workspace():
     assert "first 50 workspaces" in desc
 
 
+def test_llms_txt_documents_credential_recovery():
+    """A lost agent_secret used to be unrecoverable and the docs were silent
+    either way. The recovery path is advertised now; if it silently disappears
+    from the manifest, agents go back to believing a lost secret is fatal."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "/v1/agents/{agent_id}/rotate-secret" in txt
+    assert "ledger_rotate_secret" in txt
+
+
+def test_agent_json_advertises_credential_recovery():
+    import api_server
+    ids = {c["id"] for c in api_server.AGENT_JSON["capabilities"]}
+    assert {"rotate_agent_secret", "revoke_agent_secret"} <= ids
+    assert "rotate-secret" in api_server.AGENT_JSON["auth"]["description"]
+
+
+def test_error_doc_lists_the_rotation_codes():
+    from docs_content import get_api_docs
+    errors = get_api_docs("errors")
+    assert "agent_not_claimed" in errors
+    assert "not_your_agent" in errors
+
+
 def test_api_docs_quickstart_documents_workspace_key():
     from docs_content import get_api_docs
     quickstart = get_api_docs("quickstart")

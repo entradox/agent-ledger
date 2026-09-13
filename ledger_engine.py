@@ -254,6 +254,72 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     return new_secret, True
 
 
+# ── Credential lifecycle: rotate / revoke (D-1216) ──────────────────────────
+# A lost agent_secret used to brick an agent_id permanently: ensure_agent_secret
+# raises AuthError for a claimed id whose secret you no longer hold, and the
+# workspace owner had NO path back in. On a free tier of 3 agents that is a
+# third of a user's capacity, destroyed by an ordinary event. These two
+# primitives are the recovery path.
+
+def _audit_path(agent_id: str) -> Path:
+    return _agent_dir(agent_id) / "audit.jsonl"
+
+
+def log_agent_audit(agent_id: str, action: str, workspace_id: str = "") -> None:
+    """Append a credential-lifecycle event to the agent's audit trail.
+
+    Never raises: a rotation that succeeded must not be reported as failed
+    because its receipt could not be written.
+    """
+    try:
+        entry = {"ts": datetime.now(timezone.utc).isoformat(),
+                 "agent_id": agent_id, "action": action,
+                 "workspace_id": workspace_id}
+        with open(_audit_path(agent_id), "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
+def rotate_agent_secret(agent_id: str, workspace_id: str = "") -> str:
+    """Mint a NEW agent_secret for an already-claimed agent_id, invalidating
+    the previous one. Returns the new secret (shown once, same contract as a
+    first claim).
+
+    Never claims: an id with no secret on disk raises AuthError rather than
+    quietly minting one, so this can never be used to squat a fresh agent_id
+    without a workspace_key.
+    """
+    validate_agent_id(agent_id)
+    if not agent_exists(agent_id):
+        raise AuthError(
+            f"agent_id '{agent_id}' is not claimed — rotate applies to an agent "
+            "you already own; a new agent_id is claimed by its first write")
+    new_secret = secrets.token_urlsafe(24)
+    _secret_path(agent_id).write_text(new_secret)
+    log_agent_audit(agent_id, "rotate_secret", workspace_id)
+    return new_secret
+
+
+def revoke_agent_secret(agent_id: str, workspace_id: str = "") -> None:
+    """Invalidate an agent_id's secret WITHOUT deleting its ledger.
+
+    The secret file is OVERWRITTEN with a fresh random value nobody ever
+    learns, not unlinked. agent_exists() is defined as "a secret file is
+    present", so unlinking would make the id look unclaimed — and an unclaimed
+    agent_id is claimable by ANY valid workspace_key. A plain delete would
+    therefore let one workspace revoke an agent and a different workspace
+    claim that same agent_id and inherit its spend history. Overwriting keeps
+    the id claimed and unwritable until its owner rotates it back.
+    """
+    validate_agent_id(agent_id)
+    if not agent_exists(agent_id):
+        raise AuthError(
+            f"agent_id '{agent_id}' is not claimed — nothing to revoke")
+    _secret_path(agent_id).write_text(secrets.token_urlsafe(24))
+    log_agent_audit(agent_id, "revoke_secret", workspace_id)
+
+
 # ── Pro tier state ──────────────────────────────────────────────────────────
 # The Stripe webhook (checkout.session.completed, plan=pro) flips this flag on
 # the persistent volume; AL_PRO_ACTIVE=1 is an operator override. Until then

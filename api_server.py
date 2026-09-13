@@ -333,6 +333,12 @@ POST /v1/budget                    — set budget caps (mints/verifies agent_sec
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{agent_id}         — token burn report: in/out totals + by model (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{agent_id}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
+POST /v1/agents/{agent_id}/rotate-secret — RECOVER a lost agent_secret: mints a new one, kills the old
+                                      (workspace_key ONLY — never the agent_secret itself; 404 if unclaimed,
+                                      403 if the agent belongs to another workspace)
+POST /v1/agents/{agent_id}/revoke-secret — invalidate an agent's secret, keep its ledger
+                                      (workspace_key ONLY; the agent_id stays claimed, so no other
+                                      workspace can take it over; rotate back in when you want it writing)
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
@@ -350,6 +356,8 @@ Tools exposed at POST /mcp/:
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
   ledger_report         — get a spend report (agent_secret or workspace_key param)
   ledger_alerts         — get alerts for an agent (agent_secret or workspace_key param)
+  ledger_rotate_secret  — recover a lost agent_secret (workspace_key param; old secret dies at once)
+  ledger_revoke_secret  — invalidate an agent's secret without deleting its history (workspace_key param)
   ledger_list_agents    — owner-only (admin_secret param)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
@@ -421,7 +429,10 @@ AGENT_JSON = {
                         "response — save it, every later write to that agent_id must "
                         "include it and needs no workspace_key. Reads "
                         "(report/alerts/tokens) require agent_secret or workspace_key, "
-                        "sent as X-Agent-Secret or X-Workspace-Key.",
+                        "sent as X-Agent-Secret or X-Workspace-Key. A LOST agent_secret "
+                        "is recoverable — the workspace_key can always mint a new one at "
+                        "POST /v1/agents/{agent_id}/rotate-secret, so losing a credential never "
+                        "bricks an agent_id.",
     },
     "pricing": {
         "model": "freemium",
@@ -448,6 +459,15 @@ AGENT_JSON = {
          "endpoint": "/v1/alerts/{agent_id}", "method": "GET", "free": True},
         {"id": "get_tokens", "description": "Token burn report — in/out totals by model",
          "endpoint": "/v1/tokens/{agent_id}", "method": "GET", "free": True},
+        {"id": "rotate_agent_secret",
+         "description": "Recover a LOST agent_secret: mint a new one for an agent_id you own, "
+                        "invalidating the previous credential immediately. Workspace_key only — "
+                        "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
+         "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
+        {"id": "revoke_agent_secret",
+         "description": "Invalidate an agent's secret while keeping its spend history. The "
+                        "agent_id stays claimed, so no other workspace can take it over.",
+         "endpoint": "/v1/agents/{agent_id}/revoke-secret", "method": "POST", "free": True},
     ],
     "contact": "entradox@icloud.com",
     "legal": "Parmanand LLC. Beta software, provided as-is.",

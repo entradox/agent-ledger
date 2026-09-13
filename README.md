@@ -118,6 +118,9 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Budget enforcement** — warns at 80% of cap, blocks spend when exceeded
 - **Anomaly detection** — spending-spike alerts per agent
 - **Audit trails** — every entry persisted with rail, service, and timestamp
+- **Credential recovery** — a lost `agent_secret` never bricks an agent_id: the
+  workspace_key mints a replacement (`POST /v1/agents/{agent_id}/rotate-secret`) or
+  revokes it while keeping the spend history
 - **Per-workspace isolation** — your agents, your cap, your subscription; nothing is shared across customers
 - **Free tier: 3 agents per workspace** (first 50 workspaces get Pro free for 1 year) —
   **Pro $19/mo** for unlimited tracked agents: [Get Pro](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
@@ -140,6 +143,12 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
   - Reads (`/v1/report`, `/v1/tokens`, `/v1/alerts`) require `X-Agent-Secret` or
     `X-Workspace-Key`; the MCP read tools take the same two credentials as
     parameters, so neither surface has an unauthenticated read path
+  - Credential lifecycle: `POST /v1/agents/{agent_id}/rotate-secret` and
+    `/revoke-secret` are **workspace_key-only**. An agent's own `agent_secret`
+    deliberately cannot rotate itself — if it could, a leaked agent credential
+    would permanently lock its real owner out. Revoke overwrites the stored
+    secret rather than deleting it, so the agent_id stays claimed and cannot be
+    picked up by another workspace
 - Input validation: agent_id restricted to `[A-Za-z0-9._-]{1,64}` (path-traversal safe),
   rail whitelisted to mpp/x402/api_key/manual, amount + budget caps bounded [0, $100k]
 - Stripe webhook is fail-closed: events are rejected unless the HMAC signature

@@ -40,6 +40,15 @@ def _agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> b
     return ws_file.exists() and ws_file.read_text().strip() == workspace_id
 
 
+def agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> bool:
+    """Public name for the ownership probe. The credential-lifecycle routes
+    (rotate/revoke, D-1216) need to answer exactly this question — does this
+    workspace own this agent_id — and they must ask it the same way every
+    other gate does rather than re-deriving it from the filesystem.
+    """
+    return _agent_belongs_to_workspace(agent_id, workspace_id)
+
+
 def authorize_agent_access(agent_id: str, *, agent_secret: Optional[str] = None,
                             workspace_key: Optional[str] = None) -> bool:
     """True if EITHER credential proves the caller may access agent_id's data

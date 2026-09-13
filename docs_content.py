@@ -108,7 +108,23 @@ Every error response — REST and MCP alike — uses the same typed envelope:
 Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `agent_secret_mismatch`, `workspace_key_required`, `beta_cap_exceeded`,
 `budget_exceeded`, `invalid_amount`, `version_header`,
-`idempotency_key_too_long`, `idempotency_conflict`, `x402_no_tx_hash`.
+`idempotency_key_too_long`, `idempotency_conflict`, `x402_no_tx_hash`,
+`agent_not_claimed` (rotate/revoke on an agent_id nobody claimed),
+`not_your_agent` (that agent_id belongs to a different workspace).
+
+### Losing an agent_secret
+
+Losing one does NOT brick the agent_id. The workspace_key that owns the agent
+can always mint a replacement:
+
+- `POST /v1/agents/{agent_id}/rotate-secret` — new secret, old one dies at
+  once. `X-Workspace-Key` only.
+- `POST /v1/agents/{agent_id}/revoke-secret` — stop the agent writing while
+  keeping its history. The id stays claimed, so no other workspace can take it
+  over; rotate back in when you want it writing again.
+
+An agent's own `agent_secret` deliberately CANNOT rotate itself: if it could,
+whoever holds a leaked agent credential could lock the real owner out for good.
 
 MCP tools cannot raise HTTP status codes, so they return the same
 information in the payload as `{"error": "<message>", "error_code": "<code>"}`

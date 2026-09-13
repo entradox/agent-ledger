@@ -42,6 +42,80 @@ def _claim_or_error(agent_id: str, agent_secret: str, workspace_key: str = ""):
         return None, None, {"error": str(e), "error_code": "workspace_key_required"}
 
 
+def _owned_or_error(agent_id: str, workspace_key: str):
+    """Ownership check for the credential-lifecycle tools. Returns
+    (workspace_id, error_dict_or_None) — same shape as _claim_or_error, so an
+    agent reads the same typed error_code on MCP as it would on REST."""
+    import identity
+    from ledger_engine import agent_exists, validate_agent_id, ValidationError
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return None, {"error": str(e), "error_code": "invalid_agent_id"}
+    if not agent_exists(agent_id):
+        return None, {"error": f"agent_id '{agent_id}' is not claimed",
+                      "error_code": "agent_not_claimed"}
+    workspace_id = identity.resolve_workspace_key(workspace_key or "")
+    if not workspace_id:
+        return None, {"error": ("rotating or revoking an agent_secret requires the "
+                                "workspace_key that owns this agent_id"),
+                      "error_code": "workspace_key_required"}
+    if not identity.agent_belongs_to_workspace(agent_id, workspace_id):
+        return None, {"error": f"agent_id '{agent_id}' is not claimed in this workspace",
+                      "error_code": "not_your_agent"}
+    return workspace_id, None
+
+
+@mcp.tool(annotations={"title": "Rotate Agent Secret", "readOnlyHint": False,
+                        "destructiveHint": True, "idempotentHint": False})
+def ledger_rotate_secret(agent_id: str, workspace_key: str) -> dict:
+    """Mint a NEW agent_secret for an agent_id your workspace already owns, invalidating the old one.
+
+    Use this to RECOVER an agent whose secret was lost: the previous credential
+    stops working immediately. Requires the workspace_key that owns agent_id —
+    an agent's own agent_secret cannot rotate itself, because a leaked agent
+    credential must not be able to lock its real owner out. Unlike ledger_track
+    this never claims a new agent_id: an unknown id returns agent_not_claimed.
+
+    The new secret is returned ONCE. Store it before you drop the response.
+
+    Returns {"agent_id", "agent_secret", "_note"}, or {"error", "error_code"}.
+    """
+    _record_mcp_call()
+    from ledger_engine import rotate_agent_secret as _rotate
+    workspace_id, err = _owned_or_error(agent_id, workspace_key)
+    if err:
+        return err
+    secret = _rotate(agent_id, workspace_id)
+    return {"agent_id": agent_id, "agent_secret": secret,
+            "_note": ("Save this agent_secret — it replaced the previous one, which no "
+                      "longer works. It will not be shown again.")}
+
+
+@mcp.tool(annotations={"title": "Revoke Agent Secret", "readOnlyHint": False,
+                        "destructiveHint": True, "idempotentHint": False})
+def ledger_revoke_secret(agent_id: str, workspace_key: str) -> dict:
+    """Invalidate an agent_id's agent_secret WITHOUT deleting its spend history.
+
+    Use when a credential may have leaked, or to stop an agent writing.
+    Subsequent writes to that agent fail with agent_secret_mismatch until you
+    rotate a new secret in. The agent_id stays claimed, so no other workspace
+    can claim it and inherit the ledger. Requires the workspace_key that owns
+    agent_id.
+
+    Returns {"agent_id", "revoked": True, "_note"}, or {"error", "error_code"}.
+    """
+    _record_mcp_call()
+    from ledger_engine import revoke_agent_secret as _revoke
+    workspace_id, err = _owned_or_error(agent_id, workspace_key)
+    if err:
+        return err
+    _revoke(agent_id, workspace_id)
+    return {"agent_id": agent_id, "revoked": True,
+            "_note": ("The previous agent_secret no longer works. Spend history is "
+                      "intact — call ledger_rotate_secret for a new one.")}
+
+
 @mcp.tool(annotations={"title": "Track Agent Spend", "readOnlyHint": False,
                         "destructiveHint": False, "idempotentHint": False})
 def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
