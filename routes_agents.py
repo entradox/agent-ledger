@@ -374,7 +374,8 @@ def get_report(agent_id: str, request: Request, days: int = 30):
             "total_spend_cents": r.total_spend_cents, "by_rail": r.by_rail,
             "by_service": r.by_service, "budget_status": r.budget_status,
             "anomalies": r.anomalies, "entry_count": r.entry_count,
-            "plan": r.plan, "pro_until": r.pro_until}
+            "plan": r.plan, "pro_until": r.pro_until,
+            "daily_series": r.daily_series}
 
 def _render_report_page(agent_id: str, r, days: int) -> str:
     """The report page itself. Shared by the header-auth path and the

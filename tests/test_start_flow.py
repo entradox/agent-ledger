@@ -96,12 +96,17 @@ def test_post_start_payment_link_targets_the_workspace_it_just_minted(client, mo
     assert f"https://buy.stripe.com/test_link?client_reference_id={ws_id}" in r.text
 
 
-@pytest.mark.parametrize("path", ("/login", "/logout", "/dashboard",
+@pytest.mark.parametrize("path", ("/login", "/logout",
                                   "/auth/google/callback"))
 def test_google_auth_routes_are_gone_not_just_broken(client, path):
     """Vanished, not 503: an agent-first product has no human login, and a
     typed 503 on a route that still exists implies the feature is merely
-    unconfigured. Google OAuth returns when a real reason for it exists."""
+    unconfigured. Google OAuth returns when a real reason for it exists.
+
+    /dashboard left this list on 2026-09-13: the workspace dashboard (GAP-1)
+    reclaimed the path deliberately — key-paste in the browser, no login, no
+    session, no cookie. The login-free invariant this test protects holds:
+    the page renders with no credentials and no data."""
     assert client.get(path).status_code == 404
 
 

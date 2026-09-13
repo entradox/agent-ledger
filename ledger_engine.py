@@ -14,7 +14,7 @@ import statistics
 import re
 import time as _time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -149,6 +149,10 @@ class SpendReport:
     anomalies: list
     plan: str = "free"
     pro_until: Optional[float] = None
+    # GAP-2 (2026-09-13): one zero-filled bucket per UTC day in the window,
+    # [{"date", "spend_cents", "tokens_in", "tokens_out"}] oldest-first, so a
+    # client can chart spend without inventing the missing days itself.
+    daily_series: list = field(default_factory=list)
 
 
 def _agent_dir(agent_id: str) -> Path:
@@ -816,19 +820,47 @@ def _log_alert_daily(agent_id: str, alert_type: str, message: str):
     _log_alert(agent_id, alert_type, message)
 
 
+def _window_series(days: int, spend_entries: list, token_entries: list) -> list:
+    """Zero-filled daily buckets over the window, oldest-first. Spend buckets
+    count non-"tokens" rows (the report rule); token buckets count only
+    rail=="tokens" rows (the /v1/tokens rule). Zero-filling is deliberate:
+    a chart with holes reads as "no data" instead of "zero spend"."""
+    today = datetime.now(timezone.utc).date()
+    days = max(1, min(days, 365))
+    buckets = {}
+    for i in range(days):
+        d = (today - timedelta(days=i)).isoformat()
+        buckets[d] = {"date": d, "spend_cents": 0, "tokens_in": 0, "tokens_out": 0}
+    for e in spend_entries:
+        d = str(e.get("timestamp", ""))[:10]
+        if d in buckets:
+            buckets[d]["spend_cents"] += e.get("amount_cents", 0)
+    for e in token_entries:
+        d = str(e.get("timestamp", ""))[:10]
+        if d in buckets:
+            buckets[d]["tokens_in"] += e.get("tokens_in", 0) or 0
+            buckets[d]["tokens_out"] += e.get("tokens_out", 0) or 0
+    return [buckets[k] for k in sorted(buckets)]
+
+
 def report(agent_id: str, days: int = 30) -> SpendReport:
     validate_agent_id(agent_id)
     ledger = _ledger_path(agent_id)
     entries = []
+    token_rows = []
     if ledger.exists():
         cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
         for line in open(ledger):
             try:
                 e = json.loads(line)
-                if e.get("rail") == "tokens":
-                    continue  # zero-cent token-count rows are burn data, not spend
                 ts = datetime.fromisoformat(e["timestamp"]).timestamp()
-                if ts >= cutoff:
+                if ts < cutoff:
+                    continue
+                if e.get("rail") == "tokens":
+                    # zero-cent token-count rows are burn data, not spend —
+                    # excluded from the spend math, kept for the token series
+                    token_rows.append(e)
+                else:
                     entries.append(e)
             except (KeyError, ValueError):
                 continue
@@ -872,10 +904,116 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
                                                and monthly_tokens > budget.monthly_token_cap)
 
     plan_info = is_pro(agent_id)
+    daily_series = _window_series(days, entries, token_rows)
     return SpendReport(agent_id=agent_id, period=f"last_{days}d", total_spend_cents=total,
                        by_rail=by_rail, by_service=by_service, entry_count=len(entries),
                        budget_status=budget_status, anomalies=anomalies,
-                       plan=plan_info["plan"], pro_until=plan_info["pro_until"])
+                       plan=plan_info["plan"], pro_until=plan_info["pro_until"],
+                       daily_series=daily_series)
+
+
+def workspace_agents(workspace_id: str) -> list:
+    """Every claimed agent_id whose workspace_id.txt names THIS workspace,
+    sorted by total lifetime spend, descending. The workspace-scoped twin of
+    list_agents() — the dashboard's agent table is built from this and can
+    never leak a cross-tenant agent_id."""
+    agents_dir = DATA_DIR / "agents"
+    if not agents_dir.exists() or not workspace_id:
+        return []
+    rows = []
+    for d in agents_dir.iterdir():
+        if not d.is_dir() or not (d / "secret.txt").exists():
+            continue
+        ws_file = d / "workspace_id.txt"
+        if not ws_file.exists() or ws_file.read_text().strip() != workspace_id:
+            continue
+        ledger = d / "ledger.jsonl"
+        total = 0
+        if ledger.exists():
+            for line in open(ledger):
+                try:
+                    total += json.loads(line).get("amount_cents", 0)
+                except ValueError:
+                    continue
+        rows.append({"agent_id": d.name, "lifetime_spend_cents": total})
+    return [r["agent_id"] for r in sorted(rows, key=lambda x: x["lifetime_spend_cents"],
+                                           reverse=True)]
+
+
+def window_stats(agent_id: str, days: int = 30) -> dict:
+    """Single-pass windowed stats for one agent — the per-agent row of the
+    workspace summary. Computes in one ledger read what would otherwise cost
+    a report() + token_report() plus two more scans: windowed spend, by_rail,
+    by_service, token totals, per-day buckets, last event timestamp and the
+    same spending-spike anomaly signal report() uses."""
+    validate_agent_id(agent_id)
+    spend = 0
+    by_rail = {}
+    by_service = {}
+    tin = tout = 0
+    spend_entries = []
+    token_rows = []
+    last_ts = None
+    ledger = _ledger_path(agent_id)
+    if ledger.exists():
+        cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
+        for line in open(ledger):
+            try:
+                e = json.loads(line)
+                ts = datetime.fromisoformat(e["timestamp"]).timestamp()
+            except (KeyError, ValueError):
+                continue
+            if e.get("timestamp") and (last_ts is None or e["timestamp"] > last_ts):
+                last_ts = e["timestamp"]
+            if ts < cutoff:
+                continue
+            if e.get("rail") == "tokens":
+                token_rows.append(e)
+                tin += e.get("tokens_in", 0) or 0
+                tout += e.get("tokens_out", 0) or 0
+            else:
+                spend_entries.append(e)
+                spend += e.get("amount_cents", 0)
+                by_rail[e["rail"]] = by_rail.get(e["rail"], 0) + e["amount_cents"]
+                by_service[e["service"]] = by_service.get(e["service"], 0) + e["amount_cents"]
+    daily = {}
+    for b in _window_series(days, spend_entries, token_rows):
+        daily[b["date"]] = b
+    spend_days = {d: b["spend_cents"] for d, b in daily.items() if b["spend_cents"] > 0}
+    anomalies = 0
+    if len(spend_days) >= 2:
+        avg = statistics.mean(spend_days.values())
+        anomalies = sum(1 for v in spend_days.values() if avg > 0 and v > avg * 2.5)
+    budget_status = {}
+    budget = get_budget(agent_id)
+    if budget and budget.monthly_cap_cents:
+        monthly = _month_spend(agent_id)
+        budget_status = {"monthly_cap_cents": budget.monthly_cap_cents,
+                         "monthly_spend_cents": monthly,
+                         "pct_used": round(monthly / budget.monthly_cap_cents * 100, 1),
+                         "exceeded": monthly > budget.monthly_cap_cents}
+    return {"spend_cents": spend, "entry_count": len(spend_entries),
+            "by_rail": by_rail, "by_service": by_service,
+            "tokens_in": tin, "tokens_out": tout, "daily": daily,
+            "last_event_ts": last_ts, "anomalies": anomalies,
+            "budget_status": budget_status}
+
+
+def agent_recent_alerts(agent_id: str, limit: int = 10) -> list:
+    """The most recent `limit` alerts for one agent, newest-last. Alerts are
+    append-only per agent; a workspace feed merges these per-agent tails."""
+    path = _alerts_path(agent_id)
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines()[-limit * 5:]:
+        try:
+            a = json.loads(line)
+            a["agent_id"] = agent_id
+            out.append(a)
+        except ValueError:
+            continue
+    return out[-limit:]
 
 
 def list_agents() -> list:

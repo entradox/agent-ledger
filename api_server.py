@@ -38,6 +38,12 @@ app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 from routes_agents import router as agents_router
 app.include_router(agents_router)
 
+# Workspace-scoped read surface (GAP-1, 2026-09-13): the dashboard's data
+# API + the self-contained HTML page. X-Workspace-Key gated, one workspace
+# only — never cross-tenant.
+from routes_workspace import router as workspace_router
+app.include_router(workspace_router)
+
 # The proxy (D-1222): the only surface where a cap stops money rather than a
 # ledger write. Pass-through — the caller's provider credential is forwarded,
 # never stored.
@@ -59,7 +65,7 @@ DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
 
 # reach paths tracked for unique-ip-hash "reach" telemetry
-REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
+REACH_PATHS = frozenset({"/", "/start", "/status", "/dashboard", "/llms.txt", "/server.json",
                           "/.well-known/glama.json", "/stats", "/mcp/"})
 
 
