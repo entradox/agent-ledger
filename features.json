@@ -69,6 +69,16 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "SDK wrappers: one line to the proxy (agentledger.wrap)",
+   "status": "shipped",
+   "note": "BUILD-3 (06faf27). Repoints an existing OpenAI/Anthropic SDK client at the proxy without patching or subclassing it; the provider credential is untouched. Tested against the REAL installed SDKs - which is how the httpx-vs-httpx2 URL-type incompatibility was found. 8 tests."
+  },
+  {
+   "name": "CLI init + share + client packaging",
+   "status": "shipped",
+   "note": "BUILD-5 (06faf27). `agent-ledger init` mints a workspace, claims an agent, writes a working .env; `share` prints a browser-openable link. pyproject ships the CLIENT only (agentledger + cli); the engine stays server-side. NOT published to PyPI - installs from the repo or git."
+  },
+  {
    "name": "provider coverage: any vendor, config not code (DeepSeek)",
    "status": "shipped",
    "note": "fd5cb57. providers.json makes the proxy forward to any OpenAI/Anthropic-compatible vendor; pricing is keyed by MODEL so a caller cannot route around its price by switching endpoints; cache-hit input is priced at the cache rate (DeepSeek hit rate ~50x cheaper). Live: /v1/pricing shows 11 models incl. deepseek-v4-flash with cache_hit; the 404 lists a config-only provider (moonshot) proving nothing in the code knows it. Prices marked verified:false - read from a docs page, not confirmed by an operator."
