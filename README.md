@@ -94,6 +94,29 @@ stops a stranger from reading or overwriting someone else's `agent_id`.
 Note this is a deliberate break from AgentLedger's earlier "share the link,
 anyone can read it" behavior — traded for real isolation between customers.
 
+## Two lines to a metered, capped agent
+
+```bash
+pip install "agent-ledger[wrapper]"      # client only: the wrapper + the CLI
+agent-ledger init --agent my-agent       # mints a workspace, claims the agent, writes .env
+```
+
+```python
+from openai import OpenAI
+import agentledger
+
+client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
+                          agent_id="my-agent", agent_secret="<from .env>")
+```
+
+That is the whole integration. `wrap()` repoints the client's base URL at the proxy and
+adds two identity headers — it does not patch or subclass the SDK, so streaming, tool
+calls and retries behave exactly as before. Anthropic's client works identically. Your
+provider key is forwarded untouched and never stored.
+
+Not using a Python SDK? Point any OpenAI- or Anthropic-compatible client at
+`<base>/proxy/openai/v1/` (or `/proxy/anthropic`) with `X-AL-Agent` and `X-AL-Secret`.
+
 ## Install (MCP clients)
 
 ```json

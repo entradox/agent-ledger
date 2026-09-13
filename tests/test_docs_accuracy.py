@@ -152,6 +152,17 @@ def test_docs_document_auto_pricing_and_its_refusal():
     assert "OPTIONAL" in api_server.LLMS_TXT
 
 
+def test_llms_txt_documents_the_shortest_onboarding_path():
+    """If the two-line path disappears from the manifest, a stranger has to
+    reverse-engineer the proxy to use it — which is how the last integration
+    friction survived."""
+    import api_server
+    txt = api_server.LLMS_TXT
+    assert "agentledger.wrap" in txt
+    assert "agent-ledger init" in txt
+    assert "does not\n" not in txt.split("agentledger.wrap")[0][-200:]  # sanity
+
+
 def test_docs_say_providers_are_config_not_code():
     """The fix for 'DeepSeek is not counted' is provider extensibility, not a
     DeepSeek special case. If the docs stop saying so, the next vendor goes

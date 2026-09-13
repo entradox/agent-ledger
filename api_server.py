@@ -379,6 +379,26 @@ POST /v1/billing/x402              — self-serve workspace minting for an agent
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 
+## Getting started (the shortest path)
+
+    pip install "agent-ledger[wrapper]"   # or: uvx --from git+https://github.com/entradox/agent-ledger agent-ledger init
+    agent-ledger init --agent my-agent    # mints a workspace, claims an agent, writes .env
+
+then, in your code:
+
+    from openai import OpenAI
+    import agentledger
+    client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
+                              agent_id="my-agent", agent_secret="<from .env>")
+
+Every call now goes through the proxy: metered, and refused before the provider
+is contacted if it would cross a cap. Streaming, tool calls and retries are
+unchanged — wrap() only repoints the base URL and adds two headers; it does not
+patch or subclass the SDK. Anthropic's client works the same way.
+
+`agent-ledger share --agent-id my-agent --agent-secret <secret>` prints a
+read-only link anyone can open in a browser.
+
 ## Proxy (enforcement — a cap that stops money, not just a record)
 
 POST /proxy/{provider}/{path}     — provider = openai, anthropic, or ANY provider listed in

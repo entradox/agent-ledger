@@ -19,18 +19,129 @@ def _api_base(args) -> str | None:
     return getattr(args, "api_base", None) or os.environ.get("AGENT_LEDGER_API_BASE")
 
 
-def _remote_request(base: str, method: str, path: str, body: dict | None = None) -> dict:
+def _remote_request(base: str, method: str, path: str, body: dict | None = None,
+                    headers: dict | None = None, raw: bool = False):
+    """One HTTP call to a deployed instance.
+
+    headers: some routes authenticate by header rather than body
+    (X-Agent-Secret / X-Workspace-Key on the read, share and webhook routes).
+    raw: return the response text as-is, for the HTML pages.
+    """
     url = base.rstrip("/") + path
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Content-Type": "application/json", "AL-API-Version": "2026-09-01",
-    })
+    hdrs = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            text = resp.read().decode()
+            return text if raw else json.loads(text)
     except urllib.error.HTTPError as e:
-        print(f"HTTP {e.code}: {e.read().decode()}", file=sys.stderr)
+        print(f"HTTP {e.code}: {e.read().decode()[:400]}", file=sys.stderr)
         sys.exit(1)
+
+
+DEFAULT_BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+
+
+def _required_base(args) -> str:
+    """init/share talk to a real instance, so local mode is not an option."""
+    return (_api_base(args) or os.environ.get("AGENT_LEDGER_API_BASE") or DEFAULT_BASE).rstrip("/")
+
+
+def cmd_init(args):
+    """Zero to a metered, guarded agent in one command."""
+    import re
+    base = _required_base(args)
+    print(f"[init against {base}]", file=sys.stderr)
+
+    # 1. A workspace. POST /start mints one and shows its key once; GET must
+    #    never mint, or a crawler would eat the launch window.
+    page = _remote_request(base, "POST", "/start", raw=True)
+    m = re.search(r"wk_live_[A-Za-z0-9_\-]+", page)
+    if not m:
+        print("could not find a workspace_key in the /start response — this "
+              "instance may need an upgrade or the page changed shape",
+              file=sys.stderr)
+        sys.exit(1)
+    workspace_key = m.group(0)
+
+    # 2. Claim an agent_id with a zero-amount first write, which mints its
+    #    secret. Re-using an existing agent_id needs the secret instead.
+    body = {"agent_id": args.agent, "rail": "manual", "amount_cents": 0,
+            "service": "agent-ledger-init", "workspace_key": workspace_key}
+    if args.agent_secret:
+        body.pop("workspace_key")
+        body["agent_secret"] = args.agent_secret
+    resp = _remote_request(base, "POST", "/v1/track", body)
+    agent_secret = resp.get("agent_secret")
+    if not agent_secret:
+        print("the agent was claimed already and no --agent-secret was given. "
+              "Re-run with --agent-secret, or use a new --agent name.", file=sys.stderr)
+        sys.exit(1)
+
+    env_lines = [
+        "# AgentLedger — created by `agent-ledger init`",
+        f"AGENT_LEDGER_API_BASE={base}",
+        f"AGENT_LEDGER_WORKSPACE_KEY={workspace_key}",
+        f"AGENT_LEDGER_AGENT_ID={args.agent}",
+        f"AGENT_LEDGER_AGENT_SECRET={agent_secret}",
+        "",
+    ]
+    if args.env_file:
+        path = args.env_file
+        existing = ""
+        if os.path.exists(path):
+            existing = open(path).read()
+            if not existing.endswith("\n"):
+                existing += "\n"
+        with open(path, "w") as f:
+            f.write(existing + "\n".join(env_lines))
+        print(f"wrote {path}")
+
+    print(f"""
+workspace_key and agent_secret are shown ONCE — save them.
+
+    agent  {args.agent}
+    secret {agent_secret}
+    key    {workspace_key}
+
+Now point a client at the proxy (that is what makes the cap stop money):
+
+    from openai import OpenAI
+    import agentledger
+    client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
+                              agent_id="{args.agent}", agent_secret="<secret>")
+
+Or by hand, if you would rather not add a package:
+
+    base_url = "{base}/proxy/openai/v1/"
+    default_headers = {{"X-AL-Agent": "{args.agent}", "X-AL-Secret": "<secret>"}}
+
+Then set a cap, and watch it block: 
+
+    agent-ledger --api-base {base} set-budget --agent-id {args.agent} \
+        --agent-secret <secret> --monthly-cents 5000
+""")
+
+
+def cmd_share(args):
+    """Mint a browser-openable, read-only link to an agent's report."""
+    base = _required_base(args)
+    headers = {}
+    if args.agent_secret:
+        headers["X-Agent-Secret"] = args.agent_secret
+    if args.workspace_key:
+        headers["X-Workspace-Key"] = args.workspace_key
+    if not headers:
+        print("a read credential is required: pass --agent-secret or --workspace-key",
+              file=sys.stderr)
+        sys.exit(1)
+    r = _remote_request(base, "POST",
+                        f"/v1/report/{args.agent_id}/share?ttl_days={args.ttl_days}",
+                        headers=headers)
+    print(r["url"])
+    print(f"(read-only, expires in {r['ttl_days']} days)", file=sys.stderr)
 
 
 def _mode_banner(args):
@@ -74,6 +185,7 @@ def cmd_track(args):
             body["workspace_key"] = args.workspace_key
         print(json.dumps(_remote_request(base, "POST", "/v1/track", body), indent=2))
         return
+    _engine_or_explain()
     from ledger_engine import track
     _local_claim(args)
     entry = track(args.agent_id, args.rail, args.amount_cents, args.service)
@@ -134,6 +246,19 @@ def cmd_alerts(args):
         print(f"  [{a['type']}] {a['message']}")
 
 
+def _engine_or_explain():
+    """The client package ships the CLI, not the engine — local mode is for
+    someone running the service from the repo."""
+    try:
+        import ledger_engine  # noqa: F401
+    except ImportError:
+        print("local mode needs the ledger engine, which ships with the service, "
+              "not with the client package. Point at a deployed instance instead: "
+              "--api-base https://agent-ledger-production-0ff8.up.railway.app "
+              "(or set AGENT_LEDGER_API_BASE).", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_list(args):
     base = _mode_banner(args)
     if base:
@@ -185,6 +310,19 @@ def main():
 
     l = sub.add_parser("list", help="list tracked agents (local mode only)")
     l.set_defaults(fn=cmd_list)
+
+    i = sub.add_parser("init", help="mint a workspace + agent and write a .env (one command to metered)")
+    i.add_argument("--agent", required=True, help="the agent_id to create")
+    i.add_argument("--agent-secret", help="reuse an existing agent_id instead of claiming a new one")
+    i.add_argument("--env-file", default=".env", help="where to write the credentials ('' to skip)")
+    i.set_defaults(fn=cmd_init)
+
+    s = sub.add_parser("share", help="mint a read-only link to an agent's report page")
+    s.add_argument("--agent-id", required=True)
+    s.add_argument("--agent-secret", help="the agent's own secret (read grant)")
+    s.add_argument("--workspace-key", help="or the workspace key")
+    s.add_argument("--ttl-days", type=int, default=7, help="1-90, default 7")
+    s.set_defaults(fn=cmd_share)
 
     args = p.parse_args()
     args.fn(args)

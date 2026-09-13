@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-ledger"
+version = "0.4.0"
+description = "Spending limits for AI agents: meter every call, cap the spend, and stop it before the provider is contacted."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+dependencies = []
+
+[project.optional-dependencies]
+# Only needed by the wrapper, which repoints an SDK client. The CLI itself is
+# stdlib-only so `uvx --from ... agent-ledger init` installs nothing heavy.
+wrapper = ["httpx>=0.27"]
+
+[project.scripts]
+agent-ledger = "cli:main"
+
+[project.urls]
+Homepage = "https://agent-ledger-production-0ff8.up.railway.app"
+
+[tool.setuptools]
+# Two modules, deliberately. This package is the CLIENT: the wrapper that
+# repoints an SDK at the proxy, and the CLI that talks to a deployed instance
+# over HTTP. The ledger engine, routes and storage stay server-side — shipping
+# them would hand every user a copy of the thing they are paying to have run,
+# and would make "pip install agent-ledger" install a web service.
+py-modules = ["agentledger", "cli"]
