@@ -69,6 +69,11 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "provider coverage: any vendor, config not code (DeepSeek)",
+   "status": "shipped",
+   "note": "fd5cb57. providers.json makes the proxy forward to any OpenAI/Anthropic-compatible vendor; pricing is keyed by MODEL so a caller cannot route around its price by switching endpoints; cache-hit input is priced at the cache rate (DeepSeek hit rate ~50x cheaper). Live: /v1/pricing shows 11 models incl. deepseek-v4-flash with cache_hit; the 404 lists a config-only provider (moonshot) proving nothing in the code knows it. Prices marked verified:false - read from a docs page, not confirmed by an operator."
+  },
+  {
    "name": "token-to-cost auto-pricing on /v1/track",
    "status": "shipped",
    "note": "BUILD-4 (7dbc18d). amount_cents optional: tokens+model are priced from the shared table; an unpriced model is refused (422 model_not_priced) rather than recorded as free. Live-verified fail-closed paths; happy path covered by 9 tests."
