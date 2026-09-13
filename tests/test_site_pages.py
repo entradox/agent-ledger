@@ -167,6 +167,37 @@ def test_security_page_states_the_enforcement_limit(client):
     assert "prompt" in body.lower()
 
 
+def test_the_landing_page_has_a_real_screenshot(client):
+    """The gap plan scored this page 5/10 on clarity largely for having no
+    visuals. A page with zero images asks a stranger to read prose to find out
+    what the product looks like."""
+    body = client.get("/").text
+    imgs = re.findall(r"<img\s[^>]*>", body)
+    assert imgs, "the landing page has no images"
+    assert any("/img/dashboard.png" in i for i in imgs)
+    for i in imgs:
+        # an image a screen reader cannot describe is not proof for everyone
+        alt = re.search(r'alt="([^"]+)"', i)
+        assert alt and len(alt.group(1)) > 25, f"thin alt text: {i[:80]}"
+
+
+def test_the_screenshot_is_served_and_cached(client):
+    r = client.get("/img/dashboard.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n", "not actually a PNG"
+    assert "max-age" in r.headers.get("cache-control", "")
+
+
+def test_the_landing_page_links_the_demo_and_the_dashboard(client):
+    """The dashboard shipped in tranche 1 and the landing page did not mention
+    it at all. Both entry points must be reachable from the front door."""
+    body = client.get("/").text
+    assert 'href="/demo"' in body
+    assert 'href="/dashboard"' in body
+    assert 'href="/quickstart"' in body
+
+
 def test_compare_page_prices_are_dated(client):
     """Competitor prices drift; an undated price is a claim we cannot defend."""
     body = client.get("/compare").text

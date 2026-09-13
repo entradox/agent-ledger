@@ -742,6 +742,18 @@ def privacy_page():
     return _LEGAL_SHELL.format(title="Privacy", body=PRIVACY_BODY)
 
 
+@app.get("/img/dashboard.png")
+def dashboard_image():
+    """The product screenshot on the landing page. Served from disk and cached
+    hard: it is a static asset, not a per-request rendering."""
+    from fastapi.responses import FileResponse
+    p = Path(__file__).parent / "static" / "dashboard.png"
+    if not p.exists():
+        return JSONResponse({"error": {"type": "not_found"}}, status_code=404)
+    return FileResponse(p, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_page():
     """The umbrella. AI Agent City is the parent; AgentLedger is product #1."""

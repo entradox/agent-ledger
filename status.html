@@ -59,6 +59,16 @@ ul.tick li b{color:var(--t)}
 Not a trace viewer: the unit of accounting is the <b>agent</b>, and the cap is enforced,
 not just reported.</div>
 
+<figure style="margin:18px 0 6px">
+  <img src="/img/dashboard.png" width="2400" height="1413"
+       alt="The AgentLedger dashboard: five agents with their 30-day spend, budget
+            bars where one agent has gone over its cap, and a daily spend chart"
+       style="width:100%;height:auto;border:1px solid var(--b);border-radius:10px;display:block">
+  <figcaption style="font-size:12px;color:var(--m);margin-top:7px">
+    Five agents, one over its cap — real numbers, the same dashboard you get.
+    <a class="plain" href="/demo">Open the live demo →</a></figcaption>
+</figure>
+
 <h2>What a blocked call looks like</h2>
 <pre class="proof">$ curl -X POST https://aiagentscity.com/proxy/openai/v1/chat/completions \
     -H "Authorization: Bearer sk-your-own-provider-key" -d @payload.json
