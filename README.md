@@ -97,7 +97,7 @@ anyone can read it" behavior — traded for real isolation between customers.
 ## Two lines to a metered, capped agent
 
 ```bash
-pip install "agent-ledger[wrapper]"      # client only: the wrapper + the CLI
+pip install "aiagentscity-ledger[wrapper]"      # client only: the wrapper + the CLI
 agent-ledger init --agent my-agent       # mints a workspace, claims the agent, writes .env
 ```
 

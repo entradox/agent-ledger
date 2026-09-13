@@ -386,7 +386,7 @@ GET  /start                        — get a workspace (no signup, no login);
 
 ## Getting started (the shortest path)
 
-    pip install "agent-ledger[wrapper]"   # or: uvx --from git+https://github.com/entradox/agent-ledger agent-ledger init
+    pip install "aiagentscity-ledger[wrapper]"   # or: uvx --from git+https://github.com/entradox/agent-ledger agent-ledger init
     agent-ledger init --agent my-agent    # mints a workspace, claims an agent, writes .env
 
 then, in your code:

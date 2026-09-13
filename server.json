@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.entradox/agent-ledger",
   "title": "AgentLedger",
-  "description": "Per-agent spend management: x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.",
+  "description": "Spending limits for AI agents: meter every call, cap the spend, and refuse a call that would cross the budget before the provider is contacted. Per-agent P&L, cache-aware pricing, alerts, shareable reports.",
   "repository": {
     "url": "https://github.com/entradox/agent-ledger",
     "source": "github"
   },
-  "websiteUrl": "https://github.com/entradox/agent-ledger",
-  "version": "0.3.0",
+  "websiteUrl": "https://aiagentscity.com",
+  "version": "0.4.0",
   "packages": [],
   "remotes": [
     {

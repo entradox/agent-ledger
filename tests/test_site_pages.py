@@ -124,28 +124,43 @@ def test_no_real_credential_appears_on_any_page(client):
 
 # ── the guard that matters most ────────────────────────────────────────────
 def test_no_page_advertises_a_package_name_we_do_not_own(client):
-    """PyPI's `agent-ledger` is a DIFFERENT author's package (Rune0, "Idempotency
-    and audit ledger for AI agent tool calls"). An install line naming it sends
-    our users to their code. Until we actually publish, every install instruction
-    must be the git URL, which is ours.
+    """Every install instruction must name `aiagentscity-ledger`.
 
-    Verified live 2026-09-13: pypi.org/pypi/agent-ledger -> Rune0; the name is
-    not ours to use.
+    The two obvious names are BOTH other parties': PyPI's `agent-ledger` is
+    Rune0's ("Idempotency and audit ledger for AI agent tool calls") and npm's
+    `agentledger` belongs to agentledger.co. Either one in our copy sends a user
+    to a stranger's code — a supply-chain hazard, not a typo.
+
+    `aiagentscity-ledger` is the umbrella namespace: nobody can register it
+    without impersonating the domain we own, so it cannot be taken from us the
+    way `agent-ledger` was.
+
+    Verified live 2026-09-13: pypi.org/pypi/agent-ledger -> Rune0;
+    agentledger-py + npm agentledger -> agentledger.co.
     """
     offenders = []
     for path in PAGES + ["/"]:
         body = client.get(path).text
         for m in re.finditer(r"pip install[^\n<]*", body):
             line = m.group(0)
-            if "agent-ledger" in line and "git+https://github.com/entradox" not in line:
+            if "aiagentscity-ledger" not in line:
                 offenders.append((path, line.strip()[:90]))
-        # a bare `npm install agent-ledger` would be worse: npm agentledger is
-        # also another party's, and `agent-ledger` there is unclaimed but unshipped
+        # nothing is published on npm yet, so any npm install line is premature
         for m in re.finditer(r"npm install[^\n<]*", body):
             offenders.append((path, m.group(0).strip()[:90]))
     assert not offenders, (
         "an install instruction names a package we do not control: "
-        f"{offenders}. Use the git URL until the name is published.")
+        f"{offenders}. Ship as aiagentscity-ledger.")
+
+    # And the retired names must not creep back as install targets, in any
+    # variant — including the hyphenated form a user might guess.
+    for path in PAGES + ["/"]:
+        body = client.get(path).text
+        for m in re.finditer(r"(?:pip|npm)\s+install[^\n<]*", body):
+            line = m.group(0)
+            assert "aiagentscity-ledger" in line, (
+                f"{path}: install line names a package we do not control: "
+                f"{line.strip()[:80]}")
 
 
 def test_the_pages_do_not_promise_the_retired_launch_grant(client):

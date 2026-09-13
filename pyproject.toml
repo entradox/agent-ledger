@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-ledger"
+name = "aiagentscity-ledger"
 version = "0.4.0"
 description = "Spending limits for AI agents: meter every call, cap the spend, and stop it before the provider is contacted."
 readme = "README.md"
@@ -27,5 +27,5 @@ Homepage = "https://aiagentscity.com"
 # repoints an SDK at the proxy, and the CLI that talks to a deployed instance
 # over HTTP. The ledger engine, routes and storage stay server-side — shipping
 # them would hand every user a copy of the thing they are paying to have run,
-# and would make "pip install agent-ledger" install a web service.
+# and would make "pip install aiagentscity-ledger" install a web service.
 py-modules = ["agentledger", "cli"]

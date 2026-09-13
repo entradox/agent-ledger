@@ -10,10 +10,13 @@ Two rules govern this file:
    workspace-deletion path) and would inflate the public counters — the exact
    mess the gap plan asked us to clean up.
 
-2. **No page advertises anything that does not work.** There is no PyPI or npm
-   release yet, so the install line is the git URL, which does work and is
-   verified. Claiming `pip install agent-ledger` would hand the user a
-   stranger's package: that name belongs to a different author on PyPI.
+2. **No page advertises anything that does not work, or that belongs to
+   someone else.** There is no PyPI or npm release yet, so the install line is
+   the git URL — which does work and is verified. The package name in it is
+   `aiagentscity-ledger`: the umbrella namespace, which nobody can register
+   without impersonating a domain we own. The two obvious names are both other
+   parties' (`agent-ledger` on PyPI is Rune0's; `agentledger` on npm is
+   agentledger.co's), so naming either one would hand a user a stranger's code.
 """
 from __future__ import annotations
 
@@ -176,7 +179,7 @@ name <code>agent-ledger</code> there belongs to a different project.</p>
 <p>Works with the <code>openai</code> and <code>anthropic</code> Python clients.
 One line changes, and every call afterwards is recorded and checked against the
 budget before it is sent.</p>
-<pre><code>pip install "agent-ledger[wrapper] @ git+https://github.com/entradox/agent-ledger"
+<pre><code>pip install "aiagentscity-ledger[wrapper] @ git+https://github.com/entradox/agent-ledger"
 
 import agentledger
 from openai import OpenAI
