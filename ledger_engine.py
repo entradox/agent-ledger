@@ -559,12 +559,20 @@ def idempotency_release(key: Optional[str], agent_id: str, op: str) -> None:
         conn.close()
 
 
-def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> SpendEntry:
+def track(agent_id: str, rail: str, amount_cents: int, service: str,
+          force: bool = False, **meta) -> SpendEntry:
     """Append a spend entry. Ownership (ensure_agent_secret) must already be
     verified by the caller — this function is also used by the trusted local
     CLI, which has no notion of secrets. Validates amount and blocks entries
     that would cross a set budget cap (rail=="tokens" rows are 0-cent burn
     bookkeeping and are exempt from budget checks; amount bounds still apply).
+
+    force=True records a charge that has ALREADY been spent, skipping the cap
+    check. It exists for the proxy's post-hoc path: the provider has charged us
+    and the call is over, so refusing the write does not prevent the spend, it
+    only erases it from the totals the cap is enforced from. Never reachable
+    from a caller-supplied value — it is a reconciliation tool, and anything
+    that lets a client set it defeats the cap. (Adversarial review 2026-09-13.)
     """
     validate_agent_id(agent_id)
     if rail == "tokens":
@@ -574,7 +582,7 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> 
         total_tokens = meta.get("tokens_in", 0) + meta.get("tokens_out", 0)
         if total_tokens > 0:
             budget = get_budget(agent_id)
-            if budget:
+            if budget and not force:
                 if budget.monthly_token_cap > 0:
                     projected = _month_tokens(agent_id) + total_tokens
                     if projected > budget.monthly_token_cap:
@@ -600,7 +608,7 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str, **meta) -> 
                 f"amount_cents exceeds the per-entry ceiling of {MAX_AMOUNT_CENTS} "
                 f"(${MAX_AMOUNT_CENTS/100:,.0f})")
         budget = get_budget(agent_id)
-        if budget:
+        if budget and not force:
             if budget.monthly_cap_cents > 0:
                 projected = _month_spend(agent_id) + amount_cents
                 if projected > budget.monthly_cap_cents:

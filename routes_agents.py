@@ -201,6 +201,13 @@ def create_track(req: TrackRequest, request: Request):
     # retry or read the cache (Morgan review 2026-09-09). Failed writes
     # release their in-flight row so honest retries re-attempt.
     #
+    # It runs before PRICING as well: whole_cents_with_residue writes per-agent
+    # state, so pricing an unauthenticated request let anyone create files
+    # under a foreign agent_id and perturb another tenant's carried residue
+    # (adversarial review 2026-09-13).
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
+    idem_key = request.headers.get("Idempotency-Key")
+    #
     # BUILD-4: a tokens-only write is priced here, from the same table the
     # proxy uses. Refusing an unpriced model is deliberate — recording 0 would
     # be a silent lie about money that really was spent.
@@ -234,8 +241,6 @@ def create_track(req: TrackRequest, request: Request):
     if not service:
         service = req.model or "manual"
 
-    idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
     cached = _idempotency_gate(request, req.agent_id, "track")
     if cached is not None:
         return cached
@@ -676,12 +681,21 @@ def _workspace_key_or_401(request: Request,
     return workspace_id
 
 
-def _owned_or_403(agent_id: str, workspace_id: str) -> None:
+def _owned_or_404(agent_id: str, workspace_id: str) -> None:
+    """Require that this workspace owns the agent — answering 404, not 403.
+
+    A 403 for 'exists but is not yours' next to a 404 for 'never existed' is a
+    tenant-enumeration oracle: anyone holding any valid workspace_key could ask
+    which agent_ids exist in other workspaces. Both cases now return an
+    identical agent_not_claimed response. (Adversarial review 2026-09-13 — the
+    earlier fix covered the anonymous caller and missed the authenticated
+    non-owner, which is the case that needs a valid credential to exploit and is
+    therefore the easier one to reach.)
+    """
     import identity
     if not identity.agent_belongs_to_workspace(agent_id, workspace_id):
-        raise HTTPException(403, detail=error_envelope(
-            403, f"agent_id '{agent_id}' is not claimed in this workspace",
-            code="not_your_agent"))
+        raise HTTPException(404, detail=error_envelope(
+            404, f"agent_id '{agent_id}' is not claimed", code="agent_not_claimed"))
 
 
 def _claimed_or_404(agent_id: str) -> None:
@@ -708,14 +722,15 @@ def rotate_secret(agent_id: str, request: Request,
     this returns; the new one is shown once, the same contract as a first
     claim. The rotation is written to the agent's audit trail. An unclaimed
     agent_id is 404 (this is not a claim path), and an agent belonging to a
-    different workspace is 403.
+    different workspace is ALSO 404 with the identical body — a different status
+    would confirm that the id exists somewhere else.
     """
     from ledger_engine import rotate_agent_secret as _rotate, AuthError as _LedgerAuthError
     workspace_id = _workspace_key_or_401(
         request, body.workspace_key if body else None,
         purpose="rotating or revoking an agent_secret")
     _claimed_or_404(agent_id)
-    _owned_or_403(agent_id, workspace_id)
+    _owned_or_404(agent_id, workspace_id)
     try:
         secret = _rotate(agent_id, workspace_id)
     except _LedgerAuthError as e:
@@ -740,7 +755,7 @@ def revoke_secret(agent_id: str, request: Request,
         request, body.workspace_key if body else None,
         purpose="rotating or revoking an agent_secret")
     _claimed_or_404(agent_id)
-    _owned_or_403(agent_id, workspace_id)
+    _owned_or_404(agent_id, workspace_id)
     try:
         _revoke(agent_id, workspace_id)
     except _LedgerAuthError as e:

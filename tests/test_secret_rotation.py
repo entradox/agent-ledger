@@ -90,9 +90,21 @@ def test_workspace_key_may_also_travel_in_the_body(env):
 # ── what it must NOT allow ──────────────────────────────────────────────────
 
 def test_another_workspace_cannot_rotate_your_agent(env):
+    """Refused — and refused INDISTINGUISHABLY from an agent that never existed.
+
+    This asserted a bare 403, which was pinning a tenant-enumeration oracle: a
+    403 for 'exists but not yours' beside a 404 for 'never existed' lets any
+    valid workspace_key ask which agent_ids exist elsewhere. The old assertion
+    described the vulnerability as if it were the requirement. (Adversarial
+    review 2026-09-13.)
+    """
     tc, _, key_b, old = env
     r = tc.post(f"/v1/agents/{AGENT}/rotate-secret", headers={"X-Workspace-Key": key_b})
-    assert r.status_code == 403
+    unknown = tc.post("/v1/agents/never-existed-at-all/rotate-secret",
+                      headers={"X-Workspace-Key": key_b})
+    assert r.status_code == 404
+    assert r.status_code == unknown.status_code, "exists and not-exists must look the same"
+    assert r.json()["error"]["code"] == unknown.json()["error"]["code"]
     assert _write(tc, old).status_code == 200  # the real owner is untouched
 
 

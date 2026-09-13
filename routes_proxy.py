@@ -86,13 +86,13 @@ def _meter(agent_id: str, provider: str, model: str,
         except Exception:
             pass
         return 0
+    fields = dict(tokens_in=tokens_in, tokens_out=tokens_out, model=model,
+                  cache_hit_in=cache_hit_in,
+                  cache_write_5m_in=cache_write_5m_in,
+                  cache_write_1h_in=cache_write_1h_in)
     cents = proxy_core.whole_cents_with_residue(agent_id, exact)
     try:
-        track(agent_id, "api_key", cents, provider,
-              tokens_in=tokens_in, tokens_out=tokens_out, model=model,
-              cache_hit_in=cache_hit_in,
-              cache_write_5m_in=cache_write_5m_in,
-              cache_write_1h_in=cache_write_1h_in)
+        track(agent_id, "api_key", cents, provider, **fields)
     except BudgetExceededError as exc:
         # Post-hoc: the money is already spent. Record the miss loudly rather
         # than discarding the entry and hiding it.
@@ -103,6 +103,13 @@ def _meter(agent_id: str, provider: str, model: str,
                              f"anyway (the provider had already charged): {exc}")
         except Exception:
             pass
+        # The money is gone whether or not the ledger agrees. Force it in: a
+        # ledger that drops the charge it could not block is worse than useless,
+        # because the cap, the report and the alerts all read those totals.
+        try:
+            track(agent_id, "api_key", cents, provider, force=True, **fields)
+        except Exception:
+            pass
     # The token burn goes in its OWN row, the same way POST /v1/track splits a
     # dollar write that also reports tokens. Without this, a sub-cent call —
     # where amount_cents rounds to 0 — records tokens that no report shows:
@@ -110,11 +117,10 @@ def _meter(agent_id: str, provider: str, model: str,
     # invisible while the money was real. Found by a test, not by review.
     if tokens_in or tokens_out:
         try:
-            track(agent_id, "tokens", 0, provider,
-                  tokens_in=tokens_in, tokens_out=tokens_out, model=model,
-                  cache_hit_in=cache_hit_in,
-                  cache_write_5m_in=cache_write_5m_in,
-                  cache_write_1h_in=cache_write_1h_in)
+            # force=True for the same reason as the dollar row: these tokens were
+            # really burned, and a cap that rejects the bookkeeping row leaves
+            # the burn invisible in GET /v1/tokens while the money was real.
+            track(agent_id, "tokens", 0, provider, force=True, **fields)
         except Exception:
             pass
     return cents
@@ -244,6 +250,9 @@ async def _stream_upstream(url, headers, raw, agent_id, provider, model):
     Chunk boundaries do not respect line boundaries, so partial lines are
     buffered. If no usage ever arrives the call is recorded as UNMETERED —
     never as costing zero.
+
+    Usage is MERGED across events, not overwritten: providers split it, and the
+    event carrying the final output count carries no input at all.
     """
     captured = None
     buffer = ""
@@ -260,7 +269,10 @@ async def _stream_upstream(url, headers, raw, agent_id, provider, model):
                                 data = json.loads(line[5:].strip())
                                 tokens = proxy_core.usage_tokens(provider, data)
                                 if tokens:
-                                    captured = tokens
+                                    # MERGE, never assign: message_delta carries
+                                    # only the output count, so assigning wiped
+                                    # the input+cache totals from message_start.
+                                    captured = proxy_core.merge_usage(captured, tokens)
                             except Exception:
                                 pass
                     yield chunk

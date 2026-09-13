@@ -192,6 +192,31 @@ def cost_cents_exact(model: str, tokens_in: int, tokens_out: int,
             + _cents(tokens_out, entry.get("out", 0)))
 
 
+def merge_usage(earlier: Optional[dict], later: Optional[dict]) -> Optional[dict]:
+    """Combine usage captured from successive stream events.
+
+    Streaming splits usage across events, and the LAST event is not the whole
+    story: Anthropic sends input and cache counts in `message_start`, then the
+    final output count in `message_delta` — which carries no input at all.
+    Assigning each event over the previous one therefore recorded a streamed
+    Claude call's input tokens as ZERO, about 1% of its true cost, on the
+    dominant traffic shape for the product's flagship integration.
+    (Adversarial review 2026-09-13.)
+
+    Take the max per field: input counts are constant, output counts are
+    cumulative, so the largest value seen is the true one.
+    """
+    if not earlier:
+        return later
+    if not later:
+        return earlier
+    merged = dict(earlier)
+    for key, value in later.items():
+        if isinstance(value, int) and value > (merged.get(key) or 0):
+            merged[key] = value
+    return merged
+
+
 # ── estimation (pre-call) ──────────────────────────────────────────────────
 
 def estimate_prompt_tokens(payload: dict) -> int:
@@ -199,20 +224,37 @@ def estimate_prompt_tokens(payload: dict) -> int:
     only has to be good enough to decide 'would this call blow the cap' before
     the money is spent, and being slightly high is the safe direction."""
     try:
-        blob = json.dumps(payload.get("messages")
-                          or payload.get("input")
-                          or payload.get("prompt") or "")
+        # Every field that carries prompt text, not just 'messages'. A caller
+        # sending a large `tools` array, a top-level Anthropic `system`, or
+        # `instructions` was sending cost this estimate never saw — which made
+        # the 402 gate optional for anyone who set them. (Adversarial review
+        # 2026-09-13: 50 tool definitions estimated at 8 tokens.)
+        parts = [payload[k] for k in ("messages", "input", "prompt", "system",
+                                      "instructions", "tools", "functions")
+                 if k in payload]
+        blob = json.dumps(parts) if parts else ""
         return max(1, len(blob) // CHARS_PER_TOKEN)
     except Exception:
         return 1
 
 
 def requested_max_tokens(payload: dict) -> int:
+    """The most output this call can produce.
+
+    `n` multiplies it: 128 completions of 4096 tokens is 128x the output of
+    one, and a gate reading max_tokens alone passes it. (Adversarial review
+    2026-09-13: n=128 drove real cost ~7x past the estimate, through the 402.)
+    """
+    base = DEFAULT_MAX_TOKENS
     for key in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
         value = payload.get(key)
         if isinstance(value, int) and value > 0:
-            return value
-    return DEFAULT_MAX_TOKENS
+            base = value
+            break
+    n = payload.get("n")
+    if isinstance(n, int) and n > 1:
+        base *= n
+    return base
 
 
 def call_estimate_cents(model: str, payload: dict) -> Optional[int]:
