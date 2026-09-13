@@ -194,9 +194,15 @@ def test_the_real_settings_file_would_survive_a_merge():
     assert changed_top <= {"hooks", "mcpServers"}, (
         f"the installer touched unrelated top-level keys: {changed_top}")
 
-    # every server the user already had is still there, byte for byte
+    # every server the user already had is still there, byte for byte.
+    # Ours is the exception and is EXPECTED to change: if the installer is
+    # pointed at a different base, the existing entry is refreshed rather than
+    # added twice — which is the behaviour a re-run on a moved install needs.
     for name, entry in (original.get("mcpServers") or {}).items():
+        if name == "agent-ledger":
+            continue
         assert merged["mcpServers"][name] == entry, f"mcpServers[{name}] was altered"
+    assert "agent-ledger" in merged["mcpServers"], "our own entry disappeared"
 
     # every hook event they already had is still there
     for event, entries in (original.get("hooks") or {}).items():

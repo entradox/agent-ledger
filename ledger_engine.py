@@ -231,7 +231,7 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
         raise WorkspaceKeyRequiredError(
             "a new agent_id requires a valid workspace_key — get one "
             "self-serve at POST /v1/billing/x402 (no human, no login), or "
-            "at https://agent-ledger-production-0ff8.up.railway.app/start")
+            "at https://aiagentscity.com/start")
 
     # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
     # has agent_cap=None stored, so reading the field directly would leave a

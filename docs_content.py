@@ -13,7 +13,7 @@ from here so REST, MCP, and llms.txt never drift out of sync.
 """
 from ledger_engine import AL_API_VERSION
 
-BASE_URL = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE_URL = "https://aiagentscity.com"
 
 QUICKSTART_MD = f"""## Quickstart (curl)
 

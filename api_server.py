@@ -426,7 +426,7 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 ## MCP
 
 Registry: io.github.entradox/agent-ledger
-Remote:   https://agent-ledger-production-0ff8.up.railway.app/mcp/
+Remote:   https://aiagentscity.com/mcp/
 
 Tools exposed at POST /mcp/:
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
@@ -491,9 +491,9 @@ AGENT_JSON = {
     "name": "AgentLedger",
     "description": "Per-agent spend management: track spend across x402/MPP/API-key "
                     "rails, set budget caps, get anomaly alerts, keep an audit trail.",
-    "url": "https://agent-ledger-production-0ff8.up.railway.app",
-    "api_base": "https://agent-ledger-production-0ff8.up.railway.app/v1",
-    "openapi": "https://agent-ledger-production-0ff8.up.railway.app/openapi.json",
+    "url": "https://aiagentscity.com",
+    "api_base": "https://aiagentscity.com/v1",
+    "openapi": "https://aiagentscity.com/openapi.json",
     "auth": {
         "type": "workspace_key",
         "field": "workspace_key",
@@ -789,7 +789,7 @@ enforcement, alerts, reports, token burn, and the MCP server are included.</p>
 <div class="card">
 <p><b>Running this from an agent?</b> An agent with a wallet can mint its own workspace with
 no human in the loop at all:</p>
-<pre>curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/billing/x402 \
+<pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
 <p class="mut">The paying wallet becomes the workspace identity. Agent-facing docs:
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
@@ -832,10 +832,10 @@ no signup.</p>
 <p><b>Next: claim your first agent.</b> Send this key as <code>workspace_key</code> on the
 first <code>POST /v1/track</code> for a new <code>agent_id</code>. That call returns the
 agent's own <code>agent_secret</code>, which authenticates every write after it.</p>
-<pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track -H "Content-Type: application/json" -H "AL-API-Version: 2026-09-01" -d '{{"agent_id":"my-agent","rail":"manual","amount_cents":100,"service":"test","workspace_key":"YOUR_KEY"}}'</pre>
+<pre class="cmd">curl -sL --post301 -X POST https://aiagentscity.com/v1/track -H "Content-Type: application/json" -H "AL-API-Version: 2026-09-01" -d '{{"agent_id":"my-agent","rail":"manual","amount_cents":100,"service":"test","workspace_key":"YOUR_KEY"}}'</pre>
 <p class="mut">Full working examples: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 <p class="mut">Or connect over MCP — <code>claude mcp add --transport http agent-ledger
-https://agent-ledger-production-0ff8.up.railway.app/mcp/</code> — and let the agent do it.</p>
+https://aiagentscity.com/mcp/</code> — and let the agent do it.</p>
 </div>
 <div class="card">
 <p><b>Optional, and not needed today: Pro — $19/mo</b> for unlimited tracked agents.</p>

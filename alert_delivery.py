@@ -246,7 +246,7 @@ def dispatch(event: str, *, agent_id: str, message: str,
         if not targets:
             return 0
         base = os.environ.get("AL_PUBLIC_BASE_URL",
-                              "https://agent-ledger-production-0ff8.up.railway.app")
+                              "https://aiagentscity.com")
         payload = {"event": event, "agent_id": agent_id, "message": message,
                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "report_url": f"{base}/v1/report/{agent_id}"}

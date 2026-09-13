@@ -89,14 +89,14 @@ ul.tick li b{color:var(--t)}
 <h2>Connect</h2>
 <div class="card">
   <p><b>Claude Code</b></p>
-  <pre class="cmd">claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+  <pre class="cmd">claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</pre>
   <p><b>Codex</b></p>
-  <pre class="cmd">codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/</pre>
+  <pre class="cmd">codex mcp add agent-ledger --url https://aiagentscity.com/mcp/</pre>
   <p><b>Cursor / any MCP client</b> — merge into <code>mcp.json</code>:</p>
   <pre class="cmd">{
   "mcpServers": {
     "agent-ledger": {
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+      "url": "https://aiagentscity.com/mcp/"
     }
   }
 }</pre>
@@ -114,18 +114,18 @@ ul.tick li b{color:var(--t)}
 <div class="card">
   <p><b>1. Get a workspace_key</b> — no signup, no login, no card: <a class="plain" href="/start">/start</a>. Running as an agent with a wallet, with no human at all: <code>POST /v1/billing/x402</code> — the paying wallet becomes the workspace identity.</p>
   <p><b>2. Track a spend event — dollars and tokens</b></p>
-  <pre class="cmd">curl -sL --post301 -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
+  <pre class="cmd">curl -sL --post301 -X POST https://aiagentscity.com/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
   <p><b>A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must carry <code>"workspace_key":"wk_live_..."</code> in the body — that claims it into your workspace — and returns that agent's <code>agent_secret</code>. Save the secret: every later write to the same <code>agent_id</code> sends <code>"agent_secret":"..."</code> instead and needs no workspace_key. Reads (report/tokens/alerts) require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
   <p><b>3. Set a monthly cap</b> — enforced, not just logged:</p>
-  <pre class="cmd">curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
+  <pre class="cmd">curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
   <p><b>4. Pull the P&amp;L</b> — totals, by rail, by service, budget status and anomalies:</p>
-  <pre class="cmd">curl "https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent?days=30" \
+  <pre class="cmd">curl "https://aiagentscity.com/v1/report/my-agent?days=30" \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
   <p>Token burn: <code>/v1/tokens/my-agent</code>. Browser view: <code>/v1/report/my-agent/html</code>.</p>
 </div>

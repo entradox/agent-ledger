@@ -30,7 +30,7 @@ that starts holding keys.
 import os
 from typing import Optional
 
-DEFAULT_BASE_URL = "https://agent-ledger-production-0ff8.up.railway.app"
+DEFAULT_BASE_URL = "https://aiagentscity.com"
 
 # Where each SDK's requests land on the proxy. The proxy forwards the rest of
 # the path to the provider verbatim, so the provider's own path is preserved —

@@ -37,7 +37,7 @@ import urllib.request
 from pathlib import Path
 
 DEFAULT_BASE = os.environ.get("AGENT_LEDGER_API_BASE",
-                              "https://agent-ledger-production-0ff8.up.railway.app")
+                              "https://aiagentscity.com")
 API_VERSION = "2026-09-01"
 STATE_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", str(Path.home() / ".agent-ledger"))) / "claude-code"
 

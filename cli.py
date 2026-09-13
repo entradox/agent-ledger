@@ -41,7 +41,7 @@ def _remote_request(base: str, method: str, path: str, body: dict | None = None,
         sys.exit(1)
 
 
-DEFAULT_BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+DEFAULT_BASE = "https://aiagentscity.com"
 
 
 def _required_base(args) -> str:
@@ -157,7 +157,7 @@ def _engine_or_explain():
     except ImportError:
         print("local mode needs the ledger engine, which ships with the service, "
               "not with the client package. Point at a deployed instance instead: "
-              "--api-base https://agent-ledger-production-0ff8.up.railway.app "
+              "--api-base https://aiagentscity.com "
               "(or set AGENT_LEDGER_API_BASE).", file=sys.stderr)
         sys.exit(1)
 

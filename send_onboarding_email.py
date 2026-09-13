@@ -13,7 +13,7 @@ SMTP_PORT = int(os.environ.get("ICLOUD_SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("ICLOUD_SMTP_USER", "entradox@icloud.com")
 SMTP_PASS = os.environ.get("ICLOUD_SMTP_APP_PASSWORD", "")
 
-BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE = "https://aiagentscity.com"
 
 BODY = """You're on AgentLedger Pro.
 

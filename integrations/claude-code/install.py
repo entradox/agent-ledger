@@ -25,7 +25,7 @@ from pathlib import Path
 
 MARKER = "report-session.py"          # identifies OUR hook among the user's own
 DEFAULT_REPORTER = Path(__file__).resolve().parent / "report-session.py"
-DEFAULT_BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+DEFAULT_BASE = "https://aiagentscity.com"
 
 
 def merge_mcp(settings: dict, url: str, name: str = "agent-ledger") -> bool:

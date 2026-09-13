@@ -51,6 +51,17 @@ def test_the_landing_page_does_not_claim_enforcement_the_code_does_not_do(page):
     assert "block the write when crossed" in body
 
 
+def test_every_public_surface_advertises_the_products_own_domain(page):
+    """An infrastructure subdomain in the copy is the trust gap the audit opened
+    with: nobody points production agents at a random *.up.railway.app address.
+    The host still serves (health checks use it), but nothing the product shows a
+    human or an agent should mention it."""
+    for path in ("/", "/llms.txt", "/.well-known/agent.json", "/server.json"):
+        body = page.get(path).text
+        assert "aiagentscity.com" in body, f"{path} does not name the real domain"
+        assert "up.railway.app" not in body, f"{path} still advertises the infrastructure host"
+
+
 def test_enforcement_claims_carry_the_proxy_qualification(page):
     """This test used to forbid any 'stops the spend' phrasing outright, because
     before D-1222 every such claim was false: a cap rejected the ledger write

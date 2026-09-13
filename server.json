@@ -13,7 +13,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+      "url": "https://aiagentscity.com/mcp/"
     }
   ]
 }

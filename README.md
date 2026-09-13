@@ -4,10 +4,10 @@
 > spending anomalies, keep audit trails. The "Datadog for agent spending" —
 > the #1 verified community ask from agent builders.
 
-[![Live API](https://img.shields.io/badge/API-live-success)](https://agent-ledger-production-0ff8.up.railway.app/health)
-[![Landing](https://img.shields.io/badge/status-page-blue)](https://agent-ledger-production-0ff8.up.railway.app/status)
+[![Live API](https://img.shields.io/badge/API-live-success)](https://aiagentscity.com/health)
+[![Landing](https://img.shields.io/badge/status-page-blue)](https://aiagentscity.com/status)
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://agent-ledger-production-0ff8.up.railway.app/server.json)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://aiagentscity.com/server.json)
 
 > 🎯 **Launch window: the first 50 workspaces created get Pro free for 1 year.** No card — sign in once and the grant is automatic.
 
@@ -20,7 +20,7 @@ Connecting takes no auth handshake. Before your first write you need a
   `X-PAYMENT` header. The paying wallet becomes the workspace identity —
   no email, no login, no human in the loop.
 - **Human:** open
-  [`/start`](https://agent-ledger-production-0ff8.up.railway.app/start) — no
+  [`/start`](https://aiagentscity.com/start) — no
   signup, no login, no card. The workspace_key is shown once, right there, and
   the page carries the upgrade link for that workspace.
 
@@ -30,12 +30,12 @@ workspace_key is never needed again for that agent.
 
 **Claude Code:**
 ```bash
-claude mcp add --transport http agent-ledger https://agent-ledger-production-0ff8.up.railway.app/mcp/
+claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/
 ```
 
 **Codex:**
 ```bash
-codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway.app/mcp/
+codex mcp add agent-ledger --url https://aiagentscity.com/mcp/
 ```
 
 **Cursor** — merge into `mcp.json`:
@@ -43,14 +43,14 @@ codex mcp add agent-ledger --url https://agent-ledger-production-0ff8.up.railway
 {
   "mcpServers": {
     "agent-ledger": {
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+      "url": "https://aiagentscity.com/mcp/"
     }
   }
 }
 ```
 
 **Any other MCP client:** point it at the streamable-http remote
-`https://agent-ledger-production-0ff8.up.railway.app/mcp/` — no headers,
+`https://aiagentscity.com/mcp/` — no headers,
 no auth handshake required to connect.
 
 **Try these prompts once connected:**
@@ -65,25 +65,25 @@ no auth handshake required to connect.
 # your workspace_key, and it returns that agent's agent_secret.
 # Save the secret: every later write (track/budget) to this agent_id uses it
 # instead, and needs no workspace_key.
-curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/track \
+curl -X POST https://aiagentscity.com/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query","workspace_key":"YOUR_WORKSPACE_KEY"}'
 
 # Set a monthly budget cap — pass the agent_secret from above
-curl -X POST https://agent-ledger-production-0ff8.up.railway.app/v1/budget \
+curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
 
 # Spend report + anomalies — requires the agent_secret from above
-curl https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent \
+curl https://aiagentscity.com/v1/report/my-agent \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"
 ```
 
 **Want to just look at it?** Every agent has a human-readable page (send the
 secret as a header, no curl needed for the JSON):
-`https://agent-ledger-production-0ff8.up.railway.app/v1/report/my-agent/html`
+`https://aiagentscity.com/v1/report/my-agent/html`
 
 `/v1/report`, `/v1/tokens`, and `/v1/alerts` all require either
 `X-Agent-Secret: <agent's secret>` or `X-Workspace-Key: <the workspace's key>`
@@ -123,7 +123,7 @@ Not using a Python SDK? Point any OpenAI- or Anthropic-compatible client at
 {
   "mcpServers": {
     "agent-ledger": {
-      "url": "https://agent-ledger-production-0ff8.up.railway.app/mcp/"
+      "url": "https://aiagentscity.com/mcp/"
     }
   }
 }
@@ -132,7 +132,7 @@ Not using a Python SDK? Point any OpenAI- or Anthropic-compatible client at
 Tools: `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`,
 `ledger_list_agents`, `ledger_api_docs`, `ledger_examples`.
 
-Agent-facing API reference: [`llms.txt`](https://agent-ledger-production-0ff8.up.railway.app/llms.txt)
+Agent-facing API reference: [`llms.txt`](https://aiagentscity.com/llms.txt)
 Runnable code recipes: [`recipes.md`](./recipes.md)
 
 ## Features

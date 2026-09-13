@@ -1,6 +1,6 @@
 # AgentLedger Recipes
 
-Complete, runnable Python snippets against the live API at `https://agent-ledger-production-0ff8.up.railway.app`.
+Complete, runnable Python snippets against the live API at `https://aiagentscity.com`.
 Each recipe is also available live via the MCP tool `ledger_examples(pattern=...)` or the `ledger_api_docs` self-serve docs tool — this file is the static mirror, generated from the same `docs_content.py` source so it never drifts.
 
 ## Track spend from a Python loop
@@ -11,12 +11,12 @@ Pattern name: `python_tracking`
 """AgentLedger — track spend from an x402/API-key/token-burn loop."""
 import requests
 
-BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE = "https://aiagentscity.com"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
 # Claiming a new agent_id needs your workspace_key: POST /v1/billing/x402
 # if your agent has a wallet (no human, no login), or open
-# https://agent-ledger-production-0ff8.up.railway.app/start (no signup, no login). After the first call the
+# https://aiagentscity.com/start (no signup, no login). After the first call the
 # minted agent_secret is what authenticates every later write.
 WORKSPACE_KEY = "wk_live_..."
 agent_secret = None  # fill in after the first successful call
@@ -49,13 +49,13 @@ Pattern name: `budget_enforcement`
 """AgentLedger — set a monthly cap and handle the 402 block when crossed."""
 import requests
 
-BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE = "https://aiagentscity.com"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
 
 # A new agent_id is claimed with your workspace_key; afterwards the minted
 # agent_secret authenticates writes. Get one via POST /v1/billing/x402 (no
-# human, no login) or at https://agent-ledger-production-0ff8.up.railway.app/start.
+# human, no login) or at https://aiagentscity.com/start.
 WORKSPACE_KEY = "wk_live_..."
 
 
@@ -101,7 +101,7 @@ agent_secret, or (as used here) the workspace_key covering all of your
 agent_ids at once."""
 import requests
 
-BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE = "https://aiagentscity.com"
 
 
 def weekly_pnl(agent_ids, workspace_key):
@@ -134,7 +134,7 @@ Pattern name: `retry_safe_writes`
 import uuid
 import requests
 
-BASE = "https://agent-ledger-production-0ff8.up.railway.app"
+BASE = "https://aiagentscity.com"
 HEADERS = {"Content-Type": "application/json", "AL-API-Version": "2026-09-01"}
 
 
