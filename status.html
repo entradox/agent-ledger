@@ -1,17 +1,19 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="AgentLedger — per-agent spend management for autonomous agents: x402/MPP/API-key rails, token burn reports, budget caps, anomaly alerts. Free tier: 3 agents per workspace. REST API + MCP.">
-<title>AgentLedger — Per-agent spend, budgets, and token burn for AI agents</title>
+<meta name="description" content="AgentLedger gives every AI agent a spending limit. Meter every call, see a live P&L per agent, and refuse a call that would cross the budget before the provider is contacted. $19/workspace.">
+<title>AgentLedger — Spending limits for AI agents · AI Agent City</title>
 <style>
-:root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--blu:#79c0ff}
+:root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--blu:#79c0ff;--red:#f85149}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--t);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;padding:28px 14px;line-height:1.6;font-size:13px}
 .w{max-width:720px;margin:0 auto}
-.brand{font-size:13px;color:var(--m);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
-h1{font-size:26px;line-height:1.25}
+.brand{font-size:11px;color:var(--m);letter-spacing:.09em;text-transform:uppercase;margin-bottom:8px}
+.brand a{color:var(--m);text-decoration:none;border-bottom:1px solid var(--b)}
+h1{font-size:27px;line-height:1.22;letter-spacing:-.02em}
 h1 em{color:var(--g);font-style:normal}
-.sub{color:var(--m);font-size:13px;margin:10px 0 18px;max-width:62ch}
-h2{font-size:15px;margin:26px 0 10px;color:var(--t)}
+.sub{color:var(--m);font-size:13.5px;margin:11px 0 18px;max-width:64ch}
+.sub b{color:var(--t)}
+h2{font-size:15px;margin:30px 0 10px;color:var(--t)}
 .card{background:var(--card);border:1px solid var(--b);border-radius:10px;padding:14px 16px;margin:10px 0}
 .card p{font-size:13px;color:var(--m);max-width:70ch}
 .card p b,.card p strong{color:var(--t)}
@@ -28,63 +30,87 @@ h2{font-size:15px;margin:26px 0 10px;color:var(--t)}
 .plan li{padding:2px 0}
 .plan li:before{content:"— ";color:#484f58}
 a.btn{display:inline-block;background:var(--g);color:#0d1117;font-weight:700;text-decoration:none;padding:11px 18px;border-radius:8px;margin-top:12px;font-size:14px}
+a.btn2{display:inline-block;background:transparent;color:var(--t);border:1px solid var(--b);font-weight:600;text-decoration:none;padding:10px 16px;border-radius:8px;margin:12px 0 0 8px;font-size:13.5px}
 a.plain{color:var(--blu);text-decoration:none}
 pre.cmd{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px 12px;font-size:12px;overflow-x:auto;color:var(--blu);margin:6px 0 12px;white-space:pre-wrap;word-break:break-word}
+/* the money shot: what a refusal actually looks like */
+pre.proof{background:#0d1117;border:1px solid #3d2b2b;border-left:3px solid var(--red);border-radius:8px;
+padding:12px 14px;font-size:11.5px;overflow-x:auto;color:#c9d1d9;margin:10px 0 6px;white-space:pre-wrap;word-break:break-word;line-height:1.55}
+pre.proof .st{color:var(--red);font-weight:700}
+pre.proof .k{color:var(--grn)}
+.steps{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.step{flex:1 1 190px;background:var(--card);border:1px solid var(--b);border-radius:10px;padding:12px 14px}
+.step .n{font-size:11px;color:var(--g);font-weight:700;letter-spacing:.08em}
+.step h4{font-size:13px;margin:3px 0 5px;color:var(--t)}
+.step p{font-size:12px;color:var(--m)}
+.step code{background:#0d1117;border:1px solid var(--b);border-radius:5px;padding:1px 5px;font-size:11.5px;color:var(--blu)}
 ul.tick{list-style:none;font-size:12.5px;color:var(--m)}
 ul.tick li{padding:3px 0}
 ul.tick li b{color:var(--t)}
+.trust{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.trust a{font-size:11.5px;color:var(--m);border:1px solid var(--b);border-radius:20px;padding:3px 10px;text-decoration:none}
 .mut{color:var(--m);font-size:12px;margin-top:22px;border-top:1px solid var(--b);padding-top:10px}
 </style></head><body><div class="w">
 
-<div class="brand">AgentLedger</div>
-<h1>Your agents spend money. <em>See every dollar, and cap it.</em></h1>
-<div class="sub">A per-agent spend ledger for autonomous agents. Each agent reports its own spend and token burn; you get a live P&amp;L per agent, budget caps that <b>block</b> the write when crossed, spending-spike alerts, and 30-day reports — over MCP, REST and a CLI. An agent with a wallet can mint its own workspace in one call. No signup, no human.</div>
+<div class="brand"><a href="/about">An AI Agent City product</a></div>
+<h1>Your AI agents spend money. <em>Give each one a spending limit.</em></h1>
+<div class="sub">AgentLedger meters every call, shows a live P&amp;L per agent, and
+<b>refuses the call that would cross the budget — before the provider is contacted</b>.
+Not a trace viewer: the unit of accounting is the <b>agent</b>, and the cap is enforced,
+not just reported.</div>
 
-<div class="price">
-  <div class="plan">
-    <h3>Free</h3>
-    <div class="amt">$0</div>
-    <ul>
-      <li>Up to 3 agents per workspace</li>
-      <li>All rails: x402, MPP, api_key, manual</li>
-      <li>Budget caps that block the write when crossed — or route your calls through the <b>proxy</b> and the cap blocks the spend itself</li>
-      <li>Token burn per agent &amp; per model</li>
-      <li>Alerts, 30-day reports, MCP + REST + CLI</li>
-    </ul>
-    <a class="btn" href="/start">Get a workspace →</a>
-  </div>
-  <div class="plan pro">
-    <h3>Pro</h3>
-    <div class="amt">$19<span style="font-size:13px;font-weight:400;color:var(--m)">/mo</span></div>
-    <ul>
-      <li>Unlimited tracked agents</li>
-      <li>Everything in Free</li>
-      <li>Same workspace, same key, no migration</li>
-      <li>Cancel any time</li>
-    </ul>
-    <p style="font-size:12px;color:var(--m);margin-top:10px">Already have a workspace_key? Post it to <code>/v1/billing/checkout</code> and the upgrade link is built for that workspace.</p>
-  </div>
-</div>
+<h2>What a blocked call looks like</h2>
+<pre class="proof">$ curl -X POST https://aiagentscity.com/proxy/openai/v1/chat/completions \
+    -H "Authorization: Bearer sk-your-own-provider-key" -d @payload.json
 
-<div class="card">
-  <p><b>Start with no signup, no login and no card at <a class="plain" href="/start">/start</a>.</b>
-  A workspace is free — 3 agents, every feature, no expiry. The workspace key is shown once, on
-  the spot.</p>
-  <p><b>Past 3 agents it's $19/mo</b> for unlimited tracked agents on the same workspace, same key,
-  no migration. The upgrade link is built for your workspace, not a generic checkout.</p>
+<span class="st">HTTP/1.1 402 Payment Required</span>
+{"error":{"type":"<span class="k">budget_exceeded</span>","message":"blocked before the provider:
+ this call's estimated maximum cost (4160 cents) would put support-triage over
+ its monthly budget (99720 of 100000 cents). <span class="k">Nothing was sent upstream.</span>"}}</pre>
+<p style="font-size:12px;color:var(--m);margin-bottom:4px">The provider never saw the request,
+so the money was never spent. That is the whole product — and the rest of the
+market only reports the number <i>after</i> you have paid it.</p>
+
+<h2>Three steps, five minutes</h2>
+<div class="steps">
+  <div class="step"><div class="n">01</div><h4>Point it at us</h4>
+    <p><code>pip install</code> the wrapper, or swap the <code>base_url</code>, or add the
+    MCP server. <a class="plain" href="/quickstart">quickstart →</a></p></div>
+  <div class="step"><div class="n">02</div><h4>Watch it on the dashboard</h4>
+    <p>Every agent, its spend, its budget bar and its alerts on one page.
+    <a class="plain" href="/dashboard">/dashboard →</a> ·
+    <a class="plain" href="/demo">see a demo →</a></p></div>
+  <div class="step"><div class="n">03</div><h4>Set the cap</h4>
+    <p>One number. Crossing it returns <code>402</code> to your caller and the
+    provider never sees the call.</p></div>
 </div>
+<a class="btn" href="/demo">See the live demo →</a><a class="btn2" href="/start">Get a free workspace</a>
+<p style="font-size:12px;color:var(--m);margin-top:6px">No signup, no login, no card. The
+workspace key is shown once, on the spot.</p>
 
 <h2>What it does</h2>
 <ul class="tick">
-  <li><b>Per-agent dollar spend</b> — <code>POST /v1/track</code> records spend per <code>agent_id</code>. The ledger is keyed by agent, not by request trace.</li>
-  <li><b>Four rails in one ledger</b> — x402, MPP, API keys, manual entries. Mix them; the P&amp;L stays whole.</li>
-  <li><b>Token burn per agent and per model</b> — pass <code>tokens_in</code>/<code>tokens_out</code>/<code>model</code>; <code>GET /v1/tokens/{agent_id}</code> returns in/out totals and a by-model breakdown.</li>
-  <li><b>Caps that actually block</b> — monthly and daily dollar caps, plus independent token caps. A <code>track()</code> that would cross one is rejected with <code>402 budget_exceeded</code> <i>before</i> it is recorded. Warnings fire at 80%.</li>
-  <li><b>Spending-spike alerts</b> — anomalies are computed into every report and surfaced per agent in the alerts feed and <b>pushed</b> to any webhook or email you register (POST /v1/webhooks).</li>
-  <li><b>Reports</b> — 30-day totals by rail and service, plus a human-readable page per agent at <code>/v1/report/{agent_id}/html</code>.</li>
-  <li><b>Credential-gated reads</b> — reports, tokens and alerts require the agent's <code>agent_secret</code> or the workspace's <code>workspace_key</code>. No unauthenticated read path, on REST or MCP.</li>
-  <li><b>MCP + REST + CLI parity</b> — the same ledger and the same credential rules on all three surfaces, with idempotent writes and one typed error envelope.</li>
+  <li><b>Per-agent dollar spend</b> — the ledger is keyed by <code>agent_id</code>, not by request trace. <i>Which of my twenty agents is burning money?</i> is the primary query, not a derived one.</li>
+  <li><b>Enforcement, two ways</b> — through the proxy or wrapper the call is refused <b>before the provider is contacted</b>; on the plain API the ledger <i>write</i> that would cross the cap is rejected with <code>402</code>. Same error envelope, different guarantee — and we say which is which everywhere.</li>
+  <li><b>Cost computed from real tokens</b> — you do not have to send us a dollar amount. Give us <code>model</code> and <code>tokens_in</code>/<code>tokens_out</code> and the price is looked up; cache-aware, because Anthropic bills input at four different rates and a flat rate was <b>7.4x wrong</b> on a real session.</li>
+  <li><b>Alerts that reach you</b> — an 80% warning, a crossed cap and a spending anomaly are <b>pushed</b> to a webhook you register, with retries. Not a feed you have to remember to poll.</li>
+  <li><b>Shareable reports</b> — a signed, expiring, revocable link per agent that opens in any browser. Text it to your co-founder.</li>
+  <li><b>MCP + REST + CLI parity</b> — same ledger, same credential rules, same typed errors on all three.</li>
 </ul>
+
+<div class="card">
+  <p><b>Cost metadata only.</b> An entry stores the agent id, rail, service label, amount,
+  token counts, model and timestamp. There is no field for prompt or response content and no
+  code path that writes it — a test asserts it stays that way.
+  <a class="plain" href="/security">Read the security page →</a></p>
+</div>
+
+<div class="card">
+  <p><b>Your provider key is yours.</b> The proxy is pass-through: the key rides in the
+  request headers, is forwarded verbatim, and is <b>never stored</b> — a test greps the whole
+  data directory for it after a proxied call and fails if it appears. You can use the proxy
+  without giving us a key at all.</p>
+</div>
 
 <h2>Connect</h2>
 <div class="card">
@@ -100,17 +126,45 @@ ul.tick li b{color:var(--t)}
     }
   }
 }</pre>
+  <p><b>Or the Python wrapper</b> — one line, every call metered and capped:</p>
+  <pre class="cmd">pip install "agent-ledger[wrapper] @ git+https://github.com/entradox/agent-ledger"
+client = agentledger.wrap(OpenAI(), agent_id="my-agent", workspace_key="wk_live_...")</pre>
+  <p class="mut" style="border:0;padding:0;margin-top:6px">Install via git URL on purpose:
+  nothing is on PyPI yet, and the name <code>agent-ledger</code> there belongs to a
+  different project.</p>
   <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
   <p><b>Try it in your agent:</b> "Track my Claude Code spend" · "Alert when any agent exceeds $50/day" · "Weekly P&amp;L report".</p>
 </div>
 
-<h2>Live sample (this instance)</h2>
+<h2>Live counters (this instance)</h2>
 <div class="card" id="live-box">
   <div class="s-line"><span>Tracked agents</span><span class="tag" id="ta">—</span></div>
-  <div class="s-line"><span>Live counters</span><span><a class="plain" href="/stats">/stats</a></span></div>
+  <div class="s-line"><span>All counters</span><span><a class="plain" href="/stats">/stats</a></span></div>
 </div>
 
-<h2>Getting started</h2>
+<h2>Enforcement, honestly</h2>
+<div class="card">
+  <p><b>Two mechanisms, two different guarantees — and we never blur them.</b></p>
+  <p><b>Through the proxy or the wrapper:</b> the call is refused with <code>402</code> before
+  the provider is contacted, so the money is never spent.</p>
+  <p><b>On the plain API:</b> the cap can only <b>block the write when crossed</b> — the ledger entry that
+  would cross it is rejected, but the provider has already charged. That stops the recording,
+  not the spend.</p>
+  <p><b>Traffic that bypasses the proxy is not enforced.</b> Any caller that can reach your
+  provider directly is outside our reach. If a cap has to be real, route the traffic through the
+  proxy or the wrapper.</p>
+</div>
+
+<h2>Why not a trace viewer</h2>
+<div class="card">
+  <p>Trace tools answer <i>"what did my agent do?"</i> — $39/seat (LangSmith), $79/mo
+  (Helicone), $249/mo (Braintrust). They bill per seat or per trace, and <b>none of them
+  stop the $401st call</b>. AgentLedger is $19 per workspace, flat, and its unit of
+  accounting is the agent.
+  <a class="plain" href="/compare">Full comparison, with dated prices →</a></p>
+</div>
+
+<h2>Getting started (the raw API)</h2>
 <div class="card">
   <p><b>1. Get a workspace_key</b> — no signup, no login, no card: <a class="plain" href="/start">/start</a>. Running as an agent with a wallet, with no human at all: <code>POST /v1/billing/x402</code> — the paying wallet becomes the workspace identity.</p>
   <p><b>2. Track a spend event — dollars and tokens</b></p>
@@ -119,6 +173,9 @@ ul.tick li b{color:var(--t)}
   -H "AL-API-Version: 2026-09-01" \
   -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
   <p><b>A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must carry <code>"workspace_key":"wk_live_..."</code> in the body — that claims it into your workspace — and returns that agent's <code>agent_secret</code>. Save the secret: every later write to the same <code>agent_id</code> sends <code>"agent_secret":"..."</code> instead and needs no workspace_key. Reads (report/tokens/alerts) require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
+  <p><b>The <code>AL-API-Version</code> header is required on writes.</b> Omit it and the call is
+  rejected — that is deliberate, so a future breaking change cannot silently alter what your
+  agent meant.</p>
   <p><b>3. Set a monthly cap</b> — enforced, not just logged:</p>
   <pre class="cmd">curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
@@ -127,35 +184,59 @@ ul.tick li b{color:var(--t)}
   <p><b>4. Pull the P&amp;L</b> — totals, by rail, by service, budget status and anomalies:</p>
   <pre class="cmd">curl "https://aiagentscity.com/v1/report/my-agent?days=30" \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
-  <p>Token burn: <code>/v1/tokens/my-agent</code>. Browser view: <code>/v1/report/my-agent/html</code>.</p>
+  <p>Token burn: <code>/v1/tokens/my-agent</code>. CSV: <code>/v1/report/my-agent/csv</code>.
+  Browser view: <code>/v1/report/my-agent/html</code>. Everything at once:
+  <a class="plain" href="/dashboard">/dashboard</a>.</p>
 </div>
 
-<h2>Why this instead of a trace viewer</h2>
-<div class="card">
-  <p>The per-request trace tools run $39–$249/mo — LangSmith $39/seat, W&amp;B $60, Helicone $79, Galileo $100, Datadog LLM $240, Braintrust $249 — they bill per seat or per trace, and none of them enforce a budget cap.</p>
-  <p>AgentLedger is $19, bills per workspace, and is built per-<b>agent</b> with caps that block. The unit of accounting is the agent, not the request — which is the question you actually ask when you run twenty named agents: <i>which one is burning money, and how do I stop it?</i></p>
+<h2>Pricing</h2>
+<div class="price">
+  <div class="plan">
+    <h3>Free</h3>
+    <div class="amt">$0</div>
+    <ul>
+      <li>Up to 3 agents per workspace</li>
+      <li>All rails: x402, MPP, api_key, manual</li>
+      <li>Budget caps + proxy enforcement</li>
+      <li>Token burn per agent &amp; per model</li>
+      <li>Alerts, 30-day reports, dashboard, CSV</li>
+      <li>MCP + REST + CLI</li>
+    </ul>
+    <a class="btn" href="/start">Get a workspace →</a>
+  </div>
+  <div class="plan pro">
+    <h3>Pro</h3>
+    <div class="amt">$19<span style="font-size:13px;font-weight:400;color:var(--m)">/mo</span></div>
+    <ul>
+      <li>Unlimited tracked agents</li>
+      <li>Everything in Free</li>
+      <li>Same workspace, same key, no migration</li>
+      <li>Flat per workspace — never per seat</li>
+      <li>Cancel any time</li>
+    </ul>
+    <p style="font-size:12px;color:var(--m);margin-top:10px">Already have a workspace_key? Post it to <code>/v1/billing/checkout</code> and the upgrade link is built for that workspace.</p>
+  </div>
 </div>
 
-<div class="card">
-  <p><b>Enforcement, honestly.</b> A cap on the plain API rejects the ledger <i>write</i> that
-  would cross it — the provider has already charged. Route the same traffic through
-  <code>/proxy/{provider}/…</code> and the call is refused <i>before</i> the provider is contacted,
-  so the money is never spent. The proxy is pass-through: your provider key rides in the request
-  and is never stored. Traffic that bypasses the proxy is not enforced.</p>
-</div>
-
-<div class="card">
-  <p><b>Cost metadata only.</b> A spend entry stores the agent id, rail, service label, amount,
-  token counts, model and timestamp. There is no field for prompt or response content: none is
-  collected and none is stored — not before the proxy, and not after it.</p>
+<div class="trust">
+  <a href="/about">An AI Agent City product</a>
+  <a href="/security">Security &amp; data handling</a>
+  <a href="/status">Live status</a>
+  <a href="/quickstart">Quickstart</a>
+  <a href="/compare">Comparison</a>
+  <a href="/.well-known/agent.json">Agent manifest</a>
+  <a href="/openapi.json">OpenAPI</a>
 </div>
 
 <div class="mut">
-  AgentLedger · operated as an independent software service · registry: io.github.entradox/agent-ledger<br>
+  <b>AgentLedger</b> — an <a href="/about" style="color:#8b949e">AI Agent City</a> product, operated by Parmanand LLC.<br>
+  Not affiliated with <b>agentledger.co</b>, agentledgerhq.com, or any other same-named project.<br>
   Agent-readable: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a> · <a href="/server.json" style="color:#8b949e">/server.json</a> · <a href="/.well-known/agent.json" style="color:#8b949e">/.well-known/agent.json</a> · <a href="/openapi.json" style="color:#8b949e">/openapi.json</a> · <a href="/health" style="color:#8b949e">/health</a><br>
   <a href="/privacy" style="color:#8b949e">Privacy</a> ·
   <a href="/terms" style="color:#8b949e">Terms</a> ·
-  <a href="/status" style="color:#8b949e">Status</a><br>
+  <a href="/status" style="color:#8b949e">Status</a> ·
+  <a href="/security" style="color:#8b949e">Security</a> ·
+  <a href="/about" style="color:#8b949e">About</a><br>
   Contact: <a href="mailto:entradox@icloud.com" style="color:#8b949e">entradox@icloud.com</a>
 </div>
 

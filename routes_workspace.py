@@ -283,7 +283,38 @@ document.getElementById('csv').onclick = function(){
 };
 var existing = recall();
 if (existing) load(existing);
+
+// ── demo mode ──────────────────────────────────────────────────────────────
+// The same page and the same renderer, fed by a synthetic fixture instead of a
+// workspace. No credential is involved, so nothing can be leaked or written.
+if (__DEMO__) {
+  document.getElementById('gate').style.display = 'none';
+  var banner = document.createElement('div');
+  banner.className = 'muted';
+  banner.style.cssText = 'border:1px solid #21262d;border-radius:8px;' +
+    'padding:10px 12px;margin-bottom:14px';
+  banner.innerHTML = '<b>Read-only demo.</b> Synthetic data — no workspace, ' +
+    'no key, nothing written. This is the same dashboard you get with your own ' +
+    'data: <a href="/quickstart">connect a real agent</a>.';
+  var app = document.getElementById('app');
+  app.insertBefore(banner, app.firstChild);
+  document.getElementById('csv').style.display = 'none';
+  fetch('/v1/demo/summary').then(function(r){ return r.json(); }).then(render)
+    .catch(function(e){ document.getElementById('gateerr').textContent = e.message; });
+}
 </script></body></html>"""
+
+
+_DASH_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+}
+
+
+def dashboard_html(demo: bool = False) -> str:
+    return _PAGE.replace("__DEMO__", "true" if demo else "false")
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -291,9 +322,22 @@ def dashboard():
     """The page itself is static: it holds no data and needs no auth. The key is
     pasted in the browser and sent as a header, so there is nothing to leak in
     the HTML, the URL, or a cache."""
-    return HTMLResponse(_PAGE, headers={
-        "Content-Security-Policy": CSP,
-        "Referrer-Policy": "no-referrer",
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "no-store",
-    })
+    return HTMLResponse(dashboard_html(False), headers=_DASH_HEADERS)
+
+
+@router.get("/demo", response_class=HTMLResponse)
+def demo():
+    """A populated dashboard with no signup and no credential.
+
+    Rendered from a fixture rather than a seeded production workspace: there is
+    no workspace-deletion path in the API, so a 'demo workspace' would be
+    permanent, and it would inflate the counters that /stats serves."""
+    return HTMLResponse(dashboard_html(True), headers=_DASH_HEADERS)
+
+
+@router.get("/v1/demo/summary")
+def demo_summary():
+    """The fixture the demo page renders. Public, synthetic, read-only — and it
+    returns the same shape as /v1/workspace/summary so the two cannot drift."""
+    import site_pages
+    return site_pages.demo_summary()

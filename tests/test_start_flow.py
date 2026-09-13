@@ -53,7 +53,10 @@ def test_front_door_serves_the_product_page(client):
     r = client.get("/")
     assert r.status_code == 200
     assert 'href="/start"' in r.text
-    assert "Your agents spend money" in r.text
+    # H1 rewritten in D-1226 tranche 2 to the GAP-4 spec: it names the product's
+    # actual promise (a per-agent limit) rather than only the reporting half.
+    assert "Give each one a spending limit" in r.text
+    assert "Your AI agents spend money" in r.text
     status = client.get("/status")
     assert status.status_code == 200
     assert status.text != r.text

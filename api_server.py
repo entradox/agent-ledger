@@ -742,6 +742,55 @@ def privacy_page():
     return _LEGAL_SHELL.format(title="Privacy", body=PRIVACY_BODY)
 
 
+@app.get("/about", response_class=HTMLResponse)
+def about_page():
+    """The umbrella. AI Agent City is the parent; AgentLedger is product #1."""
+    import site_pages
+    return HTMLResponse(site_pages.page(
+        "About AI Agent City",
+        "AI Agent City builds a toolbelt for running AI agents in production: "
+        "AgentLedger, Perimeter Watch and Cited.",
+        site_pages.ABOUT))
+
+
+@app.get("/security", response_class=HTMLResponse)
+def security_page():
+    """Trust surface: exactly what is stored, what is not, and what a cap does
+    and does not guarantee."""
+    import site_pages
+    return HTMLResponse(site_pages.page(
+        "Security &amp; data handling — AgentLedger",
+        "What AgentLedger stores, what it never stores, how provider keys are "
+        "handled, and how to report a vulnerability.",
+        site_pages.SECURITY))
+
+
+@app.get("/quickstart", response_class=HTMLResponse)
+def quickstart_page():
+    """Zero to a metered agent in five minutes. The install line is the git URL
+    because nothing is published on PyPI yet, and the name agent-ledger there
+    belongs to a different author."""
+    import site_pages
+    return HTMLResponse(site_pages.page(
+        "Quickstart — AgentLedger",
+        "Connect an OpenAI or Anthropic agent to AgentLedger in five minutes: "
+        "wrapper, proxy, MCP or CLI.",
+        site_pages.QUICKSTART,
+        footnav="<a href='/demo'>see the demo</a> · "
+                "<a href='/about'>an AI Agent City product</a>"))
+
+
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page():
+    """Why this is not a trace viewer — the honest version, with dated prices."""
+    import site_pages
+    return HTMLResponse(site_pages.page(
+        "AgentLedger vs trace viewers — LangSmith, Helicone, Langfuse",
+        "How per-agent budget enforcement differs from request-level trace "
+        "observability, with dated list prices.",
+        site_pages.COMPARE))
+
+
 @app.get("/terms", response_class=HTMLResponse)
 def terms_page():
     return _LEGAL_SHELL.format(title="Terms", body=TERMS_BODY)
