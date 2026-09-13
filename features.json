@@ -69,6 +69,16 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "shareable report links (read-only, expiring, revocable)",
+   "status": "shipped",
+   "note": "D-1217 (080fc40). Verified live 2026-09-13: mint 200, opens with zero credentials as text/html, tampered 403 friendly page, cross-agent 403."
+  },
+  {
+   "name": "alert delivery (webhook + email, with receipts)",
+   "status": "shipped",
+   "note": "D-1218 (0d10eb9/870384e). Routes live and fail-closed in prod. Delivery proven against a local HTTP sink in tests; not yet exercised in production because the operator holds no workspace_key."
+  },
+  {
    "name": "agent-secret rotation/revocation (owner recovery)",
    "status": "planned",
    "note": "D-1216: built + committed on branch d-1216-secret-recovery (f7849d2), 213 tests green, MCP smoke-tested. NOT marked shipped: not deployed, no independent adversarial pass, and the prod hard gate scanner is red on main too."
