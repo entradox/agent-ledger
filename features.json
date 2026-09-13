@@ -69,6 +69,11 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "token-to-cost auto-pricing on /v1/track",
+   "status": "shipped",
+   "note": "BUILD-4 (7dbc18d). amount_cents optional: tokens+model are priced from the shared table; an unpriced model is refused (422 model_not_priced) rather than recorded as free. Live-verified fail-closed paths; happy path covered by 9 tests."
+  },
+  {
    "name": "proxy enforcement (block the spend, not the write)",
    "status": "shipped",
    "note": "D-1222 (d741a87). POST /proxy/{provider}/{path} blocks before the provider is contacted; pass-through, no key custody. Route live; the block-before-provider property is proven against a fake upstream in tests, not yet live. model_prices.json is UNVERIFIED placeholders."
