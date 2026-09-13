@@ -10,3 +10,8 @@ logs/
 counts.jsonl
 customers.jsonl
 .claude-build-prompt*
+
+# packaging build artifacts (never commit derived files)
+*.egg-info/
+build/
+dist/
