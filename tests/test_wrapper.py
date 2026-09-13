@@ -97,12 +97,15 @@ def test_the_provider_credential_is_untouched_by_the_wrapper(recorder):
     """Pass-through means the wrapper must not read, move, or replace the key."""
     import openai
     client = openai.OpenAI(api_key="sk-provider-key", base_url=recorder)
-    before = dict(client.default_headers)
     agentledger.wrap(client, agent_id="a", agent_secret="s", base_url=recorder)
     client.chat.completions.create(model="gpt-4o-mini",
                                    messages=[{"role": "user", "content": "hi"}])
     assert _Recorder.seen[-1]["headers"]["authorization"] == "Bearer sk-provider-key"
-    assert client.default_headers["Authorization"] == before["Authorization"]
+    # openai>=1.x keeps the key on `client.api_key` and builds the
+    # Authorization header per-request — `default_headers` no longer contains
+    # it (that shift is what broke the old assertion). The invariant that
+    # matters is unchanged: the wrapper left the credential exactly as set.
+    assert client.api_key == "sk-provider-key"
 
 
 def test_wrapping_repoints_the_http_layer_too(recorder):

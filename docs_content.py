@@ -67,6 +67,10 @@ Remote endpoint: `{BASE_URL}/mcp/` — every request also needs
 
 REST_ENDPOINTS_MD = f"""## REST Endpoints
 
+The report JSON includes a zero-filled `daily_series` — one bucket per UTC
+day `{{"date", "spend_cents", "tokens_in", "tokens_out"}}` — so a client can
+chart spend without inventing the missing days.
+
 ```
 GET  /health                       — liveness
 POST /v1/billing/x402              — self-serve workspace_key for an agent with a wallet
@@ -76,8 +80,12 @@ GET  /start                        — get a workspace (no signup, no login);
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
 POST /v1/budget                    — set budget caps (workspace_key claims, agent_secret writes)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
+GET  /v1/report/{{agent_id}}/csv     — the same entries as CSV (query: days=0 all-time) — same credentials
 GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
+GET  /v1/workspace/summary         — every agent in YOUR workspace: totals, daily series, alerts (X-Workspace-Key)
+GET  /v1/workspace/export.csv      — every entry in your workspace as CSV (query: days=0 all-time) — X-Workspace-Key
+GET  /dashboard                    — the human dashboard: paste your workspace key in the browser
 GET  /v1/agents                    — owner-only: full cross-tenant listing (X-Al-Admin)
 GET  /v1/metrics                   — owner-only: funnel + revenue + reach telemetry
 GET  /stats                        — usage counters

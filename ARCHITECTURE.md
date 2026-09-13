@@ -41,6 +41,16 @@ git log and scattered specs.
   Mounted onto the app in `api_server.py`. There is no third auth router:
   Google OAuth was deleted in D-1162, and the human path lives in
   `api_server.py` as `GET`/`POST /start`.
+- `routes_workspace.py` — the workspace-scoped read surface (GAP-1,
+  2026-09-13): `GET /v1/workspace/summary`, `GET /v1/workspace/export.csv`,
+  `GET /v1/report/{agent_id}/csv` and the self-contained `GET /dashboard`
+  HTML page. Auth is the workspace_key alone, resolved through
+  `identity.resolve_workspace_key` before any data is touched; agent
+  membership comes from `ledger_engine.workspace_agents`, which reads each
+  agent's `workspace_id.txt` — a summary can never include a cross-tenant
+  agent. The dashboard page itself carries no data and no auth: the browser
+  holds the key in sessionStorage and calls the API directly, and every
+  asset (JS, CSS) is inline so no third-party origin can observe a key.
 - `api_server.py` — app creation, MCP mounting, meta endpoints (health,
   stats, llms.txt, agent.json, server.json), router includes. Nothing
   else lives here.
