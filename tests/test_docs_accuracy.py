@@ -99,7 +99,12 @@ def test_agent_json_pricing_is_per_workspace():
     import api_server
     desc = api_server.AGENT_JSON["pricing"]["description"]
     assert "per workspace" in desc
-    assert "first 50 workspaces" in desc
+    # NOT the launch-window grant. This assertion used to REQUIRE the claim,
+    # which is how a false promise survived in a machine-read manifest: the
+    # human self-serve path (/start) calls create_workspace(grant_scarcity=False),
+    # so an agent reading this would tell its user Pro is automatic and be wrong.
+    # Retired from every surface 2026-09-13.
+    assert "first 50" not in desc
 
 
 def test_llms_txt_documents_credential_recovery():

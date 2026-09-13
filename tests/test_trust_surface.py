@@ -140,7 +140,23 @@ def test_status_is_a_real_health_page_not_the_marketing_page(page):
     assert "AgentLedger status" in status
     # and it reports live numbers rather than prose
     assert "claimed agents" in status
-    assert "launch-window slots left" in status
+    # NOT 'launch-window slots left': it counted an offer the signup path does
+    # not grant. A status page reporting slots for a retired grant is the same
+    # lie as the marketing page it replaced. (2026-09-13.)
+
+
+def test_no_public_surface_advertises_the_retired_launch_grant(page):
+    """The grant was retired in code and left advertised in five places.
+
+    Two of those are read by MACHINES (llms.txt, agent.json) and a third is the
+    terms. An agent reading them would promise its user free Pro for a year and
+    then fail to deliver it at signup. This is the guard against reintroduction:
+    if the offer comes back, the CODE comes back first.
+    """
+    for path in ("/", "/llms.txt", "/.well-known/agent.json", "/server.json",
+                 "/terms", "/privacy", "/status", "/stats"):
+        body = page.get(path).text
+        assert "first 50" not in body, f"{path} still advertises the retired launch grant"
 
 
 def test_status_page_links_the_machine_readable_health_checks(page):

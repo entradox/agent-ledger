@@ -32,7 +32,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.3.0"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.0"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 from routes_agents import router as agents_router
@@ -267,8 +267,13 @@ def stats():
                     c[json.loads(line).get("kind", "?")] += 1
                 except (json.JSONDecodeError, KeyError):
                     continue
-        payload = {"tracked_agents": claimed_agent_count(), "events": dict(c),
-                   "scarcity_claims_left": scarcity_claims_left()}
+        # scarcity_claims_left is deliberately NOT served any more: it counted
+        # the launch window, and the human self-serve path (/start) does not
+        # grant it. A public count for an offer that signup cannot receive is a
+        # promise the product does not keep. (Adversarial/editorial review
+        # 2026-09-13; the grant was retired in code and left advertised in five
+        # places.)
+        payload = {"tracked_agents": claimed_agent_count(), "events": dict(c)}
         _stats_cache["payload"] = payload
         _stats_cache["ts"] = _time.time()
         return payload
@@ -303,10 +308,7 @@ rejected with 401. Reads /v1/report, /v1/tokens, and /v1/alerts all require
 an X-Agent-Secret or X-Workspace-Key header (either credential proving
 access to that agent_id) — missing/wrong gets 401. There is no
 unauthenticated read path, on REST or MCP.
-Launch window: the first 50 WORKSPACES ever created get Pro free for 1 year
-(no action needed — signing up inside the window mints the grant
-automatically; it expires one year later).
-Outside that window a free workspace is capped at 3 agents; a 4th new
+A free workspace is capped at 3 agents; a 4th new
 agent_id gets 402 until upgrading ($19/mo, unlimited agents). The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
 must be >= 0.
@@ -453,7 +455,7 @@ POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
 Pricing is as described above (free tier = 3 agents per workspace; Pro =
-$19/mo, unlimited agents; first 50 workspaces get Pro free for 1 year).
+$19/mo, unlimited agents).
 Contact: entradox@icloud.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
@@ -515,8 +517,7 @@ AGENT_JSON = {
         "model": "freemium",
         "amount_usd": 19.00,
         "description": "Free tier is 3 agents per workspace. Pro is $19/mo for "
-                        "unlimited agents. Launch window: the first 50 workspaces "
-                        "created get Pro free for 1 year.",
+                        "unlimited agents.",
     },
     "capabilities": [
         {"id": "mint_workspace_x402",
@@ -673,8 +674,7 @@ the service available for everyone.</p>
 
 <h2>Plans and payment</h2>
 <p>The free tier covers 3 agents per workspace. Pro is $19/month for unlimited agents on the same
-workspace, billed by Stripe, cancellable at any time. The first 50 workspaces created receive Pro
-free for one year.</p>
+workspace, billed by Stripe, cancellable at any time.</p>
 
 <h2>Availability and liability</h2>
 <p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
@@ -700,11 +700,6 @@ def _health_page() -> str:
     up = int(_time.time() - _BOOT_TS)
     hours, rem = divmod(up, 3600)
     minutes, seconds = divmod(rem, 60)
-    try:
-        from ledger_engine import scarcity_claims_left
-        scarce = scarcity_claims_left()
-    except Exception:
-        scarce = "unavailable"
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AgentLedger — status</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
@@ -725,7 +720,6 @@ border-bottom:1px solid #21262d;font-size:14px}}
 <div class="row"><span class="k">version</span><span>{app.version}</span></div>
 <div class="row"><span class="k">uptime (this instance)</span><span>{hours}h {minutes}m {seconds}s</span></div>
 <div class="row"><span class="k">claimed agents</span><span>{claimed_agent_count()}</span></div>
-<div class="row"><span class="k">launch-window slots left</span><span>{scarce}</span></div>
 <div class="row"><span class="k">liveness</span><span><a href="/health">/health</a></span></div>
 <div class="row"><span class="k">counters</span><span><a href="/stats">/stats</a></span></div>
 <div class="mut">Refreshes every 60s. These are the live counters the API serves, not a static page.
