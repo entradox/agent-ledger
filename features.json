@@ -69,6 +69,11 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "trust surface: honest claims, privacy/terms, real status page",
+   "status": "shipped",
+   "note": "D-1219 (6f92ea7). Verified live: no 'real enforcement' claim, data-handling statement published and asserted against the data model, /privacy + /terms + a real /status health page. LEGAL WORDING NEEDS A MORGAN PASS."
+  },
+  {
    "name": "shareable report links (read-only, expiring, revocable)",
    "status": "shipped",
    "note": "D-1217 (080fc40). Verified live 2026-09-13: mint 200, opens with zero credentials as text/html, tampered 403 friendly page, cross-agent 403."
