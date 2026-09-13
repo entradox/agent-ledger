@@ -52,6 +52,44 @@ PROVIDERS = {
     },
 }
 
+PROVIDER_FILE = Path(__file__).with_name("providers.json")
+_provider_cache = {"mtime": 0.0, "data": {}}
+
+
+def _extra_providers() -> dict:
+    """Providers an operator added by editing providers.json.
+
+    The point of this file is that an agent's spend must be meterable
+    regardless of which vendor it calls. A hard-coded provider list guarantees
+    the next vendor is invisible, which is exactly how DeepSeek went
+    uncounted until someone noticed.
+    """
+    try:
+        mtime = PROVIDER_FILE.stat().st_mtime
+    except OSError:
+        return {}
+    if mtime != _provider_cache["mtime"]:
+        try:
+            data = json.loads(PROVIDER_FILE.read_text()).get("providers", {})
+            _provider_cache["data"] = {k: v for k, v in data.items() if isinstance(v, dict)}
+            _provider_cache["mtime"] = mtime
+        except Exception:
+            _provider_cache["data"] = {}
+    return _provider_cache["data"]
+
+
+def providers() -> dict:
+    """Built-ins plus anything in providers.json. The file wins, so an operator
+    can point an existing provider at a gateway without touching code."""
+    merged = dict(PROVIDERS)
+    merged.update(_extra_providers())
+    return merged
+
+
+def provider_ids() -> list:
+    return sorted(providers())
+
+
 # Headers that belong to THIS hop and must not be forwarded verbatim.
 _HOP_BY_HOP = frozenset({
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -111,12 +149,24 @@ def _cents(tokens: int, per_million_usd: float) -> float:
     return (tokens / 1_000_000.0) * per_million_usd * 100.0
 
 
-def cost_cents_exact(model: str, tokens_in: int, tokens_out: int) -> Optional[float]:
-    """Exact cost in cents (fractional). None when the model is unpriced."""
+def cost_cents_exact(model: str, tokens_in: int, tokens_out: int,
+                     cache_hit_in: int = 0) -> Optional[float]:
+    """Exact cost in cents (fractional). None when the model is unpriced.
+
+    A price entry may carry a `cache_hit` rate, used for the cached portion of
+    the input. When it does not, every input token is charged the standard
+    rate, which is the conservative direction for a spend cap.
+    """
     entry = lookup(model)
     if not entry:
         return None
-    return _cents(tokens_in, entry.get("in", 0)) + _cents(tokens_out, entry.get("out", 0))
+    hit_rate = entry.get("cache_hit")
+    if hit_rate is None:
+        return _cents(tokens_in, entry.get("in", 0)) + _cents(tokens_out, entry.get("out", 0))
+    hit = max(0, min(int(cache_hit_in or 0), int(tokens_in)))
+    miss = int(tokens_in) - hit
+    return (_cents(miss, entry.get("in", 0)) + _cents(hit, hit_rate)
+            + _cents(tokens_out, entry.get("out", 0)))
 
 
 # ── estimation (pre-call) ──────────────────────────────────────────────────
@@ -164,7 +214,7 @@ def usage_tokens(provider: str, data: dict) -> Optional[dict]:
     """
     if not isinstance(data, dict):
         return None
-    cfg = PROVIDERS.get(provider, {})
+    cfg = providers().get(provider, {})
     usage = data.get("usage")
     if not isinstance(usage, dict):
         # Anthropic streaming: usage rides inside message_start / message_delta
@@ -179,7 +229,17 @@ def usage_tokens(provider: str, data: dict) -> Optional[dict]:
         return None
     if tin == 0 and tout == 0:
         return None
-    return {"tokens_in": tin, "tokens_out": tout}
+    # Cached input is a SUBSET of the input count, billed far cheaper. Not
+    # reporting it would price every cached token at the cache-miss rate —
+    # DeepSeek's hit rate is ~50x lower, so the error runs one direction and
+    # it runs large.
+    hit = 0
+    cache_key = cfg.get("usage_cache_hit")
+    if cache_key:
+        value = usage.get(cache_key)
+        if isinstance(value, int) and value > 0:
+            hit = min(value, tin)
+    return {"tokens_in": tin, "tokens_out": tout, "cache_hit_in": hit}
 
 
 # ── sub-cent residue: never lose money to integer rounding ─────────────────
@@ -218,7 +278,8 @@ def whole_cents_with_residue(agent_id: str, exact_cents: float) -> int:
 # ── upstream plumbing ──────────────────────────────────────────────────────
 
 def provider_config(provider: str) -> Optional[dict]:
-    return PROVIDERS.get(provider)
+    """Built-in first, then anything added in providers.json."""
+    return providers().get(provider)
 
 
 def upstream_url(provider: str, path: str) -> Optional[str]:
@@ -229,7 +290,7 @@ def upstream_url(provider: str, path: str) -> Optional[str]:
     their own gateway — and so the tests can point at a local fake upstream
     instead of the real API.
     """
-    cfg = PROVIDERS.get(provider)
+    cfg = provider_config(provider)
     if not cfg:
         return None
     base = os.environ.get(f"AL_PROXY_{provider.upper()}_BASE", cfg["base_url"])
@@ -254,7 +315,7 @@ def forward_headers(headers, provider: str) -> dict:
 
 
 def missing_credential(provider: str, headers) -> bool:
-    cfg = PROVIDERS.get(provider)
+    cfg = provider_config(provider)
     if not cfg:
         return True
     return not dict(headers).get(cfg["credential_header"])

@@ -381,8 +381,11 @@ GET  /start                        — get a workspace (no signup, no login);
 
 ## Proxy (enforcement — a cap that stops money, not just a record)
 
-POST /proxy/{provider}/{path}     — provider="openai" or "anthropic"; {path} is the provider's
-                                    own path, e.g. /proxy/openai/v1/chat/completions
+POST /proxy/{provider}/{path}     — provider = openai, anthropic, or ANY provider listed in
+                                    providers.json (deepseek and moonshot ship as examples).
+                                    Adding a vendor is a config edit, not a code change — spend must
+                                    be meterable regardless of which vendor an agent calls.
+                                    {path} is the provider's own path, e.g. /proxy/openai/v1/chat/completions
      headers: X-AL-Agent: <agent_id>       (who gets billed)
               X-AL-Secret: <agent_secret>  (proves you may write for it)
               Authorization / x-api-key:   YOUR provider credential — forwarded, NEVER stored
@@ -393,6 +396,10 @@ POST /proxy/{provider}/{path}     — provider="openai" or "anthropic"; {path} i
      traffic that does is not enforced. Nothing here claims otherwise.
      An UNPRICED model is never blocked: the call passes through and an alert fires, because a
      silent zero would read as "this agent spends nothing".
+     PRICING IS KEYED BY MODEL, not by provider — the same model costs the same through any
+     carrier, so a caller cannot route around its own price by switching endpoints. Where a
+     provider reports cached input (DeepSeek: prompt_cache_hit_tokens), the cache-hit rate is
+     used; ignoring it would overstate a cache-heavy workload by roughly 50x.
 GET  /v1/pricing                  — the price table in use + provenance (open read). Unverified
                                     entries are placeholders: check them against your provider.
 
@@ -409,7 +416,7 @@ Tools exposed at POST /mcp/:
   ledger_rotate_secret  — recover a lost agent_secret (workspace_key param; old secret dies at once)
   ledger_revoke_secret  — invalidate an agent's secret without deleting its history (workspace_key param)
   ledger_list_agents    — owner-only (admin_secret param)
-  ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|all (open read)
+  ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|metering|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
 
 Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
@@ -515,7 +522,9 @@ AGENT_JSON = {
                         "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
          "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
         {"id": "route_through_proxy",
-         "description": "Point your provider base_url at /proxy/{provider} and every call is metered "
+         "description": "Point your provider base_url at /proxy/{provider} — openai, anthropic, or "
+                        "any vendor listed in providers.json (deepseek, moonshot ship as examples; "
+                        "adding one is a config edit). Every call is metered "
                         "and capped BEFORE it reaches the provider: a call that would cross the "
                         "budget gets 402 to the caller and the provider is never contacted. "
                         "Pass-through — send your provider credential in Authorization / x-api-key "

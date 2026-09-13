@@ -116,7 +116,10 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 destinations), `amount_required` (no amount_cents and no tokens+model to price
 from), `model_not_priced` (tokens+model sent but the model has no price), `webhook_not_found` (delete of an id not in your workspace).
 
-### Alert delivery
+"""
+
+
+METERING_MD = """### Alert delivery
 
 An alert you have to poll is not an alert. `POST /v1/webhooks` registers where
 this workspace's alerts should go — an http(s) URL (Slack, Discord, Zapier, or
@@ -151,6 +154,31 @@ provider's price list:
 refused with `422 model_not_priced` — never recorded as costing nothing, because
 a zero entry reads as "this agent spends nothing" while real money left the
 account. `GET /v1/pricing` lists what is priced.
+
+### Any provider, not just the two we shipped with
+
+The proxy forwards to whatever is listed in `providers.json`, and adding a
+vendor is a config edit:
+
+```json
+{"providers": {"your-vendor": {"base_url": "https://api.your-vendor.com",
+                               "credential_header": "authorization",
+                               "usage_in": "prompt_tokens",
+                               "usage_out": "completion_tokens",
+                               "usage_cache_hit": "prompt_cache_hit_tokens"}}}
+```
+
+That shape is deliberate. The provider list was hard-coded to OpenAI and
+Anthropic for one day, and in that day DeepSeek — which the fleet calls
+constantly — was completely invisible to the ledger. A hard-coded list
+guarantees the next vendor is invisible too.
+
+Pricing is keyed by MODEL, not by provider, so the same model costs the same
+through any carrier and a caller cannot route around its price by switching
+endpoints. Where a provider reports cached input tokens, the cache-hit rate is
+applied: DeepSeek's cache-hit input is roughly 50x cheaper than cache-miss, so
+charging all input at the miss rate would overstate a cache-heavy workload
+badly.
 
 ### Enforcement: the proxy
 
@@ -255,13 +283,17 @@ DOCS_TOPICS = {
     "budget": BUDGET_MD,
     "errors": ERROR_CODES_MD,
     "idempotency": IDEMPOTENCY_MD,
+    "metering": METERING_MD,
 }
 
 
 def get_api_docs(topic: str = "") -> str:
     """Return markdown docs for one topic, or all topics concatenated.
 
-    topic: "quickstart" | "mcp" | "rest" | "errors" | "idempotency" | "all" | ""
+    topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency"
+           | "metering" | "all" | ""
+    ("metering" covers what gets counted and what gets stopped: alert
+    delivery, token auto-pricing, provider coverage, and the proxy.)
     An unknown topic falls back to the full docs (concatenation of every
     topic) rather than erroring — this is a self-serve doc tool, not a
     strict API, so a typo'd topic should still hand the caller something

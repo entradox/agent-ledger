@@ -1,0 +1,23 @@
+{
+  "_note": "Providers the proxy can forward to. Adding one here is a CONFIG change, not a code change — that is deliberate: an agent's spend must be meterable regardless of which vendor it calls, and a hard-coded list guarantees the next provider is invisible. Each entry needs a base_url, the header the credential arrives in, and the field names the provider uses for token usage. wire_format is informational (openai or anthropic) and decides nothing at runtime.",
+  "_updated": "2026-09-13",
+  "providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com",
+      "credential_header": "authorization",
+      "usage_in": "prompt_tokens",
+      "usage_out": "completion_tokens",
+      "usage_cache_hit": "prompt_cache_hit_tokens",
+      "wire_format": "openai",
+      "_note": "OpenAI-compatible. Also serves an Anthropic-format endpoint at https://api.deepseek.com/anthropic — add a second entry pointing there if you prefer that wire format."
+    },
+    "moonshot": {
+      "base_url": "https://api.moonshot.ai",
+      "credential_header": "authorization",
+      "usage_in": "prompt_tokens",
+      "usage_out": "completion_tokens",
+      "wire_format": "openai",
+      "_note": "Kimi. Shipped as a second example of the extension path: nothing in the code knows this provider exists."
+    }
+  }
+}

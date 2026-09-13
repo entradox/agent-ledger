@@ -118,6 +118,8 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Token→cost auto-pricing** — send tokens + model and the dollar amount is computed for you;
   an unpriced model is refused rather than silently recorded as free
 - **Budget enforcement** — warns at 80% of cap, rejects the ledger write that would cross it
+- **Any provider, config not code** — `providers.json` lists the vendors the proxy can forward
+  to (OpenAI, Anthropic, DeepSeek and Moonshot ship as examples); adding one is a config edit
 - **Proxy enforcement (the real thing)** — point your provider `base_url` at `/proxy/{provider}`
   and a call that would cross the cap is refused *before* the provider is contacted, so the money
   is never spent. Pass-through: your provider key is forwarded, never stored

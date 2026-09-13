@@ -1,13 +1,23 @@
 {
-  "_note": "Per-1M-token USD prices used to meter proxied calls. OPERATOR-MAINTAINED: these are placeholders and MUST be verified against each provider's pricing page before the numbers are trusted. An entry with \"verified\": false is a placeholder. A model that is not listed at all is NOT blocked: the call passes through and an alert fires. GET /v1/pricing shows exactly what is loaded and its provenance.",
+  "_note": "Per-1M-token USD prices used to meter proxied calls and to auto-price POST /v1/track. Every entry carries a source and an as_of date; 'verified' is false until an operator has confirmed the number against the provider's own page. An entry with a cache_hit rate uses it for cached input tokens — ignoring it would overstate a cache-heavy workload badly (DeepSeek's cache-hit rate is ~50x cheaper than cache-miss). A model that is not listed at all is NOT blocked: the call passes through and an alert fires. GET /v1/pricing shows exactly what is loaded.",
   "_updated": "2026-09-13",
   "models": {
-    "gpt-4o":            {"in": 2.50,  "out": 10.00, "provider": "openai",    "verified": false},
-    "gpt-4o-mini":       {"in": 0.15,  "out": 0.60,  "provider": "openai",    "verified": false},
-    "gpt-4.1":           {"in": 2.00,  "out": 8.00,  "provider": "openai",    "verified": false},
-    "o4-mini":           {"in": 1.10,  "out": 4.40,  "provider": "openai",    "verified": false},
-    "claude-sonnet-4-5": {"in": 3.00,  "out": 15.00, "provider": "anthropic", "verified": false},
-    "claude-opus-4-1":   {"in": 15.00, "out": 75.00, "provider": "anthropic", "verified": false},
-    "claude-haiku-4-5":  {"in": 1.00,  "out": 5.00,  "provider": "anthropic", "verified": false}
+    "deepseek-v4-flash": {"in": 0.14,   "out": 0.28, "cache_hit": 0.0028,   "provider": "deepseek",  "verified": false,
+                          "source": "https://api-docs.deepseek.com/quick_start/pricing/", "as_of": "2026-09-13",
+                          "note": "DeepSeek announced peak/off-peak billing taking effect 2026-08-16 16:00 UTC; this is the flat published rate. Verify before trusting."},
+    "deepseek-v4-pro":   {"in": 0.435,  "out": 0.87, "cache_hit": 0.003625, "provider": "deepseek",  "verified": false,
+                          "source": "https://api-docs.deepseek.com/quick_start/pricing/", "as_of": "2026-09-13"},
+    "deepseek-flash":    {"in": 0.14,   "out": 0.28, "cache_hit": 0.0028,   "provider": "deepseek",  "verified": false,
+                          "source": "alias of deepseek-v4-flash, used by the Hermes fleet config", "as_of": "2026-09-13"},
+    "deepseek-chat":     {"in": 0.14,   "out": 0.28, "cache_hit": 0.0028,   "provider": "deepseek",  "verified": false,
+                          "source": "legacy name; DeepSeek retired deepseek-chat / deepseek-reasoner on 2026-07-24, they now map to V4-Flash", "as_of": "2026-09-13"},
+
+    "gpt-4o":            {"in": 2.50,   "out": 10.00, "provider": "openai",    "verified": false},
+    "gpt-4o-mini":       {"in": 0.15,   "out": 0.60,  "provider": "openai",    "verified": false},
+    "gpt-4.1":           {"in": 2.00,   "out": 8.00,  "provider": "openai",    "verified": false},
+    "o4-mini":           {"in": 1.10,   "out": 4.40,  "provider": "openai",    "verified": false},
+    "claude-sonnet-4-5": {"in": 3.00,   "out": 15.00, "provider": "anthropic", "verified": false},
+    "claude-opus-4-1":   {"in": 15.00,  "out": 75.00, "provider": "anthropic", "verified": false},
+    "claude-haiku-4-5":  {"in": 1.00,   "out": 5.00,  "provider": "anthropic", "verified": false}
   }
 }

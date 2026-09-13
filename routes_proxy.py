@@ -58,12 +58,12 @@ def _proxy_identity(request: Request) -> str:
 
 
 def _meter(agent_id: str, provider: str, model: str,
-           tokens_in: int, tokens_out: int) -> int:
+           tokens_in: int, tokens_out: int, cache_hit_in: int = 0) -> int:
     """Record what the call actually cost. Never raises: the provider has
     already charged, so failing here would report a problem the caller cannot
     act on. Uses the ordinary ledger path so caps, alerts and webhooks apply."""
     from ledger_engine import track, _log_alert_daily
-    exact = proxy_core.cost_cents_exact(model, tokens_in, tokens_out)
+    exact = proxy_core.cost_cents_exact(model, tokens_in, tokens_out, cache_hit_in)
     if exact is None:
         # Unpriced model: record the real token burn at zero dollars and make
         # noise. A silent zero would read as 'this agent spends nothing'.
@@ -84,7 +84,8 @@ def _meter(agent_id: str, provider: str, model: str,
     cents = proxy_core.whole_cents_with_residue(agent_id, exact)
     try:
         track(agent_id, "api_key", cents, provider,
-              tokens_in=tokens_in, tokens_out=tokens_out, model=model)
+              tokens_in=tokens_in, tokens_out=tokens_out, model=model,
+              cache_hit_in=cache_hit_in)
     except BudgetExceededError as exc:
         # Post-hoc: the money is already spent. Record the miss loudly rather
         # than discarding the entry and hiding it.
@@ -161,7 +162,8 @@ async def proxy_call(provider: str, path: str, request: Request):
     cfg = proxy_core.provider_config(provider)
     if not cfg:
         return _err(404, f"unknown provider '{provider}' — supported: "
-                         f"{sorted(proxy_core.PROVIDERS)}", "unknown_provider")
+                         f"{proxy_core.provider_ids()} (add one in providers.json; "
+                         f"no code change needed)", "unknown_provider")
 
     agent_id = _proxy_identity(request)
 

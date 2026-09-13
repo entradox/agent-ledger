@@ -152,6 +152,20 @@ def test_docs_document_auto_pricing_and_its_refusal():
     assert "OPTIONAL" in api_server.LLMS_TXT
 
 
+def test_docs_say_providers_are_config_not_code():
+    """The fix for 'DeepSeek is not counted' is provider extensibility, not a
+    DeepSeek special case. If the docs stop saying so, the next vendor goes
+    invisible again."""
+    import api_server
+    from docs_content import get_api_docs
+    assert "providers.json" in api_server.LLMS_TXT
+    assert "providers.json" in get_api_docs("metering")
+    assert "deepseek" in api_server.LLMS_TXT.lower()
+    # and the errors topic must be about errors again — my earlier sections had
+    # piled up there because of where I anchored them
+    assert "providers.json" not in get_api_docs("errors")
+
+
 def test_llms_txt_documents_the_proxy_and_its_limits():
     """The proxy is the only real enforcement this product has, and the only
     place a caller could be misled about what it guarantees."""
