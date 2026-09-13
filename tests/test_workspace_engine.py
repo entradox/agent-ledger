@@ -171,3 +171,34 @@ def test_no_automatic_caller_of_reissue_key(engine):
     callers = [h for h in hits
                if "/tests/" not in h and "workspace_engine.py" not in h]
     assert callers == [], f"reissue_key called automatically from: {callers}"
+
+
+def test_scarcity_claims_left_counts_workspaces_not_agents(monkeypatch):
+    """The launch window is per WORKSPACE (create_workspace grants on
+    workspace_count() < WORKSPACE_SCARCITY_CAP), so the public counter must
+    measure that population. It used to count claimed agents, which meant
+    deleting an unrelated test agent moved a launch-scarcity number — observed
+    live on 2026-09-13 (44 -> 46 after purging two test agents)."""
+    import shutil, tempfile, importlib
+    tmp = tempfile.mkdtemp()
+    monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
+    import workspace_engine, ledger_engine
+    importlib.reload(workspace_engine)
+    importlib.reload(ledger_engine)
+    try:
+        cap = workspace_engine.WORKSPACE_SCARCITY_CAP
+        assert ledger_engine.scarcity_claims_left() == cap
+
+        _, key = workspace_engine.create_workspace(owner_email="a@example.com")
+        assert ledger_engine.scarcity_claims_left() == cap - 1
+
+        # Claiming an AGENT must not move it.
+        ledger_engine.ensure_agent_secret("some-agent", workspace_key=key)
+        assert ledger_engine.scarcity_claims_left() == cap - 1
+
+        # ...and it bottoms out at zero rather than going negative.
+        for i in range(cap):
+            workspace_engine.create_workspace(owner_email=f"x{i}@example.com")
+        assert ledger_engine.scarcity_claims_left() == 0
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

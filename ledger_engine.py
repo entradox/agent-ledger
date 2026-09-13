@@ -403,16 +403,28 @@ def is_pro(agent_id: str) -> dict:
 
 
 def scarcity_claims_left() -> int:
-    """Public aggregate count only — no agent_ids or emails. A slot is
-    consumed by a CLAIM (secret minted), and an agent_id can hold at most one
-    slot, so this counts the claimed-agent store — the exact population the
-    ensure_agent_secret() window gate admits against (D-819). Deliberately
-    NOT a count of SQLite pro_until rows: that population diverges from
-    claims in both directions (orphan rows left behind by a deleted agent
-    under-report; legacy pre-v0.3.1 claims with a secret dir but no row are
-    invisible), which let the gate and this counter disagree. Slots are not
-    returned when a grant expires — the 50 are all-time claimed agents."""
-    return max(0, SCARCITY_PRO_CAP - claimed_agent_count())
+    """Public aggregate count only — no agent_ids, no emails, no workspace ids.
+
+    Counts WORKSPACES, because that is the population the launch window
+    actually admits: workspace_engine.create_workspace() grants the scarcity
+    Pro when `workspace_count() < WORKSPACE_SCARCITY_CAP`, and both llms.txt
+    and /.well-known/agent.json describe the offer as "the first 50 workspaces
+    ever created".
+
+    This previously returned `SCARCITY_PRO_CAP - claimed_agent_count()` — the
+    per-AGENT population from v0.3.1 (D-818), which was retired when the
+    window moved to per-workspace identity. The two populations diverge, so
+    the public number disagreed with the gate it advertises and moved whenever
+    an agent (not a workspace) was added or deleted: purging two test agents
+    on 2026-09-13 pushed it from 44 to 46.
+
+    Imported locally on purpose: workspace_engine imports this module at import
+    time, so a module-level import here would be circular. Slots are not
+    returned when a grant expires — the 50 are all-time workspaces.
+    """
+    import workspace_engine
+    return max(0, workspace_engine.WORKSPACE_SCARCITY_CAP
+               - workspace_engine.workspace_count())
 
 
 # ── Idempotency-Key store (launch-kit v0.3) ─────────────────────────────────
