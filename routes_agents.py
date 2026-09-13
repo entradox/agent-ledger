@@ -524,7 +524,6 @@ class RotateSecretRequest(BaseModel):
 class WebhookRequest(BaseModel):
     url: str
     events: Optional[list] = None
-    kind: str = "webhook"
     label: str = ""
 
 
@@ -532,8 +531,10 @@ class WebhookRequest(BaseModel):
 def create_webhook(req: WebhookRequest, request: Request):
     """Register a destination for this workspace's alerts.
 
-    Workspace-scoped (X-Workspace-Key). `kind` is "webhook" for an http(s) URL
-    or "email" for an address. Events: alert.raised, budget.warning (80%),
+    Workspace-scoped (X-Workspace-Key). `url` must be http(s) — point it at
+    Slack, Discord, Zapier or your own endpoint. Email delivery is not offered
+    (removed 2026-09-13): the product does not send mail to arbitrary addresses
+    on a user's behalf. Events: alert.raised, budget.warning (80%),
     budget.exceeded, anomaly.detected — omit `events` to receive all of them.
 
     Payloads carry cost metadata only: event, agent_id, message, timestamp,
@@ -544,7 +545,7 @@ def create_webhook(req: WebhookRequest, request: Request):
         request, purpose="configuring alert delivery")
     try:
         entry = alert_delivery.register(workspace_id, req.url, req.events,
-                                       kind=req.kind, label=req.label)
+                                       label=req.label)
     except alert_delivery.WebhookError as e:
         raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_webhook"))
     return {"webhook": entry,

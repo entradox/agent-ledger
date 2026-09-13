@@ -22,17 +22,22 @@ Design notes that matter:
 * Webhook URLs are chosen by the caller and fetched by our server, so they are
   an SSRF surface. Private/loopback/link-local targets are refused unless
   AL_ALLOW_PRIVATE_WEBHOOKS=1 (set only in tests).
+
+**Email delivery was removed 2026-09-13 (principal directive).** Registration
+takes an http(s) URL only. The product does not send mail on a user's behalf:
+the operator's SMTP rail exists to mail the operator about checkout, not to
+become a relaying surface for arbitrary addresses. Anything that needs a human
+notification goes to a webhook the user owns — Slack, Discord, Zapier, their
+own endpoint.
 """
 import ipaddress
 import json
 import os
-import smtplib
 import socket
 import threading
 import time
 import urllib.error
 import urllib.request
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -101,21 +106,20 @@ def _is_public_target(url: str) -> bool:
     return True
 
 
-def validate_url(url: str, kind: str = "webhook") -> str:
+def validate_url(url: str) -> str:
+    """http(s) only. An email-shaped string is rejected here — the product has
+    no mail rail by design (see the module docstring)."""
     url = (url or "").strip()
     if not url:
         raise WebhookError("url is required")
-    if kind == "email":
-        if "@" not in url or len(url) > 254 or url.startswith("@"):
-            raise WebhookError("email destination must be a valid address")
-        return url
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise WebhookError("webhook url must be http:// or https://")
+        raise WebhookError("url must be http:// or https:// — email delivery "
+                           "is not offered; point a webhook at your own service")
     if not parsed.hostname:
-        raise WebhookError("webhook url must include a host")
+        raise WebhookError("url must include a host")
     if os.environ.get("AL_ALLOW_PRIVATE_WEBHOOKS", "") != "1" and not _is_public_target(url):
-        raise WebhookError("webhook url must resolve to a public address")
+        raise WebhookError("url must resolve to a public address")
     return url
 
 
@@ -136,16 +140,16 @@ def _save_registry(workspace_id: str, entries: list) -> None:
 
 
 def register(workspace_id: str, url: str, events: Optional[list] = None,
-             kind: str = "webhook", label: str = "") -> dict:
+             label: str = "") -> dict:
     entries = load_registry(workspace_id)
     if len(entries) >= MAX_WEBHOOKS_PER_WORKSPACE:
         raise WebhookError(
             f"at most {MAX_WEBHOOKS_PER_WORKSPACE} destinations per workspace")
-    url = validate_url(url, kind)
+    url = validate_url(url)
     selected = [e for e in (events or list(EVENTS)) if e in EVENTS]
     if not selected:
         raise WebhookError(f"events must be a non-empty subset of {list(EVENTS)}")
-    entry = {"id": "wh_" + os.urandom(8).hex(), "url": url, "kind": kind,
+    entry = {"id": "wh_" + os.urandom(8).hex(), "url": url,
              "events": selected, "label": label, "created_at": time.time()}
     entries.append(entry)
     _save_registry(workspace_id, entries)
@@ -190,35 +194,8 @@ def recent_deliveries(workspace_id: str, limit: int = 50) -> list:
         return []
 
 
-def _send_email(to_addr: str, payload: dict) -> None:
-    host = os.environ.get("ICLOUD_SMTP_HOST", "smtp.mail.me.com")
-    port = int(os.environ.get("ICLOUD_SMTP_PORT", "587"))
-    user = os.environ.get("ICLOUD_SMTP_USER", "")
-    password = os.environ.get("ICLOUD_SMTP_APP_PASSWORD", "")
-    if not (user and password):
-        raise RuntimeError("SMTP not configured (ICLOUD_SMTP_USER / ICLOUD_SMTP_APP_PASSWORD)")
-    msg = MIMEText(
-        f"{payload['message']}\n\n"
-        f"agent:     {payload['agent_id']}\n"
-        f"event:     {payload['event']}\n"
-        f"at:        {payload['timestamp']}\n\n"
-        f"Report:    {payload.get('report_url', '')}\n"
-        f"-- AgentLedger. Cost metadata only; prompts and responses are never stored.\n",
-        "plain")
-    msg["Subject"] = f"AgentLedger {payload['event']}: {payload['agent_id']}"
-    msg["From"] = user
-    msg["To"] = to_addr
-    with smtplib.SMTP(host, port, timeout=DELIVERY_TIMEOUT_SECONDS) as s:
-        s.starttls()
-        s.login(user, password)
-        s.send_message(msg)
-
-
 def deliver_once(entry: dict, payload: dict) -> None:
     """One attempt. Raises on failure so the caller can retry and record."""
-    if entry.get("kind") == "email":
-        _send_email(entry["url"], payload)
-        return
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
         entry["url"], data=body, method="POST",
@@ -241,17 +218,16 @@ def deliver(workspace_id: str, entry: dict, payload: dict) -> dict:
         try:
             deliver_once(entry, payload)
             record = {"ts": time.time(), "webhook_id": entry["id"],
-                      "url": entry["url"], "kind": entry.get("kind", "webhook"),
-                      "event": payload["event"], "agent_id": payload["agent_id"],
-                      "status": "delivered", "attempts": attempts}
+                      "url": entry["url"], "event": payload["event"],
+                      "agent_id": payload["agent_id"], "status": "delivered",
+                      "attempts": attempts}
             _record(workspace_id, record)
             return record
         except Exception as exc:  # noqa: BLE001 — transport of every kind
             error = f"{type(exc).__name__}: {exc}"[:300]
     record = {"ts": time.time(), "webhook_id": entry["id"], "url": entry["url"],
-              "kind": entry.get("kind", "webhook"), "event": payload["event"],
-              "agent_id": payload["agent_id"], "status": "failed",
-              "attempts": attempts, "error": error}
+              "event": payload["event"], "agent_id": payload["agent_id"],
+              "status": "failed", "attempts": attempts, "error": error}
     _record(workspace_id, record)
     return record
 

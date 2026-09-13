@@ -112,13 +112,14 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `agent_not_claimed` (rotate/revoke on an agent_id nobody claimed),
 `not_your_agent` (that agent_id belongs to a different workspace),
 `invalid_ttl` (share link ttl_days outside 1-90),
-`invalid_webhook` (bad destination url/email, unknown event name, or too many
+`invalid_webhook` (non-http(s) destination url, unknown event name, or too many
 destinations), `webhook_not_found` (delete of an id not in your workspace).
 
 ### Alert delivery
 
 An alert you have to poll is not an alert. `POST /v1/webhooks` registers where
-this workspace's alerts should go — an http(s) URL or an email address — and
+this workspace's alerts should go — an http(s) URL (Slack, Discord, Zapier, or
+your own endpoint; there is no email rail) — and
 `GET /v1/webhooks/deliveries` returns receipts for every attempt, successes and
 failures alike, so a silent drop is visible rather than assumed.
 

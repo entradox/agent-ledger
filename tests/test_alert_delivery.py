@@ -206,6 +206,25 @@ def test_private_addresses_are_refused_by_default(env, monkeypatch):
     assert "public address" in r.text
 
 
+def test_email_destinations_are_not_accepted(env):
+    """Removed 2026-09-13 by principal directive. The product does not send
+    mail to arbitrary addresses on a user's behalf — the operator's SMTP rail
+    exists to mail the operator about checkout, not to be a relaying surface.
+    An address-shaped destination must be refused, not silently accepted."""
+    tc, key, _ = env
+    r = _register(tc, key, "alerts@example.com")
+    assert r.status_code == 422
+    assert "http" in r.text
+
+
+def test_the_email_rail_is_actually_gone_from_the_module():
+    """A pin, not a preference: if someone re-adds SMTP here, this fails."""
+    src = (Path(__file__).resolve().parent.parent / "alert_delivery.py").read_text()
+    assert "smtplib" not in src
+    assert "MIMEText" not in src
+    assert "ICLOUD_SMTP" not in src
+
+
 def test_non_http_schemes_are_refused(env):
     tc, key, _ = env
     assert _register(tc, key, "file:///etc/passwd").status_code == 422

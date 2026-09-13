@@ -354,7 +354,7 @@ POST /v1/agents/{agent_id}/revoke-secret — invalidate an agent's secret, keep 
                                       (workspace_key ONLY; the agent_id stays claimed, so no other
                                       workspace can take it over; rotate back in when you want it writing)
 POST /v1/webhooks                  — register an alert destination for this workspace
-                                      (X-Workspace-Key; kind "webhook" http(s) URL or "email")
+                                      (X-Workspace-Key; http(s) URL only — no email rail)
 GET  /v1/webhooks                  — list this workspace's destinations
 GET  /v1/webhooks/deliveries       — delivery receipts, successes AND failures
 DELETE /v1/webhooks/{id}           — remove one destination
@@ -487,7 +487,7 @@ AGENT_JSON = {
                         "an agent_secret cannot rotate itself. 404 if the agent_id is not claimed.",
          "endpoint": "/v1/agents/{agent_id}/rotate-secret", "method": "POST", "free": True},
         {"id": "register_alert_webhook",
-         "description": "Register a destination (http(s) URL or email) for this workspace's alerts — "
+         "description": "Register an http(s) webhook for this workspace's alerts — "
                         "budget.warning at 80%, budget.exceeded when a write is actually blocked, and "
                         "anomaly.detected. Delivered on the event with retries; every attempt is "
                         "recorded, including failures. Cost metadata only, never prompt content.",
@@ -552,8 +552,7 @@ PRIVACY_BODY = """
 <h2>What is stored</h2>
 <p>Per spend entry: the agent id, the payment rail, the service label, the amount, token counts,
 the model name and a timestamp. Per workspace: the workspace id, a hash of the workspace key, the
-plan and billing state, and — if you register one — an alert destination (a URL or an email
-address). Keys and secrets are stored as hashes or as files readable only by the service.</p>
+plan and billing state, and — if you register one — an alert webhook URL. Keys and secrets are stored as hashes or as files readable only by the service.</p>
 
 <h2>What is never stored</h2>
 <p>Prompts and model responses. There is no field for them: the ledger records cost metadata, and
@@ -564,8 +563,9 @@ anything sensitive in a service name.</p>
 
 <h2>Who processes it</h2>
 <p>Railway hosts the service and its storage volume. Stripe processes payments and receives the
-billing details you give it — we never see your card number. Alert email, if you enable it, is sent
-through the operator's SMTP provider to the address you chose. Nothing else receives your data.</p>
+billing details you give it — we never see your card number. Alert webhooks, if you register one,
+carry cost metadata to the URL you chose. The product does not send email to arbitrary addresses on
+your behalf. Nothing else receives your data.</p>
 
 <h2>What we do not do</h2>
 <p>We do not sell, rent or share your data, and we do not use it to train models.</p>
