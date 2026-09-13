@@ -1,6 +1,6 @@
 {
  "project": "agent-ledger",
- "updated": "2026-09-11",
+ "updated": "2026-09-13",
  "features": [
   {
    "name": "per-agent spend ledger",
@@ -67,6 +67,11 @@
    "name": "workspace key rotation/revocation UI",
    "status": "not_started",
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
+  },
+  {
+   "name": "agent-secret rotation/revocation (owner recovery)",
+   "status": "planned",
+   "note": "D-1216: built + committed on branch d-1216-secret-recovery (f7849d2), 213 tests green, MCP smoke-tested. NOT marked shipped: not deployed, no independent adversarial pass, and the prod hard gate scanner is red on main too."
   },
   {
    "name": "per-workspace rate limiting",
