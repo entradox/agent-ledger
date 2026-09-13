@@ -332,7 +332,12 @@ a dollar cap alone does not protect it. See ledger_api_docs("budget").
 
 GET  /health                       — liveness
 POST /v1/track                     — record a spend entry (mints/verifies agent_secret)
-     body: {"agent_id": str, "rail": str, "amount_cents": int (0-10000000), "service": str,
+     body: {"agent_id": str, "rail": str,
+            "amount_cents": int (0-10000000) — OPTIONAL: omit it and send
+                            tokens_in/tokens_out + model, and the amount is computed from the
+                            price table (GET /v1/pricing). An unpriced model is refused with
+                            422 model_not_priced rather than recorded as zero.
+            "service": str — OPTIONAL when auto-pricing; defaults to the model's provider
             "tokens_in": int (optional), "tokens_out": int (optional), "model": str (optional),
             "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}

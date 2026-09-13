@@ -115,6 +115,8 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 ## Features
 
 - **Multi-rail neutral** — x402, MPP, API keys, manual entries; not locked to one payment rail
+- **Token→cost auto-pricing** — send tokens + model and the dollar amount is computed for you;
+  an unpriced model is refused rather than silently recorded as free
 - **Budget enforcement** — warns at 80% of cap, rejects the ledger write that would cross it
 - **Proxy enforcement (the real thing)** — point your provider `base_url` at `/proxy/{provider}`
   and a call that would cross the cap is refused *before* the provider is contacted, so the money

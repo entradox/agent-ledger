@@ -36,8 +36,11 @@ COUNTS_FILE = DATA_DIR / "counts.jsonl"
 class TrackRequest(BaseModel):
     agent_id: str
     rail: str
-    amount_cents: int = Field(ge=0, le=MAX_AMOUNT_CENTS)
-    service: str
+    # Optional (BUILD-4): when omitted, the amount is computed from tokens +
+    # model against the price table, so a caller that already knows its token
+    # usage never has to do the dollar arithmetic itself.
+    amount_cents: Optional[int] = Field(default=None, ge=0, le=MAX_AMOUNT_CENTS)
+    service: Optional[str] = None
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     model: str = ""
@@ -190,6 +193,36 @@ def create_track(req: TrackRequest, request: Request):
     # unauthenticated caller must not be able to reserve/409 a legitimate
     # retry or read the cache (Morgan review 2026-09-09). Failed writes
     # release their in-flight row so honest retries re-attempt.
+    #
+    # BUILD-4: a tokens-only write is priced here, from the same table the
+    # proxy uses. Refusing an unpriced model is deliberate — recording 0 would
+    # be a silent lie about money that really was spent.
+    auto_priced = False
+    amount = req.amount_cents
+    service = req.service
+    if amount is None:
+        if req.rail == "tokens":
+            amount = 0
+        else:
+            if not req.model or not (req.tokens_in or req.tokens_out):
+                raise HTTPException(422, detail=error_envelope(
+                    422, "amount_cents is required unless you send tokens_in/tokens_out "
+                         "AND model, in which case it is computed for you",
+                    code="amount_required"))
+            import proxy as _proxy
+            exact = _proxy.cost_cents_exact(req.model, req.tokens_in, req.tokens_out)
+            if exact is None:
+                raise HTTPException(422, detail=error_envelope(
+                    422, f"no price for model '{req.model}' — send amount_cents explicitly, "
+                         f"or check GET /v1/pricing",
+                    code="model_not_priced"))
+            amount = _proxy.whole_cents_with_residue(req.agent_id, exact)
+            auto_priced = True
+            if not service:
+                service = (_proxy.lookup(req.model) or {}).get("provider") or "unknown"
+    if not service:
+        service = req.model or "manual"
+
     idem_key = request.headers.get("Idempotency-Key")
     secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
     cached = _idempotency_gate(request, req.agent_id, "track")
@@ -208,7 +241,7 @@ def create_track(req: TrackRequest, request: Request):
             tok_meta["model"] = req.model
     primary_meta = tok_meta if req.rail == "tokens" else {}
     try:
-        entry = track(req.agent_id, req.rail, req.amount_cents, req.service, **primary_meta)
+        entry = track(req.agent_id, req.rail, amount, service, **primary_meta)
     except ValidationError as e:
         idempotency_release(idem_key, req.agent_id, "track")
         try:
@@ -228,8 +261,12 @@ def create_track(req: TrackRequest, request: Request):
             pass
         raise HTTPException(402, detail=error_envelope(402, str(e)))
     if req.rail != "tokens" and tok_meta:
-        track(req.agent_id, "tokens", 0, req.model or req.service, **tok_meta)
+        track(req.agent_id, "tokens", 0, req.model or service, **tok_meta)
     result = entry.to_dict()
+    if auto_priced:
+        result["priced"] = "auto"
+        result["_note"] = (f"amount_cents was computed from {req.tokens_in + req.tokens_out} "
+                           f"tokens on '{req.model}'. Send amount_cents to override.")
     if created:
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "

@@ -113,7 +113,8 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `not_your_agent` (that agent_id belongs to a different workspace),
 `invalid_ttl` (share link ttl_days outside 1-90),
 `invalid_webhook` (non-http(s) destination url, unknown event name, or too many
-destinations), `webhook_not_found` (delete of an id not in your workspace).
+destinations), `amount_required` (no amount_cents and no tokens+model to price
+from), `model_not_priced` (tokens+model sent but the model has no price), `webhook_not_found` (delete of an id not in your workspace).
 
 ### Alert delivery
 
@@ -132,6 +133,24 @@ Payloads carry cost metadata only — event, agent_id, message, timestamp,
 report URL. Never a credential, never a prompt, never a response. Destinations
 are SSRF-checked: a URL resolving to a private, loopback or link-local address
 is refused.
+
+### You do not have to price your own tokens
+
+`amount_cents` is optional on `POST /v1/track`. Send `tokens_in` / `tokens_out`
+plus `model` and the amount is computed from the same table the proxy uses, so
+an agent that already knows its token usage never has to carry a copy of the
+provider's price list:
+
+```json
+{"agent_id": "writer-bot", "rail": "api_key",
+ "tokens_in": 120000, "tokens_out": 45000, "model": "claude-sonnet-4-5"}
+```
+
+`service` defaults to the model's provider. The response carries
+`"priced": "auto"` and the computed `amount_cents`. A model with no price is
+refused with `422 model_not_priced` — never recorded as costing nothing, because
+a zero entry reads as "this agent spends nothing" while real money left the
+account. `GET /v1/pricing` lists what is priced.
 
 ### Enforcement: the proxy
 

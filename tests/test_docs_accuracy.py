@@ -142,6 +142,16 @@ def test_agent_json_legal_names_the_pages():
     assert "never stored" in legal
 
 
+def test_docs_document_auto_pricing_and_its_refusal():
+    """The refusal is the load-bearing part: an unpriced model must never be
+    recorded as a zero-cost spend."""
+    import api_server
+    from docs_content import get_api_docs
+    assert "model_not_priced" in api_server.LLMS_TXT
+    assert "model_not_priced" in get_api_docs("errors")
+    assert "OPTIONAL" in api_server.LLMS_TXT
+
+
 def test_llms_txt_documents_the_proxy_and_its_limits():
     """The proxy is the only real enforcement this product has, and the only
     place a caller could be misled about what it guarantees."""

@@ -69,6 +69,11 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "proxy enforcement (block the spend, not the write)",
+   "status": "shipped",
+   "note": "D-1222 (d741a87). POST /proxy/{provider}/{path} blocks before the provider is contacted; pass-through, no key custody. Route live; the block-before-provider property is proven against a fake upstream in tests, not yet live. model_prices.json is UNVERIFIED placeholders."
+  },
+  {
    "name": "trust surface: honest claims, privacy/terms, real status page",
    "status": "shipped",
    "note": "D-1219 (6f92ea7). Verified live: no 'real enforcement' claim, data-handling statement published and asserted against the data model, /privacy + /terms + a real /status health page. LEGAL WORDING NEEDS A MORGAN PASS."
