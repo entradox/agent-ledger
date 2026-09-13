@@ -69,6 +69,16 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
+   "name": "cache-tier pricing (Claude) — input is three prices, not one",
+   "status": "shipped",
+   "note": "8b12a93. Anthropic bills input at 1x fresh / 1.25x 5m cache write / 2x 1h cache write / 0.1x cache read. Priced against a real Claude Code session: $15.22 true vs $112.85 at the flat rate (7.4x). 13 Claude entries now verified:true from Anthropic's pricing page; OpenAI entries stay false and say so. 15 tests."
+  },
+  {
+   "name": "Claude Code skill: MCP + automatic session reporting",
+   "status": "shipped",
+   "note": "8b12a93 (BUILD-6). integrations/claude-code/: report-session.py parses the transcript (deduped by message id — 317 records for 181 messages in one real session, so summing would overstate ~75%), install.py merges MCP + a Stop hook into Claude Code settings without rewriting them. 17 reporter tests + 10 installer tests."
+  },
+  {
    "name": "SDK wrappers: one line to the proxy (agentledger.wrap)",
    "status": "shipped",
    "note": "BUILD-3 (06faf27). Repoints an existing OpenAI/Anthropic SDK client at the proxy without patching or subclassing it; the provider credential is untouched. Tested against the REAL installed SDKs - which is how the httpx-vs-httpx2 URL-type incompatibility was found. 8 tests."
