@@ -105,6 +105,43 @@ def test_a_stale_reporter_path_is_refreshed_rather_than_added_again(settings_fil
     assert len([c for c in commands if "report-session.py" in c]) == 1, "the hook was duplicated"
 
 
+def test_an_env_file_is_sourced_and_the_secret_stays_out_of_settings(settings_file, tmp_path):
+    """The credential must not land in settings.json, which is shared, often
+    synced, and read by every tool on the machine."""
+    env_file = tmp_path / "creds.env"
+    env_file.write_text("AGENT_LEDGER_AGENT_SECRET=as_do_not_put_this_in_settings\n")
+    installer.main(["--settings", str(settings_file), "--reporter", str(REPORTER),
+                    "--env-file", str(env_file), "--agent-id", "cc"])
+    text = settings_file.read_text()
+    assert str(env_file) in text, "the hook does not source the credential file"
+    assert "as_do_not_put_this_in_settings" not in text, "the secret was written into settings.json"
+
+    settings = json.loads(text)
+    command = [h["command"] for e in settings["hooks"]["Stop"] for h in e["hooks"]
+               if "report-session.py" in h["command"]][0]
+    assert command.index(". ") < command.index("report-session.py"), (
+        "the file must be sourced BEFORE the reporter runs, or the secret arrives too late")
+    assert "set -a" in command, "without set -a the sourced vars are not exported"
+
+
+def test_a_differently_named_secret_variable_is_remapped(settings_file, tmp_path):
+    """The reporter reads AGENT_LEDGER_AGENT_SECRET. A creds file that calls it
+    something else must be mapped, not silently ignored — otherwise the hook
+    runs, finds no credential, and fails on every Stop without anyone seeing it.
+    Found by executing the installed hook instead of trusting the install."""
+    env_file = tmp_path / "creds.env"
+    env_file.write_text("AGENT_LEDGER_DOGFOOD_SECRET=as_whatever\n")
+    installer.main(["--settings", str(settings_file), "--reporter", str(REPORTER),
+                    "--env-file", str(env_file),
+                    "--secret-env", "AGENT_LEDGER_DOGFOOD_SECRET"])
+    settings = json.loads(settings_file.read_text())
+    command = [h["command"] for e in settings["hooks"]["Stop"] for h in e["hooks"]
+               if "report-session.py" in h["command"]][0]
+    assert 'AGENT_LEDGER_AGENT_SECRET="$AGENT_LEDGER_DOGFOOD_SECRET"' in command
+    assert command.index("set +a") < command.index("AGENT_LEDGER_AGENT_SECRET"), (
+        "the variable must be mapped AFTER the file is sourced")
+
+
 def test_the_original_is_backed_up(settings_file):
     installer.main(["--settings", str(settings_file), "--reporter", str(REPORTER)])
     backup = settings_file.with_suffix(".json.bak")

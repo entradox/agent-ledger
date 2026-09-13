@@ -89,6 +89,16 @@ def main(argv=None) -> int:
                    help="the agent_id this session's spend is attributed to")
     p.add_argument("--reporter", default=str(DEFAULT_REPORTER))
     p.add_argument("--python", default=sys.executable or "python3")
+    p.add_argument("--env-file", help="a file the hook sources before running, for the "
+                                      "agent credential. Deliberately NOT stored in "
+                                      "settings.json, which is shared and often synced.")
+    p.add_argument("--secret-env", help="name of the variable holding the agent secret in "
+                                        "that file, if it is not already "
+                                        "AGENT_LEDGER_AGENT_SECRET. The reporter reads "
+                                        "AGENT_LEDGER_AGENT_SECRET, so a differently-named "
+                                        "variable is REMAPPED here — without this the hook "
+                                        "runs, finds no credential, and fails quietly on "
+                                        "every Stop.")
     p.add_argument("--uninstall", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
@@ -106,7 +116,17 @@ def main(argv=None) -> int:
         if not reporter.exists() and not args.dry_run:
             print(f"reporter not found: {reporter}", file=sys.stderr)
             return 1
-        command = (f"AGENT_LEDGER_API_BASE={args.api_base} "
+        env_part = ""
+        if args.env_file:
+            env_file = Path(args.env_file).expanduser()
+            env_part = f"set -a; . {env_file}; set +a; "
+        secret_part = ""
+        if args.secret_env:
+            # Remap rather than require the file to be renamed: the credential
+            # is already somewhere, and asking a user to move it is how this
+            # ends up duplicated across two files that drift apart.
+            secret_part = f'AGENT_LEDGER_AGENT_SECRET="${args.secret_env}" '
+        command = (f"{env_part}{secret_part}AGENT_LEDGER_API_BASE={args.api_base} "
                    f"AGENT_LEDGER_AGENT_ID={args.agent_id} "
                    f"{args.python} {reporter}")
         changed = merge_mcp(settings, args.api_base.rstrip("/") + "/mcp/")
@@ -128,10 +148,13 @@ def main(argv=None) -> int:
     print(f"{'removed AgentLedger from' if args.uninstall else 'wired AgentLedger into'} {path}")
 
     if not args.uninstall:
+        secret_note = (f"       (already covered — the hook sources {args.env_file})"
+                       if args.env_file else
+                       f"       agent-ledger --api-base {args.api_base} init --agent {args.agent_id}")
         print(f"""
 Next:
-  1. create the agent and write its credentials:
-       agent-ledger --api-base {args.api_base} init --agent {args.agent_id}
+  1. make sure the agent's credential is available to the hook:
+{secret_note}
   2. confirm what a session cost, without posting anything:
        {args.python} {Path(args.reporter).expanduser()} --dry-run
   3. set a cap — this is the part that stops spend:
