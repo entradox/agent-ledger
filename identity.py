@@ -6,9 +6,21 @@ into this module instead of each
 reimplementing agent_secret/workspace_key comparison. See
 docs/superpowers/specs/2026-09-10-workspace-identity-design.md section 0.
 """
+import re as _re
 import secrets as _secrets
 from pathlib import Path
 from typing import Optional
+
+# Same charset contract ledger_engine.validate_agent_id enforces at the REST
+# boundary. The identity layer is the choke-point every gate resolves through,
+# so it validates here too — defense in depth, not trust-the-caller.
+_AGENT_ID_RE = _re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,63})$")
+
+
+def _validated_agent_id(agent_id: str) -> str:
+    if not isinstance(agent_id, str) or not _AGENT_ID_RE.match(agent_id):
+        raise ValueError("invalid agent_id")
+    return agent_id
 
 
 def resolve_workspace_key(raw_key: Optional[str]) -> Optional[str]:
@@ -24,6 +36,7 @@ def resolve_agent_secret(agent_id: str, provided_secret: Optional[str]) -> bool:
     """True if provided_secret matches agent_id's real, persisted secret."""
     if not agent_id or not provided_secret:
         return False
+    _validated_agent_id(agent_id)
     from ledger_engine import _secret_path
     path = _secret_path(agent_id)
     if not path.exists():
@@ -35,6 +48,7 @@ def _agent_belongs_to_workspace(agent_id: str, workspace_id: Optional[str]) -> b
     """True if agent_id's workspace_id.txt names exactly this workspace."""
     if not workspace_id:
         return False
+    _validated_agent_id(agent_id)
     from ledger_engine import DATA_DIR
     ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
     return ws_file.exists() and ws_file.read_text().strip() == workspace_id
@@ -47,6 +61,7 @@ def workspace_of_agent(agent_id: str) -> Optional[str]:
     starting point and the workspace must be found (alert delivery resolves
     which workspace's destinations to fan an event out to, D-1218).
     """
+    _validated_agent_id(agent_id)
     from ledger_engine import DATA_DIR
     ws_file = DATA_DIR / "agents" / agent_id / "workspace_id.txt"
     if not ws_file.exists():
