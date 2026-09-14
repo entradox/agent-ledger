@@ -255,7 +255,11 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
         if claimed_in_workspace >= agent_cap:
             raise BetaCapExceededError(
                 f"Free tier: {agent_cap} agents per workspace. Upgrade to Pro ($19/mo) "
-                "for unlimited agents — https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+                "for unlimited agents — POST /v1/billing/checkout with this workspace's "
+                "credentials returns a payment link bound to this workspace "
+                "(mint a workspace at POST /start if you do not have one). "
+                "A bare Stripe link cannot be used here: it carries no workspace "
+                "reference, so the payment would not upgrade anything.")
 
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)

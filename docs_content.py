@@ -32,7 +32,10 @@ curl -X POST {BASE_URL}/v1/track \\
 Claiming a NEW `agent_id` requires a `workspace_key` in that first write's
 body (add `"workspace_key":"wk_live_..."` to the example above). Get one
 with no human at all via `POST /v1/billing/x402` — the paying wallet
-becomes the workspace identity. A human can instead open `{BASE_URL}/start`,
+becomes the workspace identity. TESTNET ONLY: `/v1/billing/x402` settles on
+Base Sepolia (`eip155:84532`) with testnet USDC, so a mainnet wallet cannot
+complete it until mainnet onboarding lands; use `/start` if you hold no
+testnet wallet. A human can instead open `{BASE_URL}/start`,
 which mints a workspace and shows its key once — no signup, no login.
 Without a workspace_key, a new claim is rejected with 401
 `workspace_key_required`.
@@ -71,6 +74,8 @@ REST_ENDPOINTS_MD = f"""## REST Endpoints
 GET  /health                       — liveness
 POST /v1/billing/x402              — self-serve workspace_key for an agent with a wallet
                                       (X-PAYMENT header; paying wallet = workspace identity)
+                                      TESTNET ONLY (Base Sepolia eip155:84532, testnet
+                                      USDC); a mainnet wallet cannot complete it yet.
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)

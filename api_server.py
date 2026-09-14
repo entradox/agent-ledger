@@ -321,7 +321,10 @@ Claiming a NEW agent_id requires a workspace_key in the body of the first
 write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
 workspace identity), or by opening GET /start — no signup, no login, no
-card. Missing or invalid key on a new claim gets 401
+card. TESTNET ONLY: /v1/billing/x402 settles on Base Sepolia (eip155:84532)
+with testnet USDC, so a mainnet wallet cannot complete it until mainnet
+onboarding lands; use GET /start if you have no testnet wallet. Missing or
+invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
 {"agent_secret": "...", "_note": "..."}. Save it — every later write to that
@@ -401,6 +404,10 @@ GET  /v1/agents                    — owner-only: full cross-tenant listing (re
 GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
+                                      CURRENTLY TESTNET ONLY: settles on Base Sepolia
+                                      (eip155:84532) with testnet USDC; a mainnet wallet
+                                      cannot complete it until Coinbase CDP onboarding lands.
+                                      Use GET /start instead if you have no testnet wallet.
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 
@@ -539,6 +546,10 @@ AGENT_JSON = {
         "description": "Get a workspace_key with no human at all by paying via "
                         "POST /v1/billing/x402 (the paying wallet becomes the workspace "
                         "identity), or at GET /start — no signup, no login, no card. "
+                        "NOTE: /v1/billing/x402 is TESTNET ONLY right now (Base Sepolia "
+                        "eip155:84532, testnet USDC); a mainnet wallet cannot complete it "
+                        "until mainnet onboarding lands, so prefer GET /start unless you "
+                        "hold a testnet wallet. "
                         "Claiming a NEW agent_id "
                         "requires that workspace_key in the first POST /v1/track or "
                         "/v1/budget body; that call mints an agent_secret in the "
@@ -562,7 +573,10 @@ AGENT_JSON = {
                         "wallet — no human, no login. Present an x402 payment in the "
                         "X-PAYMENT header; the paying wallet becomes the workspace "
                         "identity. Do this first: a workspace_key is required to "
-                        "claim a new agent_id.",
+                        "claim a new agent_id. TESTNET ONLY: settles on Base Sepolia "
+                        "(eip155:84532) with testnet USDC, so a mainnet wallet cannot "
+                        "complete it until mainnet onboarding lands. If you hold no "
+                        "testnet wallet, mint at GET /start instead (no wallet, no card).",
          "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
@@ -883,7 +897,12 @@ enforcement, alerts, reports, token burn, and the MCP server are included.</p>
 no human in the loop at all:</p>
 <pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
-<p class="mut">The paying wallet becomes the workspace identity. Agent-facing docs:
+<p class="mut">The paying wallet becomes the workspace identity.</p>
+<p class="warn"><b>Currently testnet only.</b> This path settles on Base Sepolia
+(<code>eip155:84532</code>) with testnet USDC. A mainnet wallet cannot complete it yet.
+Mainnet arrives when Coinbase CDP onboarding completes; until then, mint at
+<a href="/start" style="color:#8b949e">/start</a> — it needs no wallet and no card.</p>
+<p class="mut">Agent-facing docs:
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
@@ -948,8 +967,10 @@ def _start_limited_html() -> str:
 automated loop — so the mint is capped at 3 workspaces per address per day.</p>
 <p>Already have one? Your <code>workspace_key</code> was shown once when you created it.
 If it is lost, it cannot be recovered in this version.</p>
-<p>Running an agent rather than a browser? The self-serve path is
-<code>POST /v1/billing/x402</code>, which is not affected by this limit.</p>
+<p>Running an agent rather than a browser? The path is
+<code>POST /v1/billing/x402</code>, which is not affected by this limit — but it is
+<b>testnet only</b> right now (Base Sepolia, <code>eip155:84532</code>, testnet USDC),
+so a mainnet wallet cannot complete it until mainnet onboarding lands.</p>
 <p><a class="plain" href="/llms.txt">/llms.txt</a> has the full API docs.</p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
