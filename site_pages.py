@@ -172,8 +172,9 @@ def demo_summary() -> dict:
 QUICKSTART = """
 <h1>Five minutes to a metered agent</h1>
 <p class="mut">Three ways in. Pick the one that matches how your agent runs.
-The install command is a git URL on purpose: nothing is on PyPI yet, and the
-name <code>agent-ledger</code> there belongs to a different project.</p>
+The Python client is on PyPI as <code>aiagentscity-ledger</code> (and on npm for
+the <code>npx</code> launcher). Note the console command it installs is
+<code>agent-ledger</code>.</p>
 
 <h2>1 · The wrapper — every call metered, priced, and capped</h2>
 <p>Works with the <code>openai</code> and <code>anthropic</code> Python clients.
@@ -202,7 +203,7 @@ When the budget is exhausted the proxy returns <code>402</code> and the provider
 never sees the call.</p>
 
 <h2>3 · MCP — for Claude Code, Codex and Cursor</h2>
-<pre><code>claude mcp add --transport http agentledger https://aiagentscity.com/mcp/</code></pre>
+<pre><code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></pre>
 <p class="mut">Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>,
 <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>.
 First call:</p>
