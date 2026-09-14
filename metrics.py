@@ -180,6 +180,32 @@ def funnel_from_file() -> dict:
     return counts
 
 
+def amount_sums_from_file() -> dict:
+    """Sum of `amount_cents` per kind, read from metrics.jsonl.
+
+    The companion to funnel_from_file(). Leaving this in-memory while the count
+    went durable would have produced "2 completions, $0.00" after a deploy —
+    a new confidently-wrong number created by fixing the one next to it.
+    """
+    sums = defaultdict(int)
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                kind = rec.get("kind")
+                amount = rec.get("amount_cents")
+                if kind and isinstance(amount, int):
+                    sums[kind] += amount
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return sums
+
+
 def reach_from_file() -> dict:
     """Distinct ip_hash per reach bucket, computed from metrics.jsonl.
 

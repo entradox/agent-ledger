@@ -202,6 +202,10 @@ def get_metrics(request: Request):
         durable = metrics.funnel_from_file()
     except Exception:
         durable = {}
+    try:
+        durable_amounts = metrics.amount_sums_from_file()
+    except Exception:
+        durable_amounts = {}
 
     def _durable(name: str) -> int:
         # `name` is always a key of FUNNEL_KINDS / a fixed module constant, never
@@ -219,7 +223,8 @@ def get_metrics(request: Request):
         "checkout_completed": {"total": _durable("checkout_completed"),
                                 "last_24h": last_24h.get("checkout_completed", 0)},
         "revenue_events_completed": _durable("checkout_completed"),
-        "sum_amount_cents_completed": amount_sums.get("checkout_completed", 0),
+        "sum_amount_cents_completed": max(amount_sums.get("checkout_completed", 0),
+                                          durable_amounts.get("checkout_completed", 0)),
     }
 
     # File-backed, so the reach number survives a deploy instead of resetting

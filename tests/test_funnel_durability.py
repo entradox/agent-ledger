@@ -65,3 +65,16 @@ def test_corrupt_lines_are_skipped_not_fatal(tmp_path, monkeypatch):
         f.write("this is not json\n")
         f.write('{"kind": "track_ok"}\n')
     assert metrics.funnel_from_file()["track_ok"] == 2
+
+
+def test_amount_sums_survive_restart(tmp_path, monkeypatch):
+    """A count that is durable while its paired sum is not reads
+    '2 completions, $0.00' — a new wrong number created by fixing the old one."""
+    _fresh(tmp_path, monkeypatch, [
+        {"kind": "checkout_completed", "amount_cents": 1900},
+        {"kind": "checkout_completed", "amount_cents": 1900},
+        {"kind": "checkout_completed"},          # legacy row, no amount
+        {"kind": "track_ok", "amount_cents": 5},  # wrong kind, ignored
+    ])
+    assert metrics.amount_sums_from_file()["checkout_completed"] == 3800
+    assert metrics.funnel_from_file()["checkout_completed"] == 3
