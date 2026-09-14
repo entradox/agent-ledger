@@ -1137,6 +1137,39 @@ try:
                 yield
 
     app.router.lifespan_context = _combined_lifespan
+
+    class _McpSlashRewrite:
+        """Internally rewrite `POST /mcp` to `/mcp/` so no 307 is ever issued.
+
+        Starlette's redirect_slashes answers `POST /mcp` with a 307 to `/mcp/`.
+        A client that does not re-send the body on 307 then lands on the mount
+        with an empty body and gets `400 Bad Request` — forever, because the
+        next retry follows the same path. Measured on live 2026-09-14 from
+        /data/metrics.jsonl: 104 distinct agents hit that 307, and two of them
+        (`88b16a824d91`, `cda40c3d5993`) had made 336 and 328 attempts with
+        ZERO successes, retrying every ~5 minutes for three days.
+
+        This is a pure ASGI middleware, not BaseHTTPMiddleware: it only mutates
+        `scope` and delegates. That matters because MCP streamable-http answers
+        with `text/event-stream`, and BaseHTTPMiddleware buffers streaming
+        responses.
+
+        Path rewrite, not a redirect: the request body and method are preserved
+        and the client sees a single 200 instead of a 307 it may mishandle.
+        """
+
+        def __init__(self, asgi_app):
+            self.asgi_app = asgi_app
+
+        async def __call__(self, scope, receive, send):
+            if scope.get("type") == "http" and scope.get("path") == "/mcp":
+                scope = dict(scope)
+                scope["path"] = "/mcp/"
+                scope["raw_path"] = b"/mcp/"
+            await self.asgi_app(scope, receive, send)
+
+    # Added before the mount so it wraps the whole router, including /mcp/.
+    app.add_middleware(_McpSlashRewrite)
     app.mount("/mcp", _al_asgi)
 except Exception as _e:  # MCP optional — API keeps working without it
     import logging
