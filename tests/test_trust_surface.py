@@ -45,8 +45,12 @@ def page(monkeypatch):
 
 def test_the_landing_page_does_not_claim_enforcement_the_code_does_not_do(page):
     """"Real enforcement" is the exact phrase that had to go: until the proxy
-    ships, a cap rejects the WRITE, not the spend."""
-    body = page.get("/").text
+    ships, a cap rejects the WRITE, not the spend.
+
+    D-1239: this copy lives on /agent-ledger now, not "/" — the root became
+    the AI Agent City umbrella index and no longer carries product-specific
+    enforcement claims at all."""
+    body = page.get("/agent-ledger").text
     assert "real enforcement" not in body.lower()
     assert "block the write when crossed" in body
 
@@ -71,8 +75,10 @@ def test_enforcement_claims_carry_the_proxy_qualification(page):
     conditional rather than absolute: if the page says spend is blocked, it must
     also name the proxy and state that bypassing it is not enforced. A claim
     that travels without its limit is the thing that was wrong before.
+
+    D-1239: checked against /agent-ledger — see the note on the previous test.
     """
-    body = page.get("/").text
+    body = page.get("/agent-ledger").text
     lowered = body.lower()
     assert "real enforcement" not in lowered
     for claim in ("blocks the spend", "stops the spend", "stops runaway spend"):
@@ -92,7 +98,9 @@ def test_the_terms_state_what_a_cap_actually_does(page):
 # ── the data-handling position is stated ───────────────────────────────────
 
 def test_landing_page_states_the_data_handling_position(page):
-    body = page.get("/").text
+    """D-1239: checked against /agent-ledger — see the note above on why the
+    product-specific copy moved off the umbrella root."""
+    body = page.get("/agent-ledger").text
     assert "Cost metadata only" in body
     assert "no field for prompt or response content" in body
 

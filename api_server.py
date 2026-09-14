@@ -28,7 +28,7 @@ from ledger_engine import (
 import metrics
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -638,10 +638,60 @@ def _status_html() -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def front_door():
-    """The front door. Until D-1162 this path 404'd — the only human page was
-    /status, so a live product with a working payment link could not be
-    reached from its own root."""
+    """The AI Agent City umbrella index (D-1239). Until D-1239 this path
+    served AgentLedger's own landing page directly — that content now lives
+    at /agent-ledger, and this lists all products so the domain reads as the
+    umbrella it actually is."""
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "AI Agent City",
+        "AI Agent City is a toolbelt for running AI agents in production: "
+        "AgentLedger, Perimeter Watch, Cited, Agent Watch and TrustScan.",
+        site_pages.UMBRELLA_INDEX))
+
+
+@app.get("/agent-ledger", response_class=HTMLResponse)
+def agent_ledger_page():
+    """AgentLedger's own landing page — this is the pre-D-1239 root content,
+    unchanged, moved here so the domain root can become the umbrella index."""
     return _status_html()
+
+
+@app.get("/perimeter-watch", response_class=HTMLResponse)
+def perimeter_watch_page():
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "Perimeter Watch — AI Agent City",
+        "Passive external-perimeter monitoring for web agencies: cert expiry, "
+        "dangling DNS, lookalike domains.",
+        site_pages.PERIMETER_WATCH_PAGE))
+
+
+@app.get("/cited", response_class=HTMLResponse)
+def cited_page():
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "Cited — AI Agent City",
+        "Does AI recommend your practice? Instant free scan, verbatim evidence.",
+        site_pages.CITED_PAGE))
+
+
+@app.get("/agent-watch", response_class=HTMLResponse)
+def agent_watch_page():
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "Agent Watch — AI Agent City",
+        "Monitoring for the agent economy.",
+        site_pages.AGENT_WATCH_PAGE))
+
+
+@app.get("/trust-scan", response_class=HTMLResponse)
+def trust_scan_page():
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "TrustScan — AI Agent City",
+        "Scan before you trust.",
+        site_pages.TRUST_SCAN_PAGE))
 
 
 _BOOT_TS = _time.time()
@@ -802,15 +852,11 @@ def dashboard_image():
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.get("/about", response_class=HTMLResponse)
+@app.get("/about")
 def about_page():
-    """The umbrella. AI Agent City is the parent; AgentLedger is product #1."""
-    import site_pages
-    return HTMLResponse(site_pages.page(
-        "About AI Agent City",
-        "AI Agent City builds a toolbelt for running AI agents in production: "
-        "AgentLedger, Perimeter Watch and Cited.",
-        site_pages.ABOUT))
+    """D-1239: /about folded into the umbrella index at "/" — that IS the
+    product list now, so this is a redirect rather than a second copy."""
+    return RedirectResponse(url="/", status_code=301)
 
 
 @app.get("/security", response_class=HTMLResponse)

@@ -185,8 +185,11 @@ def test_security_page_states_the_enforcement_limit(client):
 def test_the_landing_page_has_a_real_screenshot(client):
     """The gap plan scored this page 5/10 on clarity largely for having no
     visuals. A page with zero images asks a stranger to read prose to find out
-    what the product looks like."""
-    body = client.get("/").text
+    what the product looks like.
+
+    D-1239: this is AgentLedger's own landing page, now at /agent-ledger — the
+    root became the AI Agent City umbrella index."""
+    body = client.get("/agent-ledger").text
     imgs = re.findall(r"<img\s[^>]*>", body)
     assert imgs, "the landing page has no images"
     assert any("/img/dashboard.png" in i for i in imgs)
@@ -206,8 +209,10 @@ def test_the_screenshot_is_served_and_cached(client):
 
 def test_the_landing_page_links_the_demo_and_the_dashboard(client):
     """The dashboard shipped in tranche 1 and the landing page did not mention
-    it at all. Both entry points must be reachable from the front door."""
-    body = client.get("/").text
+    it at all. Both entry points must be reachable from the front door.
+
+    D-1239: checked against /agent-ledger — see the note above."""
+    body = client.get("/agent-ledger").text
     assert 'href="/demo"' in body
     assert 'href="/dashboard"' in body
     assert 'href="/quickstart"' in body

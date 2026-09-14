@@ -50,7 +50,9 @@ def test_front_door_serves_the_product_page(client):
     implementation, so the two are now deliberately different and this test
     asserts the split instead.
     """
-    r = client.get("/")
+    # D-1239: this page is AgentLedger's own landing page, now at /agent-ledger
+    # — the root became the AI Agent City umbrella index listing all products.
+    r = client.get("/agent-ledger")
     assert r.status_code == 200
     assert 'href="/start"' in r.text
     # H1 rewritten in D-1226 tranche 2 to the GAP-4 spec: it names the product's
