@@ -161,6 +161,11 @@
    "name": "durable admin telemetry (survives a restart)",
    "status": "shipped",
    "note": "D-1230 (e3aa138). /v1/metrics read track_ok: 3 while 88 events sat in metrics.jsonl: _totals is process-lifetime and resets on every deploy. funnel_from_file / amount_sums_from_file now read the durable log and /v1/metrics takes max(memory, disk), so a fresh deploy no longer reads as 'distribution stopped'. Live funnel went 3 -> 89; cap_blocked: 8 was invisible before. last_24h stays in-memory by design."
+  },
+  {
+   "name": "spending-spike alerts (anomaly.detected actually fires)",
+   "status": "shipped",
+   "note": "D-1231 (4c20aa1), 2026-09-14. report() computed the spending_spike anomaly and nothing called _log_alert, so anomaly.detected \u2014 advertised in the docs and subscriable via /v1/webhooks \u2014 had never fired for anyone. scan_spending_spikes() runs on the write path after the budget checks, shares SPIKE_MULTIPLIER with report(), and dedupes per spike DAY (a per-TYPE dedupe would silence every later spike). It is a scan rather than a check on the offending entry because the window mean moves as later entries land. Prod-proven: feed alert + anomaly.detected read back from a real sink, dates match the report, second write does not re-alert. 8 tests."
   }
  ]
 }
