@@ -27,11 +27,12 @@
   {
    "name": "owner dashboard",
    "status": "shipped",
-   "note": "admin-secret gated, pre-dates workspace identity"
+   "note": "TWO surfaces: the admin one (/v1/dashboard, X-Al-Admin gated, pre-dates workspace identity) and the workspace one (/dashboard, D-1226 — key-paste, same-origin JS, CSP). The workspace surface is what a customer can actually use."
   },
   {
    "name": "per-agent human-readable report page",
-   "status": "shipped"
+   "status": "shipped",
+   "note": "The authenticated /v1/report/{id}/html needs a credential header a browser cannot send; the browser-usable path is a share link (D-1217, POST /v1/report/{id}/share — read-only, expiring, revocable) or the /dashboard workspace surface (D-1226)."
   },
   {
    "name": "workspace identity core",
@@ -125,8 +126,8 @@
   },
   {
    "name": "agent-secret rotation/revocation (owner recovery)",
-   "status": "planned",
-   "note": "D-1216: built + committed on branch d-1216-secret-recovery (f7849d2), 213 tests green, MCP smoke-tested. NOT marked shipped: not deployed, no independent adversarial pass, and the prod hard gate scanner is red on main too."
+   "status": "shipped",
+   "note": "D-1216 (f7849d2) — LIVE in prod, verified 2026-09-13 by probing the MCP tools ledger_rotate_secret / ledger_revoke_secret with bogus credentials (correct fail-closed: workspace_key_required). Previous 'planned' note was a record conflict: the commit is an ancestor of main and the tools serve. Workspace_key-only by design (an agent's own secret cannot rotate itself)."
   },
   {
    "name": "per-workspace rate limiting",
