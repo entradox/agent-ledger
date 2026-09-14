@@ -1,6 +1,6 @@
 {
  "project": "agent-ledger",
- "updated": "2026-09-13",
+ "updated": "2026-09-14",
  "features": [
   {
    "name": "per-agent spend ledger",
@@ -27,12 +27,12 @@
   {
    "name": "owner dashboard",
    "status": "shipped",
-   "note": "TWO surfaces: the admin one (/v1/dashboard, X-Al-Admin gated, pre-dates workspace identity) and the workspace one (/dashboard, D-1226 — key-paste, same-origin JS, CSP). The workspace surface is what a customer can actually use."
+   "note": "TWO surfaces: the admin one (/v1/dashboard, X-Al-Admin gated, pre-dates workspace identity) and the workspace one (/dashboard, D-1226 \u2014 key-paste, same-origin JS, CSP). The workspace surface is what a customer can actually use."
   },
   {
    "name": "per-agent human-readable report page",
    "status": "shipped",
-   "note": "The authenticated /v1/report/{id}/html needs a credential header a browser cannot send; the browser-usable path is a share link (D-1217, POST /v1/report/{id}/share — read-only, expiring, revocable) or the /dashboard workspace surface (D-1226)."
+   "note": "The authenticated /v1/report/{id}/html needs a credential header a browser cannot send; the browser-usable path is a share link (D-1217, POST /v1/report/{id}/share \u2014 read-only, expiring, revocable) or the /dashboard workspace surface (D-1226)."
   },
   {
    "name": "workspace identity core",
@@ -70,19 +70,19 @@
    "note": "workspace_engine.reissue_key() exists as the building block; deliberately not wired to any automatic path"
   },
   {
-   "name": "custom domain — aiagentscity.com live with TLS",
+   "name": "custom domain \u2014 aiagentscity.com live with TLS",
    "status": "shipped",
    "note": "ab17965 (BUG-5). Both hosts serve 200 with valid certs; Porkbun ALIAS apex + CNAME www to the Railway service, MX/SPF/NS untouched so email forwarding survives. 44 infrastructure-host references replaced across client, manifests, docs and onboarding email; a test now fails if any public surface mentions up.railway.app. Railway host still SERVES (health checks) but is advertised nowhere."
   },
   {
-   "name": "cache-tier pricing (Claude) — input is three prices, not one",
+   "name": "cache-tier pricing (Claude) \u2014 input is three prices, not one",
    "status": "shipped",
    "note": "8b12a93. Anthropic bills input at 1x fresh / 1.25x 5m cache write / 2x 1h cache write / 0.1x cache read. Priced against a real Claude Code session: $15.22 true vs $112.85 at the flat rate (7.4x). 13 Claude entries now verified:true from Anthropic's pricing page; OpenAI entries stay false and say so. 15 tests."
   },
   {
    "name": "Claude Code skill: MCP + automatic session reporting",
    "status": "shipped",
-   "note": "8b12a93 (BUILD-6). integrations/claude-code/: report-session.py parses the transcript (deduped by message id — 317 records for 181 messages in one real session, so summing would overstate ~75%), install.py merges MCP + a Stop hook into Claude Code settings without rewriting them. 17 reporter tests + 10 installer tests."
+   "note": "8b12a93 (BUILD-6). integrations/claude-code/: report-session.py parses the transcript (deduped by message id \u2014 317 records for 181 messages in one real session, so summing would overstate ~75%), install.py merges MCP + a Stop hook into Claude Code settings without rewriting them. 17 reporter tests + 10 installer tests."
   },
   {
    "name": "SDK wrappers: one line to the proxy (agentledger.wrap)",
@@ -122,12 +122,12 @@
   {
    "name": "alert delivery (webhook + email, with receipts)",
    "status": "shipped",
-   "note": "D-1218 (0d10eb9/870384e). Routes live and fail-closed in prod. Delivery proven against a local HTTP sink in tests; not yet exercised in production because the operator holds no workspace_key."
+   "note": "D-1218 (0d10eb9/870384e). DELIVERY NOW PROVEN IN PRODUCTION 2026-09-14 (D-1230): a budget.warning reached a real external sink bound to the dogfood's workspace and was read back from the receiving end's own API \u2014 event, agent_id, message and report_url all correct, no secret/prompt in the payload. The earlier note said 'not yet exercised in production because the operator holds no workspace_key'; that blocker is gone (the dogfood now holds one)."
   },
   {
    "name": "agent-secret rotation/revocation (owner recovery)",
    "status": "shipped",
-   "note": "D-1216 (f7849d2) — LIVE in prod, verified 2026-09-13 by probing the MCP tools ledger_rotate_secret / ledger_revoke_secret with bogus credentials (correct fail-closed: workspace_key_required). Previous 'planned' note was a record conflict: the commit is an ancestor of main and the tools serve. Workspace_key-only by design (an agent's own secret cannot rotate itself)."
+   "note": "D-1216 (f7849d2) \u2014 LIVE in prod, verified 2026-09-13 by probing the MCP tools ledger_rotate_secret / ledger_revoke_secret with bogus credentials (correct fail-closed: workspace_key_required). Previous 'planned' note was a record conflict: the commit is an ancestor of main and the tools serve. Workspace_key-only by design (an agent's own secret cannot rotate itself)."
   },
   {
    "name": "per-workspace rate limiting",
@@ -151,6 +151,16 @@
    "name": "google auth removed",
    "status": "shipped",
    "note": "shipped D-1162. routes_auth.py, oauth_google.py, session_auth.py deleted; the four routes 404; session_cookie removed from identity.authorize_agent_access; verified absent from the deployed image"
+  },
+  {
+   "name": "customer-parity dogfood (agent bound to a real workspace)",
+   "status": "shipped",
+   "note": "D-1230 (8a1b8b3/e3aa138/dcebfad), 2026-09-14. hermes-fleet-dogfood is bound to ws_tTuJzPcnPjBYaCQUhiEflA, minted through the real POST /start, so it records through the same surfaces a customer gets. Verified live: /v1/workspace/summary, CSV export, share links opened with zero credentials, alert delivery read back from the sink, and the paid tier via a signed Stripe replay (fail-closed on a bad signature). The recorder now exits non-zero if the workspace view and the ledger disagree. Still unbound, same defect: vega-trading-desk, abhishek-command-code."
+  },
+  {
+   "name": "durable admin telemetry (survives a restart)",
+   "status": "shipped",
+   "note": "D-1230 (e3aa138). /v1/metrics read track_ok: 3 while 88 events sat in metrics.jsonl: _totals is process-lifetime and resets on every deploy. funnel_from_file / amount_sums_from_file now read the durable log and /v1/metrics takes max(memory, disk), so a fresh deploy no longer reads as 'distribution stopped'. Live funnel went 3 -> 89; cap_blocked: 8 was invisible before. last_24h stays in-memory by design."
   }
  ]
 }
