@@ -63,7 +63,8 @@ COUNTS_FILE = DATA_DIR / "counts.jsonl"
 
 # reach paths tracked for unique-ip-hash "reach" telemetry
 REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
-                          "/.well-known/glama.json", "/stats", "/mcp/"})
+                          "/.well-known/glama.json", "/.well-known/mcp/server-card.json",
+                          "/stats", "/mcp/"})
 
 
 def _ip_hash(request: "Request") -> Optional[str]:
@@ -489,6 +490,20 @@ def server_json():
     p = Path(__file__).parent / "server.json"
     if not p.exists():
         raise HTTPException(404, "server.json not deployed")
+    return JSONResponse(content=json.loads(p.read_text()))
+
+@app.get("/.well-known/mcp/server-card.json")
+def mcp_server_card():
+    """Static MCP server card (SEP-1649 shape).
+
+    Generated from the live tools/list rather than hand-written, so directory
+    scanners that cannot complete an automated scan (auth wall, WAF, bot rules)
+    still get accurate tools + schemas. Smithery and similar registries read
+    this path when scanning is blocked.
+    """
+    p = Path(__file__).parent / "server-card.json"
+    if not p.exists():
+        raise HTTPException(404, "server-card.json not deployed")
     return JSONResponse(content=json.loads(p.read_text()))
 
 AGENT_JSON = {

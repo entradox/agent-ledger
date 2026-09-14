@@ -1,0 +1,267 @@
+{
+  "serverInfo": {
+    "name": "AgentLedger",
+    "version": "0.4.1"
+  },
+  "authentication": {
+    "required": true,
+    "schemes": [
+      "api_key"
+    ],
+    "description": "Reads and writes take an agent_secret (per agent) or a workspace_key (per workspace) as typed tool parameters. Connecting needs no auth handshake. Get a free workspace key at https://aiagentscity.com/start (no signup, shown once)."
+  },
+  "tools": [
+    {
+      "name": "ledger_rotate_secret",
+      "description": "Mint a NEW agent_secret for an agent_id your workspace already owns, invalidating the old one.\n\nUse this to RECOVER an agent whose secret was lost: the previous credential\nstops working immediately. Requires the workspace_key that owns agent_id \u2014\nan agent's own agent_secret cannot rotate itself, because a leaked agent\ncredential must not be able to lock its real owner out. Unlike ledger_track\nthis never claims a new agent_id: an unknown id returns agent_not_claimed.\n\nThe new secret is returned ONCE. Store it before you drop the response.\n\nReturns {\"agent_id\", \"agent_secret\", \"_note\"}, or {\"error\", \"error_code\"}.",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "workspace_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "workspace_key"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_revoke_secret",
+      "description": "Invalidate an agent_id's agent_secret WITHOUT deleting its spend history.\n\nUse when a credential may have leaked, or to stop an agent writing.\nSubsequent writes to that agent fail with agent_secret_mismatch until you\nrotate a new secret in. The agent_id stays claimed, so no other workspace\ncan claim it and inherit the ledger. Requires the workspace_key that owns\nagent_id.\n\nReturns {\"agent_id\", \"revoked\": True, \"_note\"}, or {\"error\", \"error_code\"}.",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "workspace_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "workspace_key"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_track",
+      "description": "Record a spend entry for an AI agent on any payment rail, with optional token counts.\n\nClaiming a brand-new agent_id requires your workspace_key (get one via\nx402 at POST /v1/billing/x402 \u2014 no human, no login \u2014 or at /start).\nThat first call mints an\nagent_secret and returns it in the response \u2014 save it, every later call\nfor that same agent_id must pass it back (no workspace_key needed again)\nor the write is rejected. Amounts are capped\nat $100,000/entry and must be >= 0. If a budget is set for this agent,\nan entry that would cross the monthly/daily cap is blocked, not just\nlogged. Include tokens_in/tokens_out + model on every LLM call so token\nburn shows up in the /v1/tokens report.",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "unique agent identifier (e.g. \"research-agent-v2\")"
+          },
+          "rail": {
+            "type": "string",
+            "description": "payment rail used \u2014 one of \"mpp\", \"x402\", \"api_key\", \"manual\""
+          },
+          "amount_cents": {
+            "type": "integer",
+            "description": "spend amount in cents (100 = $1.00), 0-10000000"
+          },
+          "service": {
+            "type": "string",
+            "description": "what was purchased (e.g. \"search_query\", \"data_export\")"
+          },
+          "tokens_in": {
+            "default": 0,
+            "type": "integer",
+            "description": "prompt tokens consumed (0 if unknown)"
+          },
+          "tokens_out": {
+            "default": 0,
+            "type": "integer",
+            "description": "completion tokens consumed (0 if unknown)"
+          },
+          "model": {
+            "default": "",
+            "type": "string",
+            "description": "model name (e.g. \"gpt-4o\") \u2014 token burn is reported per model"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "required for every call after the first for this agent_id"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "required when claiming a brand-new agent_id; not\n           needed once the agent_id has been claimed"
+          }
+        },
+        "required": [
+          "agent_id",
+          "rail",
+          "amount_cents",
+          "service"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_set_budget",
+      "description": "Set spending caps for an agent. Warns at 80%, blocks spend when exceeded\n\u2014 enforced: a ledger_track call that would cross the cap is rejected.\n\nDollar caps (monthly_cents/daily_cents) and token caps (monthly_tokens/\ndaily_tokens) are independent dimensions: dollar caps only cover\nnon-\"tokens\" rails, token caps only cover rail=\"tokens\" bookkeeping rows\n(tokens_in/tokens_out). Set both if the agent uses both.\n\nMonthly cap is required; the rest are optional (0 = no limit).\nOverwrites any existing budget for the agent. Claiming a brand-new\nagent_id requires your workspace_key; that first call mints an\nagent_secret (returned once \u2014 save it); later calls for that agent_id\nmust pass the agent_secret back (no workspace_key needed again).",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "unique agent identifier"
+          },
+          "monthly_cents": {
+            "type": "integer",
+            "description": "monthly spending cap in cents"
+          },
+          "daily_cents": {
+            "default": 0,
+            "type": "integer",
+            "description": "daily spending cap in cents (0 = no daily cap)"
+          },
+          "monthly_tokens": {
+            "default": 0,
+            "type": "integer",
+            "description": "monthly token-burn cap (0 = no cap)"
+          },
+          "daily_tokens": {
+            "default": 0,
+            "type": "integer",
+            "description": "daily token-burn cap (0 = no cap)"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "required for every call after the first for this agent_id"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "required when claiming a brand-new agent_id; not\n           needed once the agent_id has been claimed"
+          }
+        },
+        "required": [
+          "agent_id",
+          "monthly_cents"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_report",
+      "description": "Spend report for an agent over a rolling window.\n\nReturns total spend, breakdown by rail and by service, budget status\n(ok/warning/exceeded), detected anomalies, and entry count.\n\nRequires a credential: either the agent's own agent_secret or its\nworkspace's workspace_key (same rule as GET /v1/report).",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "unique agent identifier"
+          },
+          "days": {
+            "default": 30,
+            "type": "integer",
+            "description": "report window in days (default 30)"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "the agent's own secret (either this or workspace_key)"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "the owning workspace's key (either this or agent_secret)"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_alerts",
+      "description": "Alert history for an agent: budget warnings (80% threshold) and spending spikes.\n\nRequires a credential: either the agent's own agent_secret or its\nworkspace's workspace_key (same rule as GET /v1/alerts).",
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "unique agent identifier"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "the agent's own secret (either this or workspace_key)"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "the owning workspace's key (either this or agent_secret)"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_list_agents",
+      "description": "Owner-only: full cross-tenant listing of every agent ever claimed on\nthis instance, with totals. Requires the operator's admin_secret \u2014 this\nis a portfolio-wide view, not a per-agent report (use ledger_report for\nthat \u2014 it requires that agent's agent_secret or its workspace_key).",
+      "inputSchema": {
+        "properties": {
+          "admin_secret": {
+            "default": "",
+            "type": "string",
+            "description": "operator admin secret (not the same as an agent_secret)"
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_api_docs",
+      "description": "Self-serve documentation for AgentLedger \u2014 quickstart, MCP tools, REST\nendpoints, budget caps, error codes, and idempotency usage, as markdown.",
+      "inputSchema": {
+        "properties": {
+          "topic": {
+            "default": "",
+            "type": "string",
+            "description": "\"quickstart\" | \"mcp\" | \"rest\" | \"budget\" | \"errors\" | \"idempotency\" | \"all\"\n   (default \"\" == \"all\"). Unknown topics fall back to the full docs."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_examples",
+      "description": "Complete, runnable Python recipe for a common AgentLedger integration\npattern.",
+      "inputSchema": {
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "\"python_tracking\" | \"budget_enforcement\" | \"weekly_report\" |\n     \"retry_safe_writes\""
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      }
+    }
+  ],
+  "resources": [],
+  "prompts": []
+}
