@@ -1,0 +1,37 @@
+{
+  "name": "aiagentscity-ledger",
+  "version": "0.4.1",
+  "description": "Spending limits for AI agents: meter every call, cap the spend, and stop it before the provider is contacted.",
+  "keywords": [
+    "ai-agents",
+    "spend-management",
+    "budget",
+    "mcp",
+    "x402",
+    "cost-tracking",
+    "agent-ledger"
+  ],
+  "homepage": "https://aiagentscity.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/entradox/agent-ledger.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Entradox",
+    "email": "entradox@icloud.com",
+    "url": "https://aiagentscity.com"
+  },
+  "bin": {
+    "agent-ledger": "bin/agent-ledger.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "repository_directory": "npm"
+}

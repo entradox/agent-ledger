@@ -15,3 +15,8 @@ customers.jsonl
 *.egg-info/
 build/
 dist/
+
+# npm
+node_modules/
+*.tgz
+npm/.npmrc
