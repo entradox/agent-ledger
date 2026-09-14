@@ -32,6 +32,11 @@ SCARCITY_PRO_CAP = 50
 SCARCITY_PRO_DURATION_SECONDS = 365 * 24 * 3600
 # sanity ceiling on a single entry — blocks fat-finger / abuse-sized amounts
 MAX_AMOUNT_CENTS = 10_000_000  # $100,000
+# a day's spend above this multiple of the window's daily mean is a spike.
+# Named because TWO surfaces depend on it agreeing: report() shows it and
+# scan_spending_spikes() alerts on it. When they were separate literals they
+# could drift, and an alert that disagrees with the report is worse than none.
+SPIKE_MULTIPLIER = 2.5
 # payment rails accepted on the ledger — anything else is a typo/abuse vector
 VALID_RAILS = frozenset({"mpp", "x402", "api_key", "manual"})
 
@@ -637,6 +642,13 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
         f.write(json.dumps(entry.to_dict()) + "\n")
     if rail != "tokens":
         _check_budget(agent_id)
+        # Spike detection runs on the write path so a customer hears about a
+        # spike as it happens, not only when they open a report (D-1230).
+        # Ordered AFTER _check_budget on purpose: both alert through
+        # _log_alert(agent_id, ...) with workspace_id defaulting to None, so
+        # whichever runs first stamps the alert's workspace_id for the whole
+        # dispatch. Budget is the more urgent alert and owns that stamp.
+        scan_spending_spikes(agent_id)
     else:
         _check_token_budget(agent_id)
     return entry
@@ -771,6 +783,91 @@ def _check_budget(agent_id: str):
                    f"Monthly budget {pct:.0f}% used: ${monthly/100:.2f} of ${budget.monthly_cap_cents/100:.2f}")
 
 
+# How far back the spike scan looks. report() defaults to 30 days, and the
+# anomaly a customer sees on the report is the one that must have alerted, so
+# these have to stay in step.
+SPIKE_SCAN_DAYS = 30
+
+
+def scan_spending_spikes(agent_id: str, days: int = SPIKE_SCAN_DAYS) -> list:
+    """Raise an alert for each spending spike in the window that hasn't been
+    alerted yet. Returns the spike days alerted on this call.
+
+    Why this is a scan and not a check inside track(): a spike is a property of
+    a day relative to the window's mean, and the mean MOVES as later entries
+    land. A spike that exists at read time may not have existed when the
+    offending entry was written — so raising it only from the write path would
+    keep missing exactly the cases customers notice. This reads the same
+    daily totals report() reads, through the same entries_since() reader, so
+    the feed and the report cannot disagree about what a spike is.
+
+    Idempotent per UTC day: the alert is recorded with its date in the message
+    and a day is never alerted twice, because _log_alert_daily() dedupes on the
+    alert TYPE and that would silence every later spike forever.
+    """
+    try:
+        entries = entries_since(agent_id, days)
+        daily_totals = {}
+        for e in entries:
+            day = e["timestamp"][:10]
+            daily_totals[day] = daily_totals.get(day, 0) + e["amount_cents"]
+        if len(daily_totals) < 2:
+            return []
+        avg = statistics.mean(daily_totals.values())
+        if avg <= 0:
+            return []
+
+        already = set()
+        path = _alerts_path(agent_id)
+        if path.exists():
+            for line in path.read_text().splitlines()[-500:]:
+                try:
+                    a = json.loads(line)
+                except Exception:
+                    continue
+                if a.get("type") == "spending_spike":
+                    already.add(str(a.get("date") or ""))
+
+        alerted = []
+        for day, amount in daily_totals.items():
+            if amount > avg * SPIKE_MULTIPLIER and day not in already:
+                # date lives on the record; the message carries it too so the
+                # feed needs no schema change to be readable.
+                _log_alert(agent_id, "spending_spike",
+                           f"Spending spike on {day}: ${amount/100:.2f} vs a "
+                           f"daily average of ${avg/100:.2f}")
+                _stamp_alert_date(agent_id, day)
+                alerted.append(day)
+        return sorted(alerted)
+    except Exception:
+        # An alert must never be able to fail a write. Same reason
+        # _log_alert() swallows transport failure.
+        return []
+
+
+def _stamp_alert_date(agent_id: str, day: str) -> None:
+    """Add the `date` field to the last written alert.
+
+    _log_alert() owns the alert schema and has no date concept, so rather than
+    change its signature for one caller the scan annotates the record it just
+    wrote. Done this way so the scan's dedupe key and the stored record are the
+    same value.
+    """
+    try:
+        path = _alerts_path(agent_id)
+        lines = path.read_text().splitlines()
+        if not lines:
+            return
+        last = json.loads(lines[-1])
+        if last.get("type") != "spending_spike" or last.get("date"):
+            return
+        last["date"] = day
+        lines[-1] = json.dumps(last)
+        path.write_text("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
 def read_alerts(agent_id: str, limit: int = 20) -> list:
     """The agent's alert feed, newest first.
 
@@ -902,7 +999,7 @@ def report(agent_id: str, days: int = 30) -> SpendReport:
     if len(daily_totals) >= 2:
         avg = statistics.mean(daily_totals.values())
         for day, amount in daily_totals.items():
-            if avg > 0 and amount > avg * 2.5:
+            if avg > 0 and amount > avg * SPIKE_MULTIPLIER:
                 anomalies.append({"type": "spending_spike", "date": day,
                                   "amount_cents": amount, "avg_cents": round(avg)})
 
