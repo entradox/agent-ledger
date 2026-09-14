@@ -368,5 +368,19 @@ def get_asgi_app():
     return mcp.http_app(path="/", transport="streamable-http")
 
 
+# --- Product Skill Surface (SEP-2640 shape) --------------------------------
+# Serves this product's SKILL.md as a skill:// resource so a connecting agent
+# gets the manual with the tools. Registration is non-fatal by design: if the
+# skill dir is missing the MCP surface must still mount. The SEP-2640 extension
+# capability is deliberately NOT advertised — see product_skills.py for the gate.
+try:
+    from product_skills_adapter import register_product_skills
+    _SKILL_REPORT = register_product_skills(mcp, "agent-ledger", "skill")
+except Exception as _skill_exc:  # pragma: no cover - never break the MCP mount
+    _SKILL_REPORT = {"skipped": str(_skill_exc)}
+    import logging
+    logging.warning(f"product-skill registration skipped: {_skill_exc}")
+
+
 if __name__ == "__main__":
     mcp.run(transport="http")
