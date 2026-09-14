@@ -11,7 +11,20 @@ workspace so their claims keep resolving — but the identity must now come
 from a workspace YOU created at POST /start (or via the x402 mint), passed
 in as that workspace's id. Re-point this script before running it; the
 migration itself is deferred until the right workspace for the 4
-pre-existing agents is decided."""
+pre-existing agents is decided.
+
+EXECUTED 2026-09-14 (D-1230) — for `hermes-fleet-dogfood` only, by hand:
+that agent_id was bound to ws_tTuJzPcnPjBYaCQUhiEflA (minted via POST /start)
+so the dogfood records through the same workspace surfaces a customer uses.
+It matters because ensure_agent_secret resolves a NEW claim's cap from the
+workspace, and the workspace view (/v1/workspace/summary, /dashboard, CSV
+export, alert delivery) only ever lists agents carrying workspace_id.txt —
+an agent without one is invisible to the customer no matter how much it logs.
+
+Still unbound and unruled: `vega-trading-desk` and `abhishek-command-code`.
+Both can still WRITE (an existing secret is verified by _secret_path, which
+does not consult the workspace), but neither appears on any customer surface.
+Give them a workspace before they are used to judge customer experience."""
 import argparse
 import sys
 from pathlib import Path
