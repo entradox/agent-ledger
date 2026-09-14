@@ -323,7 +323,7 @@ agent_secret = None  # fill in after the first successful call
 def track_spend(agent_id, rail, amount_cents, service, **extra):
     body = {{"agent_id": agent_id, "rail": rail, "amount_cents": amount_cents,
             "service": service, **extra}}
-    if agent_secret:
+    if agent_secret is not None:
         body["agent_secret"] = agent_secret
     else:
         body["workspace_key"] = WORKSPACE_KEY
@@ -353,7 +353,7 @@ WORKSPACE_KEY = "wk_live_..."
 
 def set_budget(agent_id, monthly_cents, agent_secret=None, daily_cents=0):
     body = {{"agent_id": agent_id, "monthly_cents": monthly_cents, "daily_cents": daily_cents}}
-    if agent_secret:
+    if agent_secret is not None:
         body["agent_secret"] = agent_secret
     else:
         body["workspace_key"] = WORKSPACE_KEY
@@ -422,7 +422,7 @@ def track_once(agent_id, rail, amount_cents, service, agent_secret=None, idem_ke
     idem_key = idem_key or str(uuid.uuid4())
     headers = {{**HEADERS, "Idempotency-Key": idem_key}}
     body = {{"agent_id": agent_id, "rail": rail, "amount_cents": amount_cents, "service": service}}
-    if agent_secret:
+    if agent_secret is not None:
         body["agent_secret"] = agent_secret
     else:
         # claiming a new agent_id — needs a workspace_key from

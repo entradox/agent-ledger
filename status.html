@@ -137,11 +137,11 @@ workspace key is shown once, on the spot.</p>
   }
 }</pre>
   <p><b>Or the Python wrapper</b> — one line, every call metered and capped:</p>
-  <pre class="cmd">pip install "aiagentscity-ledger[wrapper] @ git+https://github.com/entradox/agent-ledger"
+  <pre class="cmd">pip install "aiagentscity-ledger[wrapper]"
 client = agentledger.wrap(OpenAI(), agent_id="my-agent", workspace_key="wk_live_...")</pre>
-  <p class="mut" style="border:0;padding:0;margin-top:6px">Install via git URL on purpose:
-  nothing is on PyPI yet, and the name <code>agent-ledger</code> there belongs to a
-  different project.</p>
+  <p class="mut" style="border:0;padding:0;margin-top:6px">Published on PyPI as
+  <code>aiagentscity-ledger</code> — the umbrella namespace, which nobody else can
+  register because it is our domain.</p>
   <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
   <p><b>Try it in your agent:</b> "Track my Claude Code spend" · "Alert when any agent exceeds $50/day" · "Weekly P&amp;L report".</p>
 </div>

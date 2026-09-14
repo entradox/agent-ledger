@@ -179,7 +179,7 @@ name <code>agent-ledger</code> there belongs to a different project.</p>
 <p>Works with the <code>openai</code> and <code>anthropic</code> Python clients.
 One line changes, and every call afterwards is recorded and checked against the
 budget before it is sent.</p>
-<pre><code>pip install "aiagentscity-ledger[wrapper] @ git+https://github.com/entradox/agent-ledger"
+<pre><code>pip install "aiagentscity-ledger[wrapper]"
 
 import agentledger
 from openai import OpenAI

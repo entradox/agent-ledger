@@ -7,9 +7,9 @@
 [![Live API](https://img.shields.io/badge/API-live-success)](https://aiagentscity.com/health)
 [![Landing](https://img.shields.io/badge/status-page-blue)](https://aiagentscity.com/status)
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://aiagentscity.com/server.json)
+[![Version](https://img.shields.io/badge/version-0.4.1-blue)](https://aiagentscity.com/server.json)
 
-> 🎯 **Launch window: the first 50 workspaces created get Pro free for 1 year.** No card — sign in once and the grant is automatic.
+> 🎯 **Free tier: 3 agents per workspace, no card, no login.** `POST /start` mints the workspace and shows the key once.
 
 ## Connect AgentLedger
 
@@ -158,7 +158,7 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
   workspace_key mints a replacement (`POST /v1/agents/{agent_id}/rotate-secret`) or
   revokes it while keeping the spend history
 - **Per-workspace isolation** — your agents, your cap, your subscription; nothing is shared across customers
-- **Free tier: 3 agents per workspace** (first 50 workspaces get Pro free for 1 year) —
+- **Free tier: 3 agents per workspace** —
   **Pro $19/mo** for unlimited tracked agents: [Get Pro](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
 
 ## Architecture

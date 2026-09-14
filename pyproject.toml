@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aiagentscity-ledger"
-version = "0.4.0"
+version = "0.4.1"
 description = "Spending limits for AI agents: meter every call, cap the spend, and stop it before the provider is contacted."
 readme = "README.md"
 requires-python = ">=3.9"
