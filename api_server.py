@@ -196,15 +196,29 @@ def get_metrics(request: Request):
     unique_ips = snap["unique_ip_hashes"]
     amount_sums = snap["amount_cents_sum"]
 
-    funnel = {k: {"total": totals.get(k, 0), "last_24h": last_24h.get(k, 0)}
+    # Durable counts, so a fresh deploy does not read as "distribution stopped"
+    # (in-memory totals reset to zero on boot — see metrics.funnel_from_file).
+    try:
+        durable = metrics.funnel_from_file()
+    except Exception:
+        durable = {}
+
+    def _durable(name: str) -> int:
+        # `name` is always a key of FUNNEL_KINDS / a fixed module constant, never
+        # request-derived — this reads counters, it persists nothing.
+        # History can exceed the in-memory counter (which only counts since
+        # boot), never the other way round on a single-instance service.
+        return max(totals.get(name, 0), durable.get(name, 0))
+
+    funnel = {k: {"total": _durable(k), "last_24h": last_24h.get(k, 0)}
               for k in FUNNEL_KINDS}
 
     checkout_funnel = {
-        "checkout_started": {"total": totals.get("checkout_started", 0),
+        "checkout_started": {"total": _durable("checkout_started"),
                               "last_24h": last_24h.get("checkout_started", 0)},
-        "checkout_completed": {"total": totals.get("checkout_completed", 0),
+        "checkout_completed": {"total": _durable("checkout_completed"),
                                 "last_24h": last_24h.get("checkout_completed", 0)},
-        "revenue_events_completed": totals.get("checkout_completed", 0),
+        "revenue_events_completed": _durable("checkout_completed"),
         "sum_amount_cents_completed": amount_sums.get("checkout_completed", 0),
     }
 
@@ -212,10 +226,10 @@ def get_metrics(request: Request):
     # to zero (the in-memory set is process-lifetime). Falls back to memory if
     # the file can't be read.
     try:
-        durable = metrics.reach_from_file()
+        durable_reach = metrics.reach_from_file()
     except Exception:
-        durable = {}
-    reach = {path: max(durable.get(f"path:{path}", 0), unique_ips.get(f"path:{path}", 0))
+        durable_reach = {}
+    reach = {path: max(durable_reach.get(f"path:{path}", 0), unique_ips.get(f"path:{path}", 0))
              for path in sorted(REACH_PATHS)}
 
     # The step funnel (D-1163): where do signups actually stop?

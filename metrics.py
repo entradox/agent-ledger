@@ -145,6 +145,41 @@ def onboarding_funnel() -> dict:
                      "abandonment can lag.")}
 
 
+def funnel_from_file() -> dict:
+    """Per-kind event counts read from metrics.jsonl, not from the in-memory
+    counters.
+
+    `_totals` is process-lifetime: it starts at zero on every boot, so the
+    funnel silently reported `track_ok: 3` while 88 track_ok events sat on disk
+    going back six days. A brand-new deploy is exactly when an operator looks
+    at this page, and it showed a number that was confidently wrong — the
+    "distribution stopped" reading, when nothing had stopped. Same defect and
+    same fix as reach_from_file(): read the durable record.
+
+    last_24h stays in-memory on purpose. The counter and the file agree on
+    anything recorded since this process started, which is the whole window
+    that number covers; reading the tail of the file for it would buy nothing.
+
+    Called only from the admin-gated /v1/metrics.
+    """
+    counts = defaultdict(int)
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                kind = rec.get("kind")
+                if kind:
+                    counts[kind] += 1
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return counts
+
+
 def reach_from_file() -> dict:
     """Distinct ip_hash per reach bucket, computed from metrics.jsonl.
 
