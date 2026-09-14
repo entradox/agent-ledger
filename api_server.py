@@ -504,6 +504,7 @@ def llms_txt():
 
 ROBOTS_TXT = """User-agent: *
 Allow: /
+Sitemap: https://aiagentscity.com/sitemap.xml
 """
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -797,6 +798,48 @@ def agents_txt():
 
 def _status_html() -> str:
     return (Path(__file__).parent / "status.html").read_text()
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    """Sitemap for crawlers (69 live 404s on 2026-09-14).
+
+    Built from the real route set, not a hand-written list, so it cannot
+    advertise a page that does not exist. Only public, human-readable pages are
+    listed; API and discovery paths are intentionally excluded because they are
+    not indexable content.
+
+    Served with the XML media type: a sitemap declared text/plain is ignored by
+    some crawlers, which would make the whole route pointless.
+    """
+    from datetime import date
+    pages = [
+        ("/",             "1.0", "daily"),
+        ("/agent-ledger", "0.9", "weekly"),
+        ("/start",        "0.8", "weekly"),
+        ("/status",       "0.6", "daily"),
+        ("/stats",        "0.5", "daily"),
+        ("/docs",         "0.5", "weekly"),
+    ]
+    today = date.today().isoformat()
+    body = "\n".join(
+        f"  <url>\n"
+        f"    <loc>https://aiagentscity.com{p}</loc>\n"
+        f"    <lastmod>{today}</lastmod>\n"
+        f"    <changefreq>{cf}</changefreq>\n"
+        f"    <priority>{pr}</priority>\n"
+        f"  </url>"
+        for p, pr, cf in pages
+    )
+    return PlainTextResponse(
+        content=(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{body}\n"
+            "</urlset>\n"
+        ),
+        media_type="application/xml",
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
