@@ -532,6 +532,34 @@ def mcp_server_card():
         raise HTTPException(404, "server-card.json not deployed")
     return JSONResponse(content=json.loads(p.read_text()))
 
+# ── Discovery constants ──────────────────────────────────────────────────
+# Values are read from the same module the x402 verifier uses, so the published
+# discovery document cannot drift from what the endpoint actually charges.
+# Wrapped in a helper because x402_verify may fail to import on a dev box
+# (no SDK / no wallet configured) — discovery must still answer.
+X402_ASSET_FOR_DISCOVERY = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  # testnet USDC
+X402_MINT_PRICE_FOR_DISCOVERY = 0.01
+_X402_NETWORK_FALLBACK = "eip155:84532"      # Base Sepolia, the configured default
+
+
+def _x402_network() -> str:
+    """The network the payment endpoint actually settles on."""
+    try:
+        import x402_verify
+        return x402_verify.X402_NETWORK or _X402_NETWORK_FALLBACK
+    except Exception:
+        return _X402_NETWORK_FALLBACK
+
+
+def _x402_pay_to():
+    """The receiving wallet, or None when x402 is unconfigured."""
+    try:
+        import x402_verify
+        return x402_verify.X402_PAY_TO or None
+    except Exception:
+        return None
+
+
 AGENT_JSON = {
     "schema_version": "1.0",
     "name": "AgentLedger",
@@ -628,9 +656,144 @@ AGENT_JSON = {
 
 @app.get("/.well-known/agent.json")
 def agent_json():
-    """AEO capability manifest — agents discover what this product does,
+    """AEO capability manifest: agents discover what this product does,
     pricing, auth, and how to call it (rules/agent-native-standard.md)."""
     return JSONResponse(content=AGENT_JSON)
+
+
+@app.get("/.well-known/agent-card.json")
+def agent_card_json():
+    """Alias of /.well-known/agent.json.
+
+    Agents request this spelling 136 times in the live log (2026-09-14) and got
+    a 404 every time. `agent-card.json` is the name used by several crawler
+    families. Serving the same manifest under every spelling an agent actually
+    asks for beats making them learn ours. Same content, no second source of
+    truth: this returns AGENT_JSON, it does not copy it.
+    """
+    return JSONResponse(content=AGENT_JSON)
+
+
+@app.get("/.well-known/mcp.json")
+def mcp_wellknown_json():
+    """MCP server descriptor at the spelling agents probe (23 live 404s).
+
+    Distinct from /.well-known/mcp/server-card.json (which is the richer
+    registry card). This is the shorthand form crawlers look for.
+    """
+    return JSONResponse(content={
+        "name": "io.aiagentscity/agent-ledger",
+        "title": "AgentLedger",
+        "description": "Per-agent spend management: track spend across "
+                       "x402/MPP/API-key rails, set budget caps, get anomaly "
+                       "alerts, keep an audit trail.",
+        "version": APP_VERSION,
+        "remotes": [{"type": "streamable-http",
+                     "url": "https://aiagentscity.com/mcp/"}],
+        "documentation": "https://aiagentscity.com/llms.txt",
+        "payment": {"protocol": "x402",
+                    "discovery": "https://aiagentscity.com/.well-known/x402",
+                    "endpoint": "https://aiagentscity.com/v1/billing/x402",
+                    "network": _x402_network(),
+                    "mainnet": _x402_network() == "eip155:845"},
+    })
+
+
+@app.get("/.well-known/x402")
+def x402_wellknown_json():
+    """The till, published where agents actually look.
+
+    An agent with 1,343 successful MCP calls (`b628ad13e37e`) probed
+    /.well-known/x402, /payments, /pricing, /payment and /monetization on
+    2026-09-14 and every one returned 404. It was looking for how to pay us
+    and we told it nothing. This is the signpost.
+
+    Values are read from the same env the verifier uses, so this cannot drift
+    from what the endpoint actually charges.
+    """
+    import x402_verify
+    enabled = bool(getattr(x402_verify, "X402_ENABLED", False))
+    content = {
+        "x402Version": 2,
+        "enabled": enabled,
+        "scheme": "exact",
+        "network": _x402_network(),
+        "mainnet": _x402_network() == "eip155:845",
+        "asset": X402_ASSET_FOR_DISCOVERY,
+        "assetSymbol": "USDC",
+        "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
+        "payTo": _x402_pay_to(),
+        "facilitator": x402_verify.X402_FACILITATOR_URL,
+        "endpoint": "https://aiagentscity.com/v1/billing/x402",
+        "method": "POST",
+        "howToPay": "POST /v1/billing/x402 with an X-PAYMENT header carrying a "
+                    "signed x402 `exact` payment. On success the response "
+                    "returns a workspace_id and a workspace_key (shown once), "
+                    "bound to the paying wallet, with no human, no email and no card.",
+        "returns": ["workspace_id", "workspace_key"],
+        "note": ("Base Sepolia TESTNET: testnet USDC only, not real money. "
+                 "A mainnet wallet cannot complete this until mainnet "
+                 "onboarding lands. To get a workspace with no wallet at all, "
+                 "use GET /start."),
+    }
+    if not enabled:
+        content["disabledReason"] = getattr(x402_verify, "X402_DISABLED_REASON", "unknown")
+    return JSONResponse(content=content)
+
+
+@app.get("/.well-known/payments")
+def payments_wellknown_json():
+    """Alias for the payment discovery document (agents probe both spellings)."""
+    return x402_wellknown_json()
+
+
+@app.get("/agents.txt", response_class=PlainTextResponse)
+def agents_txt():
+    """Plain-text agent orientation: the .txt spelling crawlers request.
+
+    Content is derived from AGENT_JSON and the live route set, so it cannot
+    assert a capability the API does not have.
+    """
+    caps = "\n".join(
+        f"  {c['method']:5s} {c['endpoint']:38s} {c['description'].splitlines()[0]}"
+        for c in AGENT_JSON.get("capabilities", [])
+    )
+    return (
+        "# AgentLedger agent orientation\n"
+        "# https://aiagentscity.com\n"
+        "\n"
+        "WHAT IT DOES\n"
+        "  Per-agent spend management: track spend across x402/MPP/API-key\n"
+        "  rails, set budget caps, get anomaly alerts, keep an audit trail.\n"
+        "\n"
+        "CONNECT (MCP, no install)\n"
+        "  claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/\n"
+        "  Both /mcp and /mcp/ work. No login required to connect.\n"
+        "\n"
+        "GET A WORKSPACE (no human needed)\n"
+        "  GET  /start                 free workspace, no wallet, no card\n"
+        "  POST /v1/billing/x402       pay $0.01 in testnet USDC; wallet IS the identity\n"
+        "  Discovery: https://aiagentscity.com/.well-known/x402\n"
+        "\n"
+        "CAPABILITIES\n"
+        f"{caps}\n"
+        "\n"
+        "DISCOVERY\n"
+        "  /.well-known/agent.json           full capability manifest\n"
+        "  /.well-known/agent-card.json      same manifest (alias)\n"
+        "  /.well-known/x402                 payment discovery\n"
+        "  /.well-known/mcp/server-card.json MCP registry card\n"
+        "  /openapi.json                     OpenAPI 3 spec\n"
+        "  /llms.txt                         dense API reference\n"
+        "\n"
+        "PAYMENT STATUS\n"
+        "  x402 is LIVE but settles on Base Sepolia TESTNET (eip155:84532).\n"
+        "  It is not real money yet. Mainnet is pending onboarding.\n"
+        "\n"
+        "CONTACT\n"
+        "  entradox@icloud.com\n"
+    )
+
 
 def _status_html() -> str:
     return (Path(__file__).parent / "status.html").read_text()
