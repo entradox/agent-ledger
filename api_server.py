@@ -32,7 +32,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.4.0"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.1"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 from routes_agents import router as agents_router
