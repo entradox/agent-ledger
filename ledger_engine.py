@@ -240,8 +240,9 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     if workspace is None:
         raise WorkspaceKeyRequiredError(
             "a new agent_id requires a valid workspace_key — get one "
-            "self-serve at POST /v1/billing/x402 (no human, no login), or "
-            "at https://aiagentscity.com/start")
+            "self-serve at https://aiagentscity.com/start (no signup, no login, "
+            "no card), or by paying at POST /v1/billing/x402 if you hold a "
+            "testnet wallet (that path is Base Sepolia testnet only for now)")
 
     # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
     # has agent_cap=None stored, so reading the field directly would leave a
@@ -253,13 +254,16 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
             if d.is_dir() and (d / "workspace_id.txt").exists()
             and (d / "workspace_id.txt").read_text().strip() == workspace["workspace_id"])
         if claimed_in_workspace >= agent_cap:
+            _link = os.environ.get(
+                "AL_STRIPE_PAYMENT_LINK",
+                "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
             raise BetaCapExceededError(
                 f"Free tier: {agent_cap} agents per workspace. Upgrade to Pro ($19/mo) "
-                "for unlimited agents — POST /v1/billing/checkout with this workspace's "
-                "credentials returns a payment link bound to this workspace "
-                "(mint a workspace at POST /start if you do not have one). "
-                "A bare Stripe link cannot be used here: it carries no workspace "
-                "reference, so the payment would not upgrade anything.")
+                "for unlimited agents on this workspace: "
+                f"{_link}?client_reference_id={workspace_id} "
+                "(or POST /v1/billing/checkout with this workspace's credentials to get "
+                "that link programmatically). The reference matters: without "
+                "client_reference_id the payment cannot be attached to a workspace.")
 
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
