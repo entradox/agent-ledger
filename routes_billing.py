@@ -28,6 +28,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -49,6 +50,12 @@ GRANT_FAILURES_FILE = "grant_failures.jsonl"
 # correctly-signed body can carry anything, and the value becomes a filesystem
 # path component — so it must be bounded before it reaches mark_pro().
 MAX_CLIENT_REFERENCE_ID = 200
+
+# A workspace_id is only ever "ws_" + token_urlsafe(16). Validating the shape
+# before the value is used as a path component is what stops an absolute or
+# traversing client_reference_id from escaping the workspaces directory, since
+# pathlib.__truediv__ discards the left operand on an absolute right operand.
+_WORKSPACE_ID_RE = re.compile(r"ws_[A-Za-z0-9_-]{1,200}")
 
 
 def _append_customer(rec: dict):
@@ -104,9 +111,9 @@ def resolve_paying_workspace(sess: dict, email: str) -> str | None:
     """Return the workspace_id a settled session should upgrade, or None.
 
     None means the payment cannot be attributed, and a recorded
-    `missing_client_reference_id` failure has already been written. Bounds are
-    enforced here rather than at the call sites so the immediate and delayed
-    paths cannot diverge.
+    `missing_client_reference_id` failure has already been written. Bounds and
+    shape are enforced here rather than at the call sites so the immediate and
+    delayed paths cannot diverge.
     """
     workspace_id = sess.get("client_reference_id")
     if workspace_id is None or str(workspace_id).strip() == "":
@@ -121,6 +128,16 @@ def resolve_paying_workspace(sess: dict, email: str) -> str | None:
         _record_grant_failure("client_reference_id_too_long",
                               sess.get("id", ""), email,
                               f"len={len(workspace_id)}")
+        return None
+    # Shape check, defence in depth behind workspace_engine._ws_path(), which
+    # also validates. An absolute or traversing value here would otherwise be
+    # used as a path component by mark_pro(), escaping the workspaces dir —
+    # Path.__truediv__ discards the left operand on an absolute right operand.
+    # A workspace_id is only ever ws_<token>, so anything else is refused.
+    if not _WORKSPACE_ID_RE.fullmatch(workspace_id):
+        _record_grant_failure("client_reference_id_not_a_workspace_id",
+                              sess.get("id", ""), email,
+                              f"shape rejected (len={len(workspace_id)})")
         return None
     return workspace_id
 

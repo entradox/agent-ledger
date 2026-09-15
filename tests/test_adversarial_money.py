@@ -331,15 +331,22 @@ def test_replayed_unresolvable_workspace_event_does_not_dedupe_grant_failures(en
 
 
 def test_absolute_path_client_reference_id_bypasses_workspaces_dir_entirely(env):
-    """CONFIRMED DEFECT: Path.__truediv__ discards the left operand when the
-    right operand is absolute. workspace_engine._ws_path() does
-    `_workspaces_dir() / f"{workspace_id}.json"` with NO validation that
-    workspace_id looks like the ws_<token> format create_workspace() mints.
-    A payer fully controls client_reference_id via the Stripe Payment Link
-    URL query string. Setting it to an absolute path (e.g.
-    "/tmp/some_target") makes get_workspace()/mark_pro() operate on an
-    ARBITRARY absolute file path on the host, completely outside
-    DATA_DIR/workspaces/ - no traversal depth guessing required.
+    """REGRESSION GUARD (was a confirmed defect; fixed 2026-09-14).
+
+    Original finding: Path.__truediv__ discards the left operand when the right
+    operand is absolute, so `_workspaces_dir() / f"{workspace_id}.json"` with an
+    absolute workspace_id escaped DATA_DIR/workspaces/ entirely. A payer
+    controls client_reference_id via the Stripe Payment Link URL query string,
+    so an absolute value made get_workspace()/mark_pro() operate on an ARBITRARY
+    absolute file path on the host — no traversal-depth guessing required.
+
+    FIXED in workspace_engine._ws_path(): workspace ids are validated against
+    the format create_workspace() actually mints (ws_<token>) before ever being
+    used as a path component, raising WorkspaceError for anything else. The
+    webhook catches that and records a grant failure.
+
+    This test now asserts the write DOES NOT happen. If it starts passing the
+    old way (asserting plan == "pro"), the validation has been removed.
     """
     c, ws, tmp = env
     target = Path(tempfile.mkdtemp()) / "al_absolute_poc.json"
@@ -363,8 +370,41 @@ def test_absolute_path_client_reference_id_bypasses_workspaces_dir_entirely(env)
     # The defect, proven: an arbitrary file OUTSIDE the workspaces directory
     # got mark_pro's fields written into it via a Stripe client_reference_id
     # value under the payer's control.
-    assert written.get("plan") == "pro", (
-        "expected to demonstrate arbitrary-file overwrite via absolute "
-        "client_reference_id, but plan was not set to pro — re-check assumptions"
+    assert written.get("plan") != "pro", (
+        "ARBITRARY FILE OVERWRITE: an absolute client_reference_id reached "
+        f"mark_pro() and rewrote {target}. _ws_path() must validate that a "
+        "workspace_id matches the minted ws_<token> shape before using it as a "
+        "path component. Path.__truediv__ discards the left operand on an "
+        "absolute right operand, so this escapes the workspaces directory."
+    )
+    assert written.get("totally") == "unrelated file", (
+        "the file outside the workspaces dir was modified at all"
     )
     shutil.rmtree(target.parent, ignore_errors=True)
+
+
+def test_dot_dot_client_reference_id_cannot_traverse_out_of_workspaces_dir(env):
+    """Traversal by relative path must be refused for the same reason."""
+    c, ws, tmp = env
+    outside = Path(tmp).parent / "al_traversal_escape.json"
+    outside.write_text(json.dumps({"workspace_id": "ws_x", "marker": "untouched"}))
+    r = _post(c, _completed(f"../{outside.name[:-5]}", session_id="cs_trav_1"))
+    assert r.status_code == 200
+    assert json.loads(outside.read_text()).get("marker") == "untouched", (
+        "a relative traversal escaped the workspaces directory"
+    )
+    outside.unlink(missing_ok=True)
+
+
+def test_path_shaped_workspace_id_is_recorded_as_a_grant_failure(env):
+    """A refused id must be visible, not silently dropped.
+
+    A payment carrying a path-shaped reference is still money we took, so it
+    must land in grant_failures.jsonl like any other unattributable payment.
+    """
+    c, ws, tmp = env
+    _post(c, _completed("/tmp/whatever", session_id="cs_path_1"))
+    gf = tmp / "grant_failures.jsonl"
+    assert gf.exists(), "a refused workspace id left no trace"
+    rows = [json.loads(l) for l in gf.read_text().splitlines() if l]
+    assert any(x["stripe_session"] == "cs_path_1" for x in rows)
