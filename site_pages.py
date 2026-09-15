@@ -435,6 +435,36 @@ teams with an eval budget.</li>
 running the agent.</li>
 </ul>
 
+<h2>The other real comparison: gateways that can also block a call</h2>
+<p>Trace viewers are not the only alternative. A newer set of AI gateways can
+refuse a call before the provider is contacted — the same enforcement
+boundary this product is built on. This is the comparison that actually
+matters, and skipping it would be dishonest. Prices checked 2026-09-14.</p>
+<ul>
+<li><b>LiteLLM</b> — open-source, free to self-host. Rejects before the
+provider when the estimated reservation would exceed budget. The tradeoff:
+you host, configure and operate it yourself; no packaged per-agent reports,
+alerts or shareable links.</li>
+<li><b>Portkey</b> — $49/month Production. Hard caps can block further
+requests. An enterprise AI gateway (now part of Palo Alto Networks/Prisma
+AIRS) — routing and security-suite framing, not a focused per-agent finance
+product.</li>
+<li><b>LangDB</b> — $49/month Professional, $199 Business. Project/workspace
+cost controls, returns 429 at the limit. Budgets are workspace-oriented, not
+a flat per-agent ledger.</li>
+<li><b>Revenium</b> — free developer tier, SMB/enterprise pricing not
+published. The closest direct rival: hard spend limits plus cost attribution
+across agent, workflow, tool and human review. AgentLedger's wedge against it
+is the simpler self-serve motion at a fixed $19.</li>
+<li><b>LangSmith Gateway</b> — $39/seat/month plus gateway usage. LangSmith's
+2026 gateway beta added org/workspace/key/user-level caps on top of its
+existing trace suite — an installed base adding enforcement, not a
+purpose-built agent-budget product.</li>
+</ul>
+<p class="mut">None of these are wrong tools — several are excellent at what
+they do. The distinction is unit of accounting (agent, not seat or key) and
+price (flat $19/workspace, not per-seat or usage-scaled).</p>
+
 <h2>What we are not</h2>
 <p class="mut">We are not a trace viewer, an eval platform, or a prompt
 playground, and we are not trying to be. If you need deep trace inspection,
@@ -442,6 +472,52 @@ pair one of the above with us: they show you the call, we keep the total from
 becoming a surprise. AgentLedger is $19/month per workspace, flat, regardless of
 seat count.</p>
 """
+
+# ── /reliability (D-1250) ──────────────────────────────────────────────────
+def reliability_body(pct: dict) -> str:
+    """`pct` is metrics.latency_percentiles("pre_call_check")'s return value.
+    Measures the overhead AgentLedger's own budget check adds before
+    forwarding to the provider — not the provider's round trip, which this
+    product does not control and should not take credit or blame for.
+    Reports sample_count=0 honestly rather than inventing a number on a
+    freshly booted instance."""
+    if pct["sample_count"] == 0:
+        stats_html = ('<p class="mut">No proxied calls have been measured on this '
+                      'instance yet. This page reports real numbers only — it will '
+                      'populate as soon as the proxy handles traffic.</p>')
+    else:
+        stats_html = f"""
+<ul>
+<li><b>p50</b> — {pct['p50_ms']} ms</li>
+<li><b>p95</b> — {pct['p95_ms']} ms</li>
+<li><b>p99</b> — {pct['p99_ms']} ms</li>
+</ul>
+<p class="mut">From {pct['sample_count']} measured calls on this instance
+(resets on deploy — see <a href="/status">/status</a> for current uptime).</p>
+"""
+    return f"""
+<h1>Reliability</h1>
+<p>What AgentLedger's proxy actually costs you in latency, measured live —
+not a claimed number.</p>
+
+<h2>Proxy overhead (pre-call budget check)</h2>
+<p class="mut">Time spent computing whether a call would exceed budget, before
+forwarding to the provider. This is the AgentLedger tax — it does not include
+the provider's own response time, which AgentLedger does not control.</p>
+{stats_html}
+
+<h2>Failure behavior</h2>
+<p>If the upstream provider is unreachable, the proxy returns <code>502
+upstream_unreachable</code> to the caller rather than retrying — a retried
+call against a provider that already received the request risks a double
+charge, so this product never retries automatically.</p>
+
+<h2>Live status</h2>
+<p><a class="plain" href="/status">/status</a> reports uptime and version for
+this instance. <a class="plain" href="/health">/health</a> is the liveness
+check. Uptime is per-instance: a deploy restarts the process.</p>
+"""
+
 
 # ── /security-adjacent note used on the demo page ───────────────────────────
 DEMO_NOTE = """

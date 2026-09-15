@@ -1103,6 +1103,19 @@ def compare_page():
         site_pages.COMPARE))
 
 
+@app.get("/reliability", response_class=HTMLResponse)
+def reliability_page():
+    """Measured proxy overhead, not a claimed number (D-1250)."""
+    import metrics
+    import site_pages
+    pct = metrics.latency_percentiles("pre_call_check")
+    return HTMLResponse(site_pages.page(
+        "Reliability — AgentLedger",
+        "Measured proxy latency (p50/p95/p99) and failure behavior — real "
+        "numbers, not a claimed uptime badge.",
+        site_pages.reliability_body(pct)))
+
+
 @app.get("/terms", response_class=HTMLResponse)
 def terms_page():
     return _LEGAL_SHELL.format(title="Terms", body=TERMS_BODY)
