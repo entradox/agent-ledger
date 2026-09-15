@@ -35,6 +35,49 @@ def _append_customer(rec: dict):
         f.write(json.dumps(rec) + "\n")
 
 
+def _record_grant_failure(reason: str, session_id: str, email: str,
+                          detail: str = "", workspace_id: str = "") -> None:
+    """Record a paid-but-not-granted event so it can be found and repaired.
+
+    The failure mode this exists for: a customer pays $19, and for any reason
+    the workspace is never upgraded. Before this, the code did `pass` — the
+    payment was simply lost with no trace. Money in, plan out, nothing in the
+    logs.
+
+    Written to its own file rather than customers.jsonl on purpose: a grant
+    failure is NOT a customer. Mixing it in would let a failed upgrade inflate
+    the customer count, which is the same class of error as the synthetic
+    checkout events scrubbed on 2026-09-14.
+
+    Must never raise. This runs inside a webhook that Stripe is waiting on; an
+    exception here would turn a repairable bookkeeping miss into a 500 and
+    trigger endless Stripe retries.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": time.time(),
+            "reason": reason,
+            "stripe_session": session_id,
+            "email": email,
+            "workspace_id": workspace_id,
+            "detail": detail,
+            "revenue_impact_cents": 1900,
+            "repaired": False,
+        }
+        with open(DATA_DIR / "grant_failures.jsonl", "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+    # Also surface in the onboarding funnel under a reserved id, so it is
+    # visible in /v1/metrics without anyone having to know this file exists.
+    try:
+        metrics.record_onboarding("grant_failed", "__grant_failure__",
+                                  reason=reason, stripe_session=session_id)
+    except Exception:
+        pass
+
+
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
     """Fulfillment: checkout.session.completed -> customers.jsonl (HMAC-verified)."""
@@ -88,9 +131,30 @@ async def stripe_webhook(request: Request):
         return {"registered": False, "reason": "no email on session"}
     amount = sess.get("amount_total") or 0
     plan = "pro" if amount == 1900 else "unknown"
-    _append_customer({"ts": time.time(), "email": email, "plan": plan,
-                      "amount_total": amount, "stripe_session": sess.get("id", ""),
-                      "status": "active", "authority": "confirmed-at-checkout"})
+
+    # `completed` is NOT the same as `paid`. Stripe: "A completed checkout
+    # session does not mean that there was a successful payment" - the event
+    # carries the money's real state in payment_status (one of `paid`,
+    # `unpaid`, `no_payment_required`). With an async method (bank debit,
+    # vouchers, Boleto, SEPA) the session completes with `unpaid` and settles
+    # days later via checkout.session.async_payment_succeeded.
+    #
+    # Only an EXPLICIT `unpaid` blocks fulfillment. A missing/unknown value is
+    # treated as settled, which is deliberate: payment_status is always present
+    # on a real session, so the only way to reach that branch is a malformed or
+    # unexpected payload - and failing closed there would mean taking a paying
+    # customer's money and handing them nothing. Blocking on the positive
+    # evidence of non-payment closes the async hole without risking a false
+    # negative on the normal card path.
+    payment_status = str(sess.get("payment_status") or "").lower()
+    settled = payment_status != "unpaid"
+    _append_customer({"ts": time.time(), "email": email,
+                      "plan": plan if settled else "pending",
+                      "amount_total": amount,
+                      "stripe_session": sess.get("id", ""),
+                      "payment_status": payment_status or "unknown",
+                      "status": "active" if settled else "awaiting_settlement",
+                      "authority": "confirmed-at-checkout"})
     try:
         metrics.record_event("checkout_completed", amount_cents=amount)
         metrics.record_onboarding("checkout_completed",
@@ -98,14 +162,43 @@ async def stripe_webhook(request: Request):
                                   amount_cents=amount)
     except Exception:
         pass
+    if not settled:
+        # Money not in hand: record it as a paid-but-not-granted event so it is
+        # visible and repairable once the async payment settles, and do NOT
+        # grant. The follow-up Stripe event (async_payment_succeeded) is what
+        # will make this fulfil; until a handler exists for it, this path
+        # deliberately leaves the workspace unupgraded rather than free-riding.
+        _record_grant_failure("payment_not_settled",
+                              sess.get("id", ""), email,
+                              f"payment_status={payment_status or 'unknown'}",
+                              sess.get("client_reference_id") or "")
+        return {"received": True, "granted": False,
+                "reason": "payment not settled",
+                "payment_status": payment_status or "unknown"}
     if plan == "pro":
         workspace_id = sess.get("client_reference_id")
-        if workspace_id:
+        if not workspace_id:
+            # A paid $19 that we cannot attribute to a workspace. This is the
+            # silent-failure class: money is taken, no plan is granted, and
+            # nothing is written anywhere a human would look. Record it against
+            # a stable synthetic id so it surfaces in the onboarding funnel
+            # instead of vanishing.
+            _record_grant_failure("missing_client_reference_id",
+                                  sess.get("id", ""), email)
+        else:
             import workspace_engine
             try:
                 workspace_engine.mark_pro(workspace_id, sess.get("customer", ""))
-            except workspace_engine.WorkspaceError:
-                pass  # unknown workspace_id — log for investigation, don't crash the webhook
+            except workspace_engine.WorkspaceError as exc:
+                # An unresolvable workspace_id used to be swallowed with `pass`.
+                # That silently converted a real payment into a non-account,
+                # which is the worst possible failure for a $19 subscription.
+                # The webhook still returns 200 (Stripe must not retry forever
+                # on a deterministic failure), but the event is now recorded so
+                # it can be found and repaired.
+                _record_grant_failure("mark_pro_failed",
+                                      sess.get("id", ""), email, str(exc),
+                                      workspace_id)
     try:
         from send_onboarding_email import send_onboarding_email
         send_onboarding_email(email, plan)
