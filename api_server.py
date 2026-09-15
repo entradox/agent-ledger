@@ -320,8 +320,9 @@ models, and your data is never sold.
 Claiming a NEW agent_id requires a workspace_key in the body of the first
 write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
-workspace identity), or by opening GET /start — no signup, no login, no
-card. {X402_SETTLEMENT} Missing or
+workspace identity — {X402_PASS_OFFER}), or by
+opening GET /start — no signup, no login, no card, but capped at 3 agents.
+{X402_SETTLEMENT} Missing or
 invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
@@ -333,7 +334,10 @@ an X-Agent-Secret or X-Workspace-Key header (either credential proving
 access to that agent_id) — missing/wrong gets 401. There is no
 unauthenticated read path, on REST or MCP.
 A free workspace is capped at 3 agents; a 4th new
-agent_id gets 402 until upgrading ($19/mo, unlimited agents). The cap is
+agent_id gets 402 with two upgrade paths in the error body: pay via x402
+yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
+or a human upgrades the workspace to Pro ($19/mo, unlimited, no expiry) via
+the Stripe link the same error returns. The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
 must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
@@ -577,6 +581,21 @@ def _x402_settlement_words() -> str:
             "testnet wallet.")
 
 
+def _x402_pass_offer_words() -> str:
+    """One-line description of what an x402 payment actually buys (D-1270).
+
+    Price and duration are read from x402_verify, the one place that
+    configures them, so this can never drift from the real offer the way the
+    hardcoded "$19/mo, unlimited agents" cap-upgrade line did before a
+    second, cheaper, no-human path existed.
+    """
+    import x402_verify
+    hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
+    return (f"{x402_verify.X402_MINT_PRICE} via x402 buys {hours}h of Pro "
+            "(unlimited agents) on the workspace your wallet resolves to — "
+            "no card, no human, pay again any time to extend it")
+
+
 def _x402_asset() -> str:
     """The USDC contract for the configured network."""
     return X402_USDC_BY_NETWORK.get(_x402_network(),
@@ -612,6 +631,8 @@ def _x402_pay_to():
 # -> _x402_network), and still at import time so the replacement below sees it.
 X402_SETTLEMENT = _x402_settlement_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_SETTLEMENT}", X402_SETTLEMENT)
+X402_PASS_OFFER = _x402_pass_offer_words()
+LLMS_TXT = LLMS_TXT.replace("{X402_PASS_OFFER}", X402_PASS_OFFER)
 
 
 AGENT_JSON = {
@@ -643,17 +664,21 @@ AGENT_JSON = {
     "pricing": {
         "model": "freemium",
         "amount_usd": 19.00,
-        "description": "Free tier is 3 agents per workspace. Pro is $19/mo for "
-                        "unlimited agents.",
+        "description": "Free tier is 3 agents per workspace, no expiry. Two paid paths "
+                        "to unlimited agents beyond that: an agent can pay via x402 "
+                        "itself for a time-boxed Pro pass, or a human subscribes at "
+                        "$19/mo for Pro with no expiry. See capabilities below for the "
+                        "x402 price and pass duration.",
     },
     "capabilities": [
         {"id": "mint_workspace_x402",
          "description": "Self-serve workspace + workspace_key for an agent with a "
                         "wallet — no human, no login. Present an x402 payment in the "
                         "X-PAYMENT header; the paying wallet becomes the workspace "
-                        "identity. Do this first: a workspace_key is required to "
-                        f"claim a new agent_id. {X402_SETTLEMENT} "
-                        "If you hold no wallet, mint at GET /start instead (no wallet, no card).",
+                        f"identity. {X402_PASS_OFFER} Do this first: a workspace_key "
+                        f"is required to claim a new agent_id. {X402_SETTLEMENT} "
+                        "If you hold no wallet, mint at GET /start instead (no wallet, "
+                        "no card, but capped at 3 agents).",
          "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
@@ -1238,11 +1263,11 @@ enforcement, alerts, reports, token burn, and the MCP server are included.</p>
 <div class="warn">The key is shown once, on the next screen. Save it before you leave — it is not emailed.</div>
 </div>
 <div class="card">
-<p><b>Running this from an agent?</b> An agent with a wallet can mint its own workspace with
-no human in the loop at all:</p>
+<p><b>Running this from an agent?</b> Skip the form — pay with your own wallet and get more
+than the free tier gives, with no human in the loop:</p>
 <pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
-<p class="mut">The paying wallet becomes the workspace identity.</p>
+<p class="mut">{X402_PASS_OFFER_HTML}</p>
 <p class="warn">{X402_SETTLEMENT_HTML}</p>
 <p class="mut">Agent-facing docs:
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
@@ -1291,8 +1316,11 @@ agent's own <code>agent_secret</code>, which authenticates every write after it.
 https://aiagentscity.com/mcp/</code> — and let the agent do it.</p>
 </div>
 <div class="card">
-<p><b>Optional, and not needed today: Pro — $19/mo</b> for unlimited tracked agents.</p>
-<p class="mut">Only matters past 3 agents. Same workspace, same key, nothing to migrate.</p>
+<p><b>Optional, and not needed today.</b> Only matters past 3 agents — two ways to lift
+that, for different situations:</p>
+<p class="mut"><b>If an agent hits the wall itself:</b> {_x402_pass_offer_words()}</p>
+<p class="mut"><b>If you'd rather not think about it again:</b> Pro at $19/mo, unlimited
+agents, no expiry, same workspace, same key, nothing to migrate.</p>
 <a class="plain" href="{html.escape(checkout, quote=True)}" rel="noopener"
    onclick="{beacon}">Upgrade to Pro →</a>
 </div>
@@ -1310,7 +1338,8 @@ automated loop — so the mint is capped at 3 workspaces per address per day.</p
 <p>Already have one? Your <code>workspace_key</code> was shown once when you created it.
 If it is lost, it cannot be recovered in this version.</p>
 <p>Running an agent rather than a browser? The path is
-<code>POST /v1/billing/x402</code>, which is not affected by this limit — but it is
+<code>POST /v1/billing/x402</code>, which is not affected by this limit — and it buys more
+than the free tier anyway: {X402_PASS_OFFER_HTML} It
 {X402_SETTLEMENT_HTML}</p>
 <p><a class="plain" href="/llms.txt">/llms.txt</a> has the full API docs.</p>
 </div>
@@ -1323,8 +1352,9 @@ def start_page():
     would let any crawler, link-preview bot or accidental reload burn one of
     the 50 launch-window workspaces and orphan a key nobody ever saw. The
     form POSTs to this same path, which does the minting."""
-    return _start_form_html().replace(
-        "{X402_SETTLEMENT_HTML}", _x402_settlement_words())
+    return (_start_form_html()
+            .replace("{X402_SETTLEMENT_HTML}", _x402_settlement_words())
+            .replace("{X402_PASS_OFFER_HTML}", _x402_pass_offer_words()))
 
 
 _START_WINDOW_SECONDS = 86400
@@ -1365,7 +1395,14 @@ def start_mint(request: Request):
     workspace_engine.create_workspace for why.
     """
     if not _start_mint_allowed(request):
-        return HTMLResponse(_start_limited_html(), status_code=429)
+        # Bug fixed alongside D-1270: this page carried {X402_SETTLEMENT_HTML}
+        # literally, unsubstituted — no .replace() was ever called on it, so a
+        # rate-limited visitor saw the placeholder text instead of the real
+        # settlement/offer sentence.
+        limited = (_start_limited_html()
+                  .replace("{X402_SETTLEMENT_HTML}", _x402_settlement_words())
+                  .replace("{X402_PASS_OFFER_HTML}", _x402_pass_offer_words()))
+        return HTMLResponse(limited, status_code=429)
     import workspace_engine
     workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False)
     # Onboarding step 1/2 (D-1163). Workspace id only — never the key, never an IP.
