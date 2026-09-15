@@ -724,7 +724,13 @@ def x402_wellknown_json():
         "assetSymbol": "USDC",
         "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
         "payTo": _x402_pay_to(),
-        "facilitator": x402_verify.X402_FACILITATOR_URL,
+        # Publish the RESOLVED facilitator, not the raw env var: the raw var is
+        # now empty by default (it is an explicit override), so publishing it
+        # would advertise an empty string to every agent reading the docs while
+        # the service actually talks to x402.org or CDP. `mode` is additive, so
+        # nothing that already parses this document breaks.
+        "facilitator": x402_verify.FACILITATOR_URL_RESOLVED,
+        "facilitatorMode": x402_verify.FACILITATOR_MODE,
         "endpoint": "https://aiagentscity.com/v1/billing/x402",
         "method": "POST",
         "howToPay": "POST /v1/billing/x402 with an X-PAYMENT header carrying a "
