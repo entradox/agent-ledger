@@ -83,6 +83,27 @@ not just reported.</div>
 so the money was never spent. That is the whole product — and the rest of the
 market only reports the number <i>after</i> you have paid it.</p>
 
+<div class="card">
+  <p><b>Try it with your own numbers.</b> No signup, nothing stored — this calls
+  the real check the proxy runs, with the numbers you enter.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+    <label style="font-size:12px;color:var(--m)">Monthly budget ($)
+      <input id="simCap" type="number" value="20" min="0" step="0.01"
+             style="display:block;width:110px;background:#0d1117;border:1px solid var(--b);
+                    border-radius:6px;color:var(--t);padding:6px 8px;margin-top:3px"></label>
+    <label style="font-size:12px;color:var(--m)">Already spent ($)
+      <input id="simSpent" type="number" value="18" min="0" step="0.01"
+             style="display:block;width:110px;background:#0d1117;border:1px solid var(--b);
+                    border-radius:6px;color:var(--t);padding:6px 8px;margin-top:3px"></label>
+    <label style="font-size:12px;color:var(--m)">This call's est. cost ($)
+      <input id="simCost" type="number" value="3" min="0" step="0.01"
+             style="display:block;width:110px;background:#0d1117;border:1px solid var(--b);
+                    border-radius:6px;color:var(--t);padding:6px 8px;margin-top:3px"></label>
+  </div>
+  <a class="btn2" id="simRun" href="#" onclick="return false" style="margin-top:0">Run the check</a>
+  <pre class="proof" id="simResult" style="display:none;margin-top:12px"></pre>
+</div>
+
 <h2>Three steps, five minutes</h2>
 <div class="steps">
   <div class="step"><div class="n">01</div><h4>Point it at us</h4>
@@ -233,6 +254,7 @@ client = agentledger.wrap(OpenAI(), agent_id="my-agent", workspace_key="wk_live_
 <div class="trust">
   <a href="/about">An AI Agent City product</a>
   <a href="/security">Security &amp; data handling</a>
+  <a href="/reliability">Reliability</a>
   <a href="/status">Live status</a>
   <a href="/quickstart">Quickstart</a>
   <a href="/compare">Comparison</a>
@@ -263,6 +285,44 @@ fetch("/stats", {signal: _c.signal}).then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const ta = document.getElementById("ta");
   if (ta) ta.textContent = "unavailable";
+});
+
+// D-1250 — the interactive blocked-call simulator. Calls the real check
+// (/v1/demo/simulate mirrors routes_proxy.py's _pre_call_check exactly), so
+// what a visitor sees here cannot drift from what the product actually does.
+document.getElementById("simRun").addEventListener("click", () => {
+  const dollars = id => Math.round(parseFloat(document.getElementById(id).value || "0") * 100);
+  const box = document.getElementById("simResult");
+  box.style.display = "block";
+  box.textContent = "checking…";
+  fetch("/v1/demo/simulate", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      monthly_cap_cents: dollars("simCap"),
+      already_spent_cents: dollars("simSpent"),
+      estimated_call_cents: dollars("simCost"),
+    }),
+  }).then(r => r.json()).then(d => {
+    if (d.blocked) {
+      box.innerHTML = `<span class="st">HTTP/1.1 402 Payment Required</span>\n` +
+        `{"error":{"type":"<span class="k">${d.code}</span>","message":"${d.message}"}}`;
+    } else {
+      box.innerHTML = `<span class="k">HTTP/1.1 200 OK</span>\n${d.message}`;
+    }
+  }).catch(() => { box.textContent = "the check is unavailable right now — try again shortly."; });
+});
+
+// Copy-to-clipboard on every connect command, with a quickstart_copy beacon
+// (D-1250) so the funnel can see "copied the install line" between viewing
+// the page and making a real call. Best-effort: never blocks the copy.
+document.querySelectorAll("pre.cmd").forEach(pre => {
+  pre.style.cursor = "pointer";
+  pre.title = "click to copy";
+  pre.addEventListener("click", () => {
+    navigator.clipboard.writeText(pre.textContent).catch(() => {});
+    fetch("/v1/demo/quickstart-copy", {method: "POST"}).catch(() => {});
+  });
 });
 </script>
 </body></html>
