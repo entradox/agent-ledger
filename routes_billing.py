@@ -98,7 +98,16 @@ async def stripe_webhook(request: Request):
         raise
     except Exception:
         raise HTTPException(400, "signature verification failed")
-    event = json.loads(payload)
+    # A correctly-signed but unparseable body must not become an unhandled 500.
+    # Stripe would retry a 5xx forever, and a 500 masks the real cause. The
+    # signature already proved the sender holds the secret, so a malformed body
+    # is a bug or a truncated delivery, not an attack: answer 400 and stop.
+    try:
+        event = json.loads(payload)
+    except Exception:
+        raise HTTPException(400, "malformed JSON payload")
+    if not isinstance(event, dict):
+        raise HTTPException(400, "payload is not a JSON object")
     event_type = event.get("type", "")
     if event_type.startswith("checkout.session.") and event_type not in (
             "checkout.session.completed", "checkout.session.expired"):
@@ -177,6 +186,16 @@ async def stripe_webhook(request: Request):
                 "payment_status": payment_status or "unknown"}
     if plan == "pro":
         workspace_id = sess.get("client_reference_id")
+        # Stripe caps client_reference_id at 200 chars and silently drops
+        # invalid values, but a correctly-signed body can carry anything, and an
+        # over-long id reaches the filesystem as a path component — which
+        # raises OSError: File name too long and turns a webhook into a 500 with
+        # endless Stripe retries. Reject it as a recorded failure instead.
+        if workspace_id and len(str(workspace_id)) > 200:
+            _record_grant_failure("client_reference_id_too_long",
+                                  sess.get("id", ""), email,
+                                  f"len={len(str(workspace_id))}")
+            workspace_id = None
         if not workspace_id:
             # A paid $19 that we cannot attribute to a workspace. This is the
             # silent-failure class: money is taken, no plan is granted, and
@@ -189,13 +208,18 @@ async def stripe_webhook(request: Request):
             import workspace_engine
             try:
                 workspace_engine.mark_pro(workspace_id, sess.get("customer", ""))
-            except workspace_engine.WorkspaceError as exc:
+            except Exception as exc:
                 # An unresolvable workspace_id used to be swallowed with `pass`.
                 # That silently converted a real payment into a non-account,
                 # which is the worst possible failure for a $19 subscription.
                 # The webhook still returns 200 (Stripe must not retry forever
                 # on a deterministic failure), but the event is now recorded so
                 # it can be found and repaired.
+                #
+                # Catches Exception, not just WorkspaceError: an adversarial
+                # pass found that a bad path component raises OSError
+                # (ENAMETOOLONG) rather than WorkspaceError, which would have
+                # escaped as a 500 and spun Stripe retries.
                 _record_grant_failure("mark_pro_failed",
                                       sess.get("id", ""), email, str(exc),
                                       workspace_id)
