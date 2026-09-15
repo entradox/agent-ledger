@@ -196,7 +196,12 @@ async def proxy_call(provider: str, path: str, request: Request):
         return _err(422, "request body must be JSON", "invalid_json")
 
     model = payload.get("model") or ""
+    _t0 = time.time()
     blocked = _pre_call_check(agent_id, model, payload)
+    try:
+        metrics.record_latency("pre_call_check", (time.time() - _t0) * 1000)
+    except Exception:
+        pass
     if blocked is not None:
         return blocked
 

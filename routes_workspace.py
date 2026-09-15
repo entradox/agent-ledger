@@ -26,6 +26,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel
 
 import ledger_engine as engine
 from routes_agents import _workspace_key_or_401
@@ -332,6 +333,11 @@ def demo():
     Rendered from a fixture rather than a seeded production workspace: there is
     no workspace-deletion path in the API, so a 'demo workspace' would be
     permanent, and it would inflate the counters that /stats serves."""
+    import metrics
+    try:
+        metrics.record_event("demo_view")
+    except Exception:
+        pass
     return HTMLResponse(dashboard_html(True), headers=_DASH_HEADERS)
 
 
@@ -341,3 +347,57 @@ def demo_summary():
     returns the same shape as /v1/workspace/summary so the two cannot drift."""
     import site_pages
     return site_pages.demo_summary()
+
+
+class SimulateRequest(BaseModel):
+    monthly_cap_cents: int
+    already_spent_cents: int
+    estimated_call_cents: int
+
+
+@router.post("/v1/demo/simulate")
+def demo_simulate(req: SimulateRequest):
+    """D-1250 — the interactive blocked-call proof. Public, no auth, no
+    workspace, no agent_id, nothing written to disk: it takes three numbers
+    and returns the SAME message shape routes_proxy.py's real
+    `_pre_call_check` returns on a real proxied call. This is not a second,
+    friendlier copy of that logic — it is the identical "would spent + estimate
+    exceed cap" comparison and the identical message template, so the proof a
+    visitor sees here cannot drift from what the product actually does."""
+    import metrics
+    spent = req.already_spent_cents
+    cap = req.monthly_cap_cents
+    estimate = req.estimated_call_cents
+    try:
+        metrics.record_event("simulator_run")
+    except Exception:
+        pass
+    if cap > 0 and spent + estimate > cap:
+        try:
+            metrics.record_event("simulator_blocked")
+        except Exception:
+            pass
+        return {
+            "blocked": True,
+            "status_code": 402,
+            "message": (
+                f"blocked before the provider: this call's estimated maximum cost "
+                f"({estimate} cents) would put this agent over its monthly budget "
+                f"({spent} of {cap} cents). Nothing was sent upstream."),
+            "code": "budget_exceeded",
+        }
+    return {"blocked": False, "status_code": 200,
+            "message": "within budget — the call would be forwarded to the provider."}
+
+
+@router.post("/v1/demo/quickstart-copy")
+def quickstart_copy_beacon():
+    """A one-field beacon: the quickstart page's copy buttons call this so the
+    funnel can see 'copied the install line' between 'viewed the page' and
+    'made a real call' — no auth, no body, nothing stored beyond the count."""
+    import metrics
+    try:
+        metrics.record_event("quickstart_copy")
+    except Exception:
+        pass
+    return {"ok": True}

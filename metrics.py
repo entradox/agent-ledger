@@ -244,6 +244,52 @@ def reach_from_file() -> dict:
     return {b: len(ips) for b, ips in buckets.items()}
 
 
+# ── Proxy latency (D-1250) — the overhead AgentLedger itself adds, not the
+# provider's round trip. Measured around _pre_call_check() in routes_proxy.py:
+# that is the budget/estimate computation this product does before forwarding,
+# so it is the honest number for "how much slower does routing through us
+# make a call", not the LLM provider's own response time. ────────────────────
+LATENCY_MAX_SAMPLES = 2000
+
+
+def record_latency(op: str, ms: float):
+    """Append one latency sample. Never raises — same contract as record_event."""
+    record_event("latency", op=op, ms=round(ms, 2))
+
+
+def latency_percentiles(op: str) -> dict:
+    """p50/p95/p99 over the most recent LATENCY_MAX_SAMPLES samples for `op`,
+    read from metrics.jsonl. Returns sample_count=0 (no invented numbers) if
+    nothing has been measured yet. Called only from /reliability, not a hot path."""
+    samples = []
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                if '"kind": "latency"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("op") == op and isinstance(rec.get("ms"), (int, float)):
+                    samples.append(rec["ms"])
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    samples = samples[-LATENCY_MAX_SAMPLES:]
+    if not samples:
+        return {"op": op, "sample_count": 0, "p50_ms": None, "p95_ms": None, "p99_ms": None}
+    samples.sort()
+
+    def _pct(p):
+        idx = min(len(samples) - 1, int(round(p * (len(samples) - 1))))
+        return round(samples[idx], 2)
+
+    return {"op": op, "sample_count": len(samples),
+            "p50_ms": _pct(0.50), "p95_ms": _pct(0.95), "p99_ms": _pct(0.99)}
+
+
 def snapshot() -> dict:
     """Return total + last-24h counts per kind, plus unique-ip-hash counts per
     bucket (kind, or a custom ip_bucket like "path:/status"). The unique set
