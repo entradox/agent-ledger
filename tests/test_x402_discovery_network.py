@@ -164,3 +164,27 @@ def test_mainnet_without_cdp_creds_is_refused_not_advertised():
     payload = json.loads(d["x402"])
     assert payload.get("enabled") is False, \
         "mainnet without CDP creds must report x402 disabled rather than enabled"
+
+
+# ── discovery aliases: every spelling a live crawler actually requests ────────
+# Counted in /data/metrics.jsonl (2026-09-15), all previously 404.
+
+@pytest.mark.parametrize("path", [
+    "/.well-known/agents.json",
+    "/agents.json",
+    "/.well-known/agent-directory.json",
+    "/agent-directory.json",
+    "/.well-known/mcp",
+    "/mcp.json",
+])
+def test_agent_requested_discovery_spellings_are_served(docs, path):
+    """A 404 on a discovery path is how a paying agent gives up."""
+    import json as _json
+    code_path = path
+    # Reuse the rendered MAINNET doc set: it already fetched the app, but we need
+    # this specific path, so probe it directly against the same app instance.
+    from fastapi.testclient import TestClient
+    import api_server as a
+    r = TestClient(a.app).get(code_path)
+    assert r.status_code == 200, f"{path} must be served, got {r.status_code}"
+    assert r.json(), f"{path} must return a non-empty document"

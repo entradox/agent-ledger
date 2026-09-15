@@ -748,6 +748,33 @@ def mcp_wellknown_json():
     })
 
 
+@app.get("/.well-known/agents.json")
+@app.get("/agents.json")
+@app.get("/.well-known/agent-directory.json")
+@app.get("/agent-directory.json")
+def agents_directory_aliases():
+    """Every spelling of the agent manifest that live crawlers actually request.
+
+    Counted in /data/metrics.jsonl (2026-09-15): /.well-known/agents.json 30x,
+    /.well-known/agent-directory.json 28x, /agent-directory.json 28x,
+    /agents.json 22x — all 404. There is no directory concept here, so the honest
+    answer is the capability manifest. Returning AGENT_JSON (the single source of
+    truth) beats inventing a second document that could drift from it.
+    """
+    return JSONResponse(content=AGENT_JSON)
+
+
+@app.get("/.well-known/mcp")
+@app.get("/mcp.json")
+def mcp_manifest_aliases():
+    """Bare-manifest spellings for the MCP descriptor.
+
+    /.well-known/mcp 29x and /mcp.json 29x in the live log, both 404. Delegates to
+    the existing /.well-known/mcp.json handler so there is one implementation.
+    """
+    return mcp_wellknown_json()
+
+
 @app.get("/.well-known/x402")
 def x402_wellknown_json():
     """The till, published where agents actually look.
