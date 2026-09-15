@@ -11,12 +11,12 @@ Two rules govern this file:
    mess the gap plan asked us to clean up.
 
 2. **No page advertises anything that does not work, or that belongs to
-   someone else.** There is no PyPI or npm release yet, so the install line is
-   the git URL — which does work and is verified. The package name in it is
-   `aiagentscity-ledger`: the umbrella namespace, which nobody can register
-   without impersonating a domain we own. The two obvious names are both other
-   parties' (`agent-ledger` on PyPI is Rune0's; `agentledger` on npm is
-   agentledger.co's), so naming either one would hand a user a stranger's code.
+   someone else.** Published on PyPI and npm as `aiagentscity-ledger` (v0.4.1,
+   verified live 2026-09-14) — the umbrella namespace, which nobody can
+   register without impersonating a domain we own. The two obvious names are
+   both other parties' (`agent-ledger` on PyPI is Rune0's; `agentledger` on
+   npm is agentledger.co's), so naming either one would hand a user a
+   stranger's code.
 """
 from __future__ import annotations
 
