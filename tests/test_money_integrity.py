@@ -383,6 +383,106 @@ def test_missing_payment_status_does_not_deny_a_payer(env):
     )
 
 
+# ── delayed payment methods: money that lands days later ────────────────────
+
+def _async_succeeded(workspace_id: str, email: str = "buyer@example.com",
+                     amount: int = 1900, session_id: str = "cs_async_ok_1"):
+    """checkout.session.async_payment_succeeded, as Stripe sends it when a
+    delayed method (US bank/ACH, Boleto, SEPA) finally settles."""
+    return {
+        "type": "checkout.session.async_payment_succeeded",
+        "data": {"object": {
+            "id": session_id,
+            "customer": "cus_test_1",
+            "amount_total": amount,
+            "payment_status": "paid",
+            "client_reference_id": workspace_id,
+            "customer_details": {"email": email},
+        }},
+    }
+
+
+def test_delayed_payment_grants_pro_when_it_settles(env):
+    """The live payment link enables US bank, so this path is reachable today.
+
+    A bank-debit buyer's session completes immediately with
+    payment_status="unpaid" and settles days later. Stripe: 'Automatic
+    fulfillment with webhooks is required if you sell subscriptions or accept
+    payment methods with delayed success notification.' Without a handler for
+    the async event, they pay and are never upgraded.
+    """
+    c, ws, _ = env
+    workspace_id, _ = _free_workspace(ws)
+
+    # 1. Checkout completes, money not in yet.
+    r1 = _post(c, _completed(workspace_id, session_id="cs_bank_1",
+                             payment_status="unpaid"))
+    assert r1.status_code == 200
+    assert ws.is_workspace_pro(workspace_id) is False, (
+        "unsettled money must not buy Pro"
+    )
+
+    # 2. Days later the ACH debit clears.
+    r2 = _post(c, _async_succeeded(workspace_id, session_id="cs_bank_1"))
+    assert r2.status_code == 200, "async settlement must not 500"
+    assert ws.is_workspace_pro(workspace_id) is True, (
+        "the delayed payment SETTLED and the buyer was never upgraded"
+    )
+
+
+def test_delayed_payment_writes_the_customer_row_on_settlement(env):
+    """Revenue is booked when the money lands, not when the form is submitted."""
+    c, ws, tmp = env
+    workspace_id, _ = _free_workspace(ws)
+    _post(c, _completed(workspace_id, session_id="cs_bank_2",
+                        payment_status="unpaid"))
+    customers = tmp / "customers.jsonl"
+    pre = [l for l in customers.read_text().splitlines() if l] if customers.exists() else []
+    assert pre == [], "an unsettled sale must not be booked as revenue yet"
+
+    _post(c, _async_succeeded(workspace_id, session_id="cs_bank_2"))
+    rows = [json.loads(l) for l in customers.read_text().splitlines() if l]
+    assert len(rows) == 1
+    assert rows[0]["fulfilled_via"] == "checkout.session.async_payment_succeeded"
+    assert rows[0]["payment_status"] == "paid"
+
+
+def test_failed_delayed_payment_grants_nothing_and_is_recorded(env):
+    """An ACH debit that bounces must not leave a free Pro workspace."""
+    c, ws, tmp = env
+    workspace_id, _ = _free_workspace(ws)
+    _post(c, _completed(workspace_id, session_id="cs_bank_bad",
+                        payment_status="unpaid"))
+    r = _post(c, {
+        "type": "checkout.session.async_payment_failed",
+        "data": {"object": {
+            "id": "cs_bank_bad",
+            "amount_total": 1900,
+            "client_reference_id": workspace_id,
+            "customer_details": {"email": "buyer@example.com"},
+        }},
+    })
+    assert r.status_code == 200
+    assert ws.is_workspace_pro(workspace_id) is False
+
+    gf = tmp / "grant_failures.jsonl"
+    rows = [json.loads(l) for l in gf.read_text().splitlines() if l]
+    assert any(x["reason"] == "async_payment_failed" for x in rows), (
+        "a failed delayed payment left no trace"
+    )
+
+
+def test_settled_non_pro_amount_is_recorded_not_silent(env):
+    """Money settled at the wrong amount must be visible, not swallowed."""
+    c, ws, tmp = env
+    workspace_id, _ = _free_workspace(ws)
+    _post(c, _completed(workspace_id, amount=500, session_id="cs_odd_1"))
+    assert ws.is_workspace_pro(workspace_id) is False
+    gf = tmp / "grant_failures.jsonl"
+    rows = [json.loads(l) for l in gf.read_text().splitlines() if l]
+    assert any(x["reason"] == "unexpected_amount" for x in rows)
+
+
 # ── the launch-window grant must not be confusable with a subscription ──────
 
 def test_scarcity_grant_and_paid_subscription_are_distinguishable(env):
