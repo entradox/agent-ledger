@@ -1217,8 +1217,6 @@ no human in the loop at all:</p>
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
 <p class="mut">The paying wallet becomes the workspace identity.</p>
 <p class="warn">{X402_SETTLEMENT_HTML}</p>
-Mainnet arrives when Coinbase CDP onboarding completes; until then, mint at
-<a href="/start" style="color:#8b949e">/start</a> — it needs no wallet and no card.</p>
 <p class="mut">Agent-facing docs:
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 </div>

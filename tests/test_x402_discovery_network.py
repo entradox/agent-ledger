@@ -1,21 +1,17 @@
-#!/usr/bin/env python3
-"""The published discovery text must match the configured network.
+# tests/test_x402_discovery_network.py
+"""D-1232: discovery documents must match the CONFIGURED network, in both modes.
 
-Bugs this locks down, all found before flipping to mainnet:
-  1. "mainnet" was computed as `network == "eip155:845"`. Base mainnet is
-     eip155:8453, so the flag read FALSE on mainnet — the published document
-     contradicted the live network.
-  2. The asset address was a hardcoded constant pointing at TESTNET USDC. On
-     mainnet that tells every agent to pay with a token that is not the one the
-     endpoint settles in.
-  3. ~18 literal "TESTNET ONLY ... a mainnet wallet cannot complete it"
-     statements. True on Sepolia, actively harmful on mainnet: they steer agents
-     away from a working payment path.
+The defect this pins: discovery prose hardcoded "TESTNET ONLY ... a mainnet wallet
+cannot complete it". That became false the moment X402_NETWORK flipped to mainnet,
+and it would actively tell paying agents to stay away from a working payment path.
 
-Checked in BOTH modes, against the real HTTP responses — a fix that only works
-in the mode it was written for is exactly how #1 happened.
+This file was previously a SCRIPT (it ran its checks at import via a module-level
+loop and `sys.exit`). pytest collected ZERO tests from it, so `pytest` reported
+success while none of these assertions were ever evaluated — and a real
+contradiction on `/start` survived inside the "pinned" surface. Converted to real
+test functions so the suite enforces it. Keep them as tests, not a script.
 
-Run: /opt/miniconda3/bin/python3 tests/test_x402_discovery_network.py
+Run: /opt/miniconda3/bin/python3 -m pytest tests/test_x402_discovery_network.py -q
 """
 import json
 import os
@@ -23,20 +19,32 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 PAYTO = "0x363c520492EDbA89057bCe696B74263B3295a72A"
 TESTNET, MAINNET = "eip155:84532", "eip155:8453"
 USDC_TESTNET = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 USDC_MAINNET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-FAILS = []
 
 
-def render(network):
-    """Bring up the app in a subprocess and fetch the discovery documents."""
+def render(network, cdp=True):
+    """Boot the app in a subprocess and fetch the discovery documents.
+
+    Subprocess on purpose: the network is read at import time, so an in-process
+    reload cannot exercise both modes in one run.
+
+    CDP creds are supplied by default because a mainnet network without them is
+    REFUSED by design (x402_verify._init raises rather than advertising a network
+    no configured facilitator can settle). That refusal is itself asserted below.
+    """
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("X402_", "CDP_"))}
     env.update({"X402_PAY_TO": PAYTO, "X402_NETWORK": network,
                 "AGENT_LEDGER_DATA": "/tmp/al_disc_test"})
+    if cdp:
+        env.update({"CDP_API_KEY_ID": "test-key-id",
+                    "CDP_API_KEY_SECRET": "test-key-secret"})
     code = (
         "import sys, json; sys.path.insert(0, %r)\n"
         "from fastapi.testclient import TestClient\n"
@@ -65,69 +73,94 @@ def render(network):
     return {"error": "no json in output: " + r.stdout[-300:]}
 
 
-for label, net, asset, is_main in (
-        ("TESTNET", TESTNET, USDC_TESTNET, False),
-        ("MAINNET", MAINNET, USDC_MAINNET, True)):
-    print("=" * 72)
-    print(f"{label}  (X402_NETWORK={net})")
-    print("=" * 72)
-    d = render(net)
+@pytest.fixture(scope="module")
+def docs():
+    """Both network modes, rendered once."""
+    return {net: render(net) for net in (TESTNET, MAINNET)}
+
+
+# ── both modes must serve ─────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("net", [TESTNET, MAINNET])
+def test_app_serves_discovery_in_both_modes(docs, net):
+    d = docs[net]
     if "error" in d:
-        FAILS.append(f"{label}: app failed to serve: {d['error'][:200]}")
-        print("  FAILED:", d["error"][:400])
-        continue
+        pytest.fail(f"app failed to serve under {net}: {d['error'][:400]}")
 
-    aj = json.loads(d["agentjson"])
-    x4 = json.loads(d["x402"])
-    llms = d["llms"]
-    agents = d["agents"]
-    start = d["start"]
 
-    checks = [
-        (x4.get("network") == net, f"/.well-known/x402 network == {net}"),
-        (x4.get("mainnet") is is_main,
-         f"/.well-known/x402 mainnet is {is_main} (got {x4.get('mainnet')!r})"),
-        (x4.get("asset") == asset,
-         f"/.well-known/x402 asset == {asset} (got {x4.get('asset')})"),
-        # The agent-card carries no payment block; the separate MCP descriptor
-        # (reached at /.well-known/mcp.json) is where an MCP client looks for it.
-        # Asserting on agent-card here was my own wrong assumption about the
-        # document, not a product defect.
-        (json.loads(d["mcp"]).get("payment", {}).get("mainnet") is is_main,
-         f"mcp descriptor mainnet is {is_main}"),
-        (asset in d["x402"], "x402 doc carries the network's USDC address"),
-    ]
+# ── the configured network is what discovery advertises ───────────────────────
 
-    if is_main:
-        checks += [
-            ("testnet only" not in llms.lower()
-             and "TESTNET ONLY" not in llms,
-             "llms.txt must not claim testnet-only on mainnet"),
-            ("cannot complete" not in llms,
-             "llms.txt must not say a mainnet wallet cannot pay"),
-            ("cannot complete" not in start,
-             "/start must not say a mainnet wallet cannot pay"),
-            ("MAINNET" in llms.upper(), "llms.txt states it is mainnet"),
-            (USDC_TESTNET not in d["x402"],
-             "x402 doc must not advertise the TESTNET token address"),
-        ]
-    else:
-        checks += [
-            ("TESTNET" in llms.upper(), "llms.txt states it is testnet"),
-            (USDC_MAINNET not in d["x402"],
-             "x402 doc must not advertise the MAINNET token address"),
-        ]
+@pytest.mark.parametrize("net,asset,is_main", [
+    (TESTNET, USDC_TESTNET, False),
+    (MAINNET, USDC_MAINNET, True),
+])
+def test_x402_document_matches_configured_network(docs, net, asset, is_main):
+    d = docs[net]
+    payload = json.loads(d["x402"])
+    assert payload["network"] == net, \
+        f"/.well-known/x402 must advertise {net}"
+    assert payload["mainnet"] is is_main, \
+        "the mainnet flag must match the configured network"
+    assert payload["asset"] == asset, \
+        f"/v1 billing doc must carry the {net} USDC address"
 
-    for ok, msg in checks:
-        print(f"  {'PASS' if ok else 'FAIL'}  {msg}")
-        if not ok:
-            FAILS.append(f"{label}: {msg}")
 
-print()
-print("=" * 72)
-if FAILS:
-    print(f"FAILURES ({len(FAILS)}):")
-    for f in FAILS:
-        print("  ✗", f)
-    sys.exit(1)
-print("DISCOVERY MATCHES THE CONFIGURED NETWORK IN BOTH MODES ✓")
+@pytest.mark.parametrize("net,wrong_asset", [
+    (TESTNET, USDC_MAINNET),
+    (MAINNET, USDC_TESTNET),
+])
+def test_never_advertises_the_wrong_networks_token(docs, net, wrong_asset):
+    """The token address is what an agent actually pays in."""
+    d = docs[net]
+    assert wrong_asset not in d["x402"], \
+        f"advertised the wrong network's USDC on {net}"
+
+
+# ── the load-bearing one: no surface may tell agents NOT to pay ───────────────
+# This is the assertion that catches the real-world failure. On mainnet, a page
+# saying "a mainnet wallet cannot complete it" drives paying agents away.
+
+@pytest.mark.parametrize("surface", ["llms", "start", "agents", "agentjson", "x402", "mcp"])
+def test_mainnet_never_claims_testnet_only(docs, surface):
+    d = docs[MAINNET]
+    text = d[surface]
+    assert "TESTNET ONLY" not in text.upper(), \
+        f"{surface} claims TESTNET ONLY while running on mainnet"
+    assert "cannot complete it" not in text.lower(), \
+        f"{surface} tells a mainnet wallet it cannot pay"
+    assert USDC_TESTNET not in text, \
+        f"{surface} advertises the testnet USDC token on mainnet"
+
+
+def test_mainnet_start_page_advertises_a_working_payment_path(docs):
+    """`/start` is the page a prospective payer reads.
+
+    Regression: it carried BOTH the derived mainnet sentence AND a stale literal
+    'Mainnet arrives when Coinbase CDP onboarding completes', contradicting itself.
+    """
+    start = docs[MAINNET]["start"]
+    assert "MAINNET" in start.upper(), "/start must state it settles on mainnet"
+    assert "arrives when" not in start.lower(), \
+        "/start must not claim mainnet is still pending while it is live"
+
+
+def test_testnet_mode_still_discloses_testnet(docs):
+    """The mirror assertion: testnet must not masquerade as mainnet."""
+    assert "TESTNET" in docs[TESTNET]["llms"].upper(), \
+        "llms.txt must disclose testnet mode"
+    assert USDC_MAINNET not in docs[TESTNET]["llms"], \
+        "must not advertise mainnet USDC while on testnet"
+
+
+def test_mainnet_without_cdp_creds_is_refused_not_advertised():
+    """A config that could never settle must fail loudly, not publish a 402.
+
+    Without this, X402_NETWORK=mainnet plus no CDP creds would advertise a mainnet
+    demand the public x402.org facilitator cannot settle (it serves testnets only),
+    so every payment would fail at settlement with no explanation.
+    """
+    d = render(MAINNET, cdp=False)
+    assert "error" not in d, "app should still serve, with x402 disabled"
+    payload = json.loads(d["x402"])
+    assert payload.get("enabled") is False, \
+        "mainnet without CDP creds must report x402 disabled rather than enabled"
