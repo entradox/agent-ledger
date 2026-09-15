@@ -8,11 +8,27 @@ through identity.resolve_workspace_key() — this file holds routing/plumbing
 only. The Google-session arm was removed in D-1162: checkout is authenticated
 by the workspace's own key, and the payment URL carries client_reference_id so
 the webhook upgrades the right workspace.
+
+Fulfillment covers BOTH immediate and delayed payment methods:
+
+  - Immediate (card, Klarna, Cash App Pay, Link): the session arrives with
+    payment_status="paid" and `checkout.session.completed` fulfills it.
+  - Delayed (US bank account / ACH Direct Debit, Boleto, SEPA, vouchers):
+    the session arrives with payment_status="unpaid" and is fulfilled days
+    later by `checkout.session.async_payment_succeeded`. That event MUST be
+    handled — Stripe: "Automatic fulfillment with webhooks is required if you
+    sell subscriptions or accept payment methods with delayed success
+    notification." Without it, a bank-debit buyer's money settles and they
+    are never upgraded.
+
+The live payment link enables US bank, so the delayed path is reachable today,
+not hypothetical.
 """
 import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -27,6 +43,19 @@ router = APIRouter()
 
 # ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
 CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
+GRANT_FAILURES_FILE = "grant_failures.jsonl"
+
+# Stripe's own limit for client_reference_id (docs.stripe.com/payment-links/
+# url-parameters). Values above it are silently dropped by Stripe, but a
+# correctly-signed body can carry anything, and the value becomes a filesystem
+# path component — so it must be bounded before it reaches mark_pro().
+MAX_CLIENT_REFERENCE_ID = 200
+
+# A workspace_id is only ever "ws_" + token_urlsafe(16). Validating the shape
+# before the value is used as a path component is what stops an absolute or
+# traversing client_reference_id from escaping the workspaces directory, since
+# pathlib.__truediv__ discards the left operand on an absolute right operand.
+_WORKSPACE_ID_RE = re.compile(r"ws_[A-Za-z0-9_-]{1,200}")
 
 
 def _append_customer(rec: dict):
@@ -35,9 +64,171 @@ def _append_customer(rec: dict):
         f.write(json.dumps(rec) + "\n")
 
 
+def _record_grant_failure(reason: str, session_id: str, email: str,
+                          detail: str = "", workspace_id: str = "") -> None:
+    """Record a paid-but-not-granted event so it can be found and repaired.
+
+    The failure mode this exists for: a customer pays $19, and for any reason
+    the workspace is never upgraded. Before this, the code did `pass` — the
+    payment was simply lost with no trace. Money in, plan out, nothing in the
+    logs.
+
+    Written to its own file rather than customers.jsonl on purpose: a grant
+    failure is NOT a customer. Mixing it in would let a failed upgrade inflate
+    the customer count, which is the same class of error as the synthetic
+    checkout events scrubbed on 2026-09-14.
+
+    Must never raise. This runs inside a webhook that Stripe is waiting on; an
+    exception here would turn a repairable bookkeeping miss into a 500 and
+    trigger endless Stripe retries.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": time.time(),
+            "reason": reason,
+            "stripe_session": session_id,
+            "email": email,
+            "workspace_id": workspace_id,
+            "detail": detail,
+            "revenue_impact_cents": 1900,
+            "repaired": False,
+        }
+        with open(DATA_DIR / GRANT_FAILURES_FILE, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+    # Also surface in the onboarding funnel under a reserved id, so it is
+    # visible in /v1/metrics without anyone having to know this file exists.
+    try:
+        metrics.record_onboarding("grant_failed", "__grant_failure__",
+                                  reason=reason, stripe_session=session_id)
+    except Exception:
+        pass
+
+
+def resolve_paying_workspace(sess: dict, email: str) -> str | None:
+    """Return the workspace_id a settled session should upgrade, or None.
+
+    None means the payment cannot be attributed, and a recorded
+    `missing_client_reference_id` failure has already been written. Bounds and
+    shape are enforced here rather than at the call sites so the immediate and
+    delayed paths cannot diverge.
+    """
+    workspace_id = sess.get("client_reference_id")
+    if workspace_id is None or str(workspace_id).strip() == "":
+        _record_grant_failure("missing_client_reference_id",
+                              sess.get("id", ""), email)
+        return None
+    workspace_id = str(workspace_id).strip()
+    if len(workspace_id) > MAX_CLIENT_REFERENCE_ID:
+        # Reaches the filesystem as a path component; an over-long value raises
+        # OSError ENAMETOOLONG, which is not a WorkspaceError and used to escape
+        # as a 500 with endless Stripe retries.
+        _record_grant_failure("client_reference_id_too_long",
+                              sess.get("id", ""), email,
+                              f"len={len(workspace_id)}")
+        return None
+    # Shape check, defence in depth behind workspace_engine._ws_path(), which
+    # also validates. An absolute or traversing value here would otherwise be
+    # used as a path component by mark_pro(), escaping the workspaces dir —
+    # Path.__truediv__ discards the left operand on an absolute right operand.
+    # A workspace_id is only ever ws_<token>, so anything else is refused.
+    if not _WORKSPACE_ID_RE.fullmatch(workspace_id):
+        _record_grant_failure("client_reference_id_not_a_workspace_id",
+                              sess.get("id", ""), email,
+                              f"shape rejected (len={len(workspace_id)})")
+        return None
+    return workspace_id
+
+
+def fulfill_paid_session(sess: dict, *, source: str) -> dict:
+    """Grant entitlement for a session whose money has actually settled.
+
+    Called from `checkout.session.completed` when payment_status is settled, and
+    from `checkout.session.async_payment_succeeded` when a delayed method
+    settles later. One implementation on purpose: the delayed path is exactly
+    where a second copy would drift and silently stop granting.
+
+    Never raises. Stripe is waiting on this response, and a deterministic
+    failure must not become an endless retry loop.
+    """
+    email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
+    if not email:
+        # No email means no way to contact the buyer or reconcile them. Record
+        # it rather than returning silently — this is still money we took.
+        _record_grant_failure("no_email_on_settled_session",
+                              sess.get("id", ""), "",
+                              f"settled via {source}",
+                              sess.get("client_reference_id") or "")
+        return {"received": True, "granted": False, "reason": "no email on session"}
+
+    amount = sess.get("amount_total") or 0
+    plan = "pro" if amount == 1900 else "unknown"
+
+    _append_customer({"ts": time.time(), "email": email, "plan": plan,
+                      "amount_total": amount,
+                      "stripe_session": sess.get("id", ""),
+                      "payment_status": str(sess.get("payment_status") or "unknown"),
+                      "status": "active",
+                      "authority": "confirmed-at-checkout",
+                      "fulfilled_via": source})
+    try:
+        metrics.record_event("checkout_completed", amount_cents=amount)
+        metrics.record_onboarding("checkout_completed",
+                                  sess.get("client_reference_id") or "",
+                                  amount_cents=amount)
+    except Exception:
+        pass
+
+    granted = False
+    if plan == "pro":
+        workspace_id = resolve_paying_workspace(sess, email)
+        if workspace_id:
+            import workspace_engine
+            try:
+                workspace_engine.mark_pro(workspace_id, sess.get("customer", ""))
+                granted = True
+            except Exception as exc:
+                # An unresolvable workspace_id used to be swallowed with `pass`,
+                # silently converting a real payment into a non-account — the
+                # worst possible failure for a $19 subscription.
+                #
+                # Catches Exception, not just WorkspaceError: an adversarial
+                # pass found a bad path component raises OSError
+                # (ENAMETOOLONG), which the narrow catch could never contain.
+                _record_grant_failure("mark_pro_failed",
+                                      sess.get("id", ""), email, str(exc),
+                                      workspace_id)
+    else:
+        # Money settled but not at the Pro price. Do not grant, and do not be
+        # silent about it.
+        _record_grant_failure("unexpected_amount",
+                              sess.get("id", ""), email,
+                              f"amount_total={amount}",
+                              sess.get("client_reference_id") or "")
+
+    try:
+        from send_onboarding_email import send_onboarding_email
+        send_onboarding_email(email, plan)
+    except Exception as e:
+        import logging
+        logging.warning(f"onboarding email skipped: {e}")
+
+    return {"received": True, "granted": granted, "plan": plan,
+            "fulfilled_via": source}
+
+
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
-    """Fulfillment: checkout.session.completed -> customers.jsonl (HMAC-verified)."""
+    """Stripe fulfillment endpoint. HMAC-verified and fail-closed.
+
+    Handles three event families:
+      - checkout.session.<opened>  -> revenue-funnel leading indicator
+      - checkout.session.expired   -> abandonment backstop
+      - checkout.session.completed -> fulfill IF the money has settled
+      - checkout.session.async_payment_succeeded -> fulfill the delayed case
+    """
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     secret = os.environ.get("STRIPE_WEBHOOK_SECRET_AL", "")
@@ -55,10 +246,23 @@ async def stripe_webhook(request: Request):
         raise
     except Exception:
         raise HTTPException(400, "signature verification failed")
-    event = json.loads(payload)
+
+    # A correctly-signed but unparseable body must not become an unhandled 500.
+    # Stripe would retry a 5xx forever, and a 500 masks the real cause. The
+    # signature already proved the sender holds the secret, so a malformed body
+    # is a bug or a truncated delivery, not an attack: answer 400 and stop.
+    try:
+        event = json.loads(payload)
+    except Exception:
+        raise HTTPException(400, "malformed JSON payload")
+    if not isinstance(event, dict):
+        raise HTTPException(400, "payload is not a JSON object")
     event_type = event.get("type", "")
+
     if event_type.startswith("checkout.session.") and event_type not in (
-            "checkout.session.completed", "checkout.session.expired"):
+            "checkout.session.completed", "checkout.session.expired",
+            "checkout.session.async_payment_succeeded",
+            "checkout.session.async_payment_failed"):
         # a checkout session that opened (and hasn't hit a terminal state)
         # counts as revenue-funnel entry — leading indicator of purchase intent.
         # completed/expired excluded so Stripe retries and dead sessions never
@@ -67,6 +271,7 @@ async def stripe_webhook(request: Request):
             metrics.record_event("checkout_started")
         except Exception:
             pass
+
     if event_type == "checkout.session.expired":
         # Backstop, not a real-time signal: Stripe expires an unpaid session
         # ~24h after it is created, so an abandonment recorded here is up to a
@@ -80,39 +285,63 @@ async def stripe_webhook(request: Request):
             pass
         return {"received": True, "ignored": event_type}
 
+    if event_type == "checkout.session.async_payment_succeeded":
+        # The delayed-method settlement. Stripe: "Automatic fulfillment with
+        # webhooks is required if you sell subscriptions or accept payment
+        # methods with delayed success notification." A US-bank (ACH) buyer's
+        # money lands here days after checkout; without this branch they pay and
+        # are never upgraded.
+        sess = (event.get("data") or {}).get("object") or {}
+        return fulfill_paid_session(sess, source=event_type)
+
+    if event_type == "checkout.session.async_payment_failed":
+        # The delayed payment bounced. No entitlement was ever granted, so
+        # there is nothing to revoke — record it so the churn is visible.
+        sess = (event.get("data") or {}).get("object") or {}
+        _record_grant_failure("async_payment_failed",
+                              sess.get("id", ""),
+                              (sess.get("customer_details") or {}).get("email", ""),
+                              "delayed payment method failed to settle",
+                              sess.get("client_reference_id") or "")
+        return {"received": True, "granted": False, "reason": "payment failed"}
+
     if event_type != "checkout.session.completed":
         return {"received": True, "ignored": event.get("type")}
+
     sess = event["data"]["object"]
     email = (sess.get("customer_details") or {}).get("email") or sess.get("customer_email")
     if not email:
         return {"registered": False, "reason": "no email on session"}
     amount = sess.get("amount_total") or 0
     plan = "pro" if amount == 1900 else "unknown"
-    _append_customer({"ts": time.time(), "email": email, "plan": plan,
-                      "amount_total": amount, "stripe_session": sess.get("id", ""),
-                      "status": "active", "authority": "confirmed-at-checkout"})
-    try:
-        metrics.record_event("checkout_completed", amount_cents=amount)
-        metrics.record_onboarding("checkout_completed",
-                                  sess.get("client_reference_id") or "",
-                                  amount_cents=amount)
-    except Exception:
-        pass
-    if plan == "pro":
-        workspace_id = sess.get("client_reference_id")
-        if workspace_id:
-            import workspace_engine
-            try:
-                workspace_engine.mark_pro(workspace_id, sess.get("customer", ""))
-            except workspace_engine.WorkspaceError:
-                pass  # unknown workspace_id — log for investigation, don't crash the webhook
-    try:
-        from send_onboarding_email import send_onboarding_email
-        send_onboarding_email(email, plan)
-    except Exception as e:
-        import logging
-        logging.warning(f"onboarding email skipped: {e}")
-    return {"registered": True, "email": email, "plan": plan}
+
+    # `completed` is NOT the same as `paid`. Stripe: "A completed checkout
+    # session does not mean that there was a successful payment" - the event
+    # carries the money's real state in payment_status (one of `paid`,
+    # `unpaid`, `no_payment_required`). With an async method (bank debit,
+    # vouchers, Boleto, SEPA) the session completes with `unpaid` and settles
+    # days later via checkout.session.async_payment_succeeded.
+    #
+    # Only an EXPLICIT `unpaid` blocks fulfillment. A missing/unknown value is
+    # treated as settled, which is deliberate: payment_status is always present
+    # on a real session, so the only way to reach that branch is a malformed or
+    # unexpected payload - and failing closed there would mean taking a paying
+    # customer's money and handing them nothing. Blocking on the positive
+    # evidence of non-payment closes the async hole without risking a false
+    # negative on the normal card path.
+    payment_status = str(sess.get("payment_status") or "").lower()
+    if payment_status == "unpaid":
+        # Awaiting settlement. Do NOT grant and do NOT write a customer row —
+        # the async_payment_succeeded handler above will do both when the money
+        # actually lands. Recorded so the open sale is visible in the meantime.
+        _record_grant_failure("payment_not_settled",
+                              sess.get("id", ""), email,
+                              f"payment_status={payment_status}",
+                              sess.get("client_reference_id") or "")
+        return {"received": True, "granted": False,
+                "reason": "payment not settled", "payment_status": payment_status}
+
+    return fulfill_paid_session(sess, source="checkout.session.completed")
 
 
 @router.get("/v1/billing/{email}")
@@ -161,7 +390,8 @@ def create_checkout(request: Request):
         raise HTTPException(401, detail=error_envelope(
             401, "send the workspace's own credentials as X-Workspace-Id and "
                  "X-Workspace-Key (mint a workspace at POST /start, or by paying "
-                 "at POST /v1/billing/x402)", code="workspace_key_required"))
+                 "at POST /v1/billing/x402)",
+            code="workspace_key_required"))
     if identity.resolve_workspace_key(raw_key) != workspace_id:
         raise HTTPException(401, detail=error_envelope(
             401, "workspace_key does not match that workspace_id",
@@ -170,6 +400,7 @@ def create_checkout(request: Request):
                           "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
     return {"checkout_url": f"{link}?client_reference_id={workspace_id}",
             "workspace_id": workspace_id}
+
 
 
 @router.post("/v1/billing/x402")

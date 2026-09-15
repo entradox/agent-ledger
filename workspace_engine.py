@@ -7,6 +7,7 @@ docs/superpowers/specs/2026-09-10-workspace-identity-design.md.
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -25,6 +26,12 @@ class WorkspaceError(Exception):
     """Raised for invalid workspace lookups callers must handle explicitly."""
 
 
+# Workspace ids are minted as "ws_" + secrets.token_urlsafe(16), whose alphabet
+# is [A-Za-z0-9_-]. Anything outside that is not an id we ever issued, so it is
+# refused BEFORE it can be used as a filesystem path component. See _ws_path.
+_WORKSPACE_ID_RE = re.compile(r"ws_[A-Za-z0-9_-]{1,200}")
+
+
 def _workspaces_dir() -> Path:
     d = DATA_DIR / "workspaces"
     d.mkdir(parents=True, exist_ok=True)
@@ -32,7 +39,25 @@ def _workspaces_dir() -> Path:
 
 
 def _ws_path(workspace_id: str) -> Path:
-    return _workspaces_dir() / f"{workspace_id}.json"
+    """Path to a workspace record, refusing ids that are not ids.
+
+    `_workspaces_dir() / f"{workspace_id}.json"` is unsafe on untrusted input:
+    pathlib.__truediv__ DISCARDS the left operand when the right side is
+    absolute, so `/data/workspaces` / "/tmp/x.json" is just `/tmp/x.json`. A
+    workspace_id arrives from a payer-controlled query parameter
+    (client_reference_id, capped at 200 chars by Stripe — far more than a path
+    needs), so an absolute or traversing value escaped the workspaces
+    directory and let mark_pro() rewrite an arbitrary JSON file.
+
+    Workspace ids are minted as "ws_" + token_urlsafe(16), so the character set
+    is known exactly: validate against it and refuse everything else. This is
+    the single choke point — every read and write goes through here, so
+    validating once covers the whole engine.
+    """
+    wid = str(workspace_id)
+    if not _WORKSPACE_ID_RE.fullmatch(wid):
+        raise WorkspaceError(f"invalid workspace id: {wid[:60]!r}")
+    return _workspaces_dir() / f"{wid}.json"
 
 
 def _index_dir(name: str) -> Path:

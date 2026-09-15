@@ -14,10 +14,21 @@ Configuration (all env, all optional — an unconfigured service degrades to
     X402_PAY_TO           receiving wallet address. NO DEFAULT — AgentLedger
                           must be given its own address; defaulting this would
                           route real funds to another product's treasury.
-    X402_FACILITATOR_URL  default https://x402.org/facilitator (free, public,
-                          no account; supports Base Sepolia for the `exact`
-                          scheme).
+    X402_FACILITATOR_URL  explicit facilitator URL. When set it WINS over the
+                          CDP credentials below — an operator overriding the
+                          URL should not be silently ignored.
+    CDP_API_KEY_ID        Coinbase CDP key id. When both this and the secret are
+    CDP_API_KEY_SECRET    set, the CDP Facilitator is used instead of the free
+                          public one. Required for mainnet: the public
+                          facilitator at https://x402.org/facilitator serves
+                          TESTNETS ONLY (verified 2026-09-15 — it advertises
+                          base-sepolia/eip155:84532, solana-devnet, aptos:2,
+                          hedera:testnet, stellar:testnet, xrpl:1, algorand:
+                          testnet, and no Base mainnet). So the CDP Facilitator
+                          is not an optimisation for mainnet, it is the only
+                          supported path.
     X402_NETWORK          default eip155:84532 (Base Sepolia testnet).
+                          eip155:8453 = Base mainnet (needs CDP creds).
     X402_MINT_PRICE       default $0.01 — price to mint a workspace.
 
 Import never raises: any failure (SDK missing, bad config, unreachable
@@ -30,10 +41,24 @@ import os
 ROUTE_KEY = "POST /v1/billing/x402"
 
 X402_PAY_TO = os.environ.get("X402_PAY_TO", "")
-X402_FACILITATOR_URL = os.environ.get("X402_FACILITATOR_URL",
-                                      "https://x402.org/facilitator")
+X402_FACILITATOR_URL = os.environ.get("X402_FACILITATOR_URL", "")
+CDP_API_KEY_ID = os.environ.get("CDP_API_KEY_ID", "")
+CDP_API_KEY_SECRET = os.environ.get("CDP_API_KEY_SECRET", "")
 X402_NETWORK = os.environ.get("X402_NETWORK", "eip155:84532")
 X402_MINT_PRICE = os.environ.get("X402_MINT_PRICE", "$0.01")
+
+# Resolved facilitator: explicit URL wins, else CDP, else the free public one.
+FACILITATOR_URL_RESOLVED = (X402_FACILITATOR_URL
+                            or ("https://api.cdp.coinbase.com/platform/v2/x402"
+                                if (CDP_API_KEY_ID and CDP_API_KEY_SECRET)
+                                else "https://x402.org/facilitator"))
+FACILITATOR_MODE = ("explicit-url" if X402_FACILITATOR_URL
+                    else ("cdp" if (CDP_API_KEY_ID and CDP_API_KEY_SECRET)
+                          else "public-testnet"))
+
+# Mainnet identifiers, so a misconfiguration is caught at import rather than at
+# the first real payment. The public facilitator cannot settle these.
+_MAINNET_NETWORKS = {"eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"}
 
 X402_ENABLED = False
 X402_DISABLED_REASON = "not initialized"
@@ -51,6 +76,16 @@ def _init():
     try:
         if not X402_PAY_TO:
             raise RuntimeError("X402_PAY_TO not configured (no receiving address)")
+        # Refuse a mainnet/mode mismatch instead of advertising a network no
+        # configured facilitator can settle. Without this, X402_NETWORK=8453
+        # plus no CDP creds would publish a mainnet 402 that can never complete —
+        # a config error that only shows up as a failed real payment.
+        if X402_NETWORK in _MAINNET_NETWORKS and FACILITATOR_MODE == "public-testnet":
+            raise RuntimeError(
+                f"X402_NETWORK={X402_NETWORK} is mainnet but no CDP credentials "
+                "are set (CDP_API_KEY_ID/CDP_API_KEY_SECRET); the public "
+                "facilitator serves testnets only, so this payment could never "
+                "settle")
         from x402.http import (x402HTTPResourceServerSync, RouteConfig,
                                PaymentOption, HTTPFacilitatorClientSync,
                                FacilitatorConfig,
@@ -58,8 +93,23 @@ def _init():
         from x402.server import x402ResourceServerSync
         from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
-        facilitator = HTTPFacilitatorClientSync(
-            FacilitatorConfig(url=X402_FACILITATOR_URL))
+        # CDP mode: build the authenticated client. create_facilitator_config()
+        # returns a FacilitatorConfig, and it authenticates verify/settle
+        # against the CDP Facilitator — it does not create a receiving wallet,
+        # so X402_PAY_TO is still required and still ours.
+        if FACILITATOR_MODE == "cdp":
+            try:
+                from cdp.x402 import create_facilitator_config
+            except ImportError as exc:
+                raise RuntimeError(
+                    "CDP credentials are set but the cdp-sdk package is not "
+                    "installed (pip install cdp-sdk)") from exc
+            facilitator_cfg = create_facilitator_config(
+                api_key_id=CDP_API_KEY_ID, api_key_secret=CDP_API_KEY_SECRET)
+        else:
+            facilitator_cfg = FacilitatorConfig(url=FACILITATOR_URL_RESOLVED)
+
+        facilitator = HTTPFacilitatorClientSync(facilitator_cfg)
         core = x402ResourceServerSync(facilitator_clients=[facilitator])
         core.register(X402_NETWORK, ExactEvmServerScheme())
         routes = {

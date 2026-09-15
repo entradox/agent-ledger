@@ -321,9 +321,7 @@ Claiming a NEW agent_id requires a workspace_key in the body of the first
 write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
 workspace identity), or by opening GET /start — no signup, no login, no
-card. TESTNET ONLY: /v1/billing/x402 settles on Base Sepolia (eip155:84532)
-with testnet USDC, so a mainnet wallet cannot complete it until mainnet
-onboarding lands; use GET /start if you have no testnet wallet. Missing or
+card. {X402_SETTLEMENT} Missing or
 invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
@@ -404,10 +402,8 @@ GET  /v1/agents                    — owner-only: full cross-tenant listing (re
 GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
-                                      CURRENTLY TESTNET ONLY: settles on Base Sepolia
-                                      (eip155:84532) with testnet USDC; a mainnet wallet
-                                      cannot complete it until Coinbase CDP onboarding lands.
-                                      Use GET /start instead if you have no testnet wallet.
+                                      {X402_SETTLEMENT}
+                                      Use GET /start instead if you have no wallet.
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 
@@ -538,9 +534,60 @@ def mcp_server_card():
 # discovery document cannot drift from what the endpoint actually charges.
 # Wrapped in a helper because x402_verify may fail to import on a dev box
 # (no SDK / no wallet configured) — discovery must still answer.
-X402_ASSET_FOR_DISCOVERY = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  # testnet USDC
+#
+# USDC differs per network, so this MUST be network-derived. Sending a payer the
+# testnet token address on a mainnet network (or the reverse) yields a payment
+# that cannot settle: the wrong asset. Both addresses are the canonical USDC
+# contracts (mainnet verified against the x402 supported-assets endpoint).
+X402_USDC_BY_NETWORK = {
+    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",  # Base Sepolia
+    "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",   # Base mainnet
+}
+X402_MAINNET_NETWORKS = {"eip155:8453"}
 X402_MINT_PRICE_FOR_DISCOVERY = 0.01
 _X402_NETWORK_FALLBACK = "eip155:84532"      # Base Sepolia, the configured default
+
+
+def _x402_is_mainnet() -> bool:
+    """True when the payment endpoint settles on a mainnet network.
+
+    The previous check was `== "eip155:845"`, which is WRONG: Base mainnet is
+    eip155:8453 (845 was the old chain id, still used by some RPC endpoints).
+    So `mainnet` reported false even when running on mainnet — the published
+    discovery document contradicted the live network. Set-membership on the
+    CAIP-2 id is the correct test.
+    """
+    return _x402_network() in X402_MAINNET_NETWORKS
+
+
+def _x402_settlement_words() -> str:
+    """Honest one-line description of where x402 settles, for agent-facing text.
+
+    Discovery prose used to hardcode "TESTNET ONLY ... a mainnet wallet cannot
+    complete it". That is false the moment X402_NETWORK flips, and it would tell
+    agents to stay away from a working mainnet payment path. Derived, not
+    literal, so it can never contradict the configured network.
+    """
+    net = _x402_network()
+    if net in X402_MAINNET_NETWORKS:
+        return (f"settles on Base MAINNET ({net}) in real USDC. The paying "
+                "wallet pays real money; the workspace is live immediately.")
+    return (f"settles on Base Sepolia TESTNET ({net}) with testnet USDC, so a "
+            "mainnet wallet cannot complete it — use GET /start if you hold no "
+            "testnet wallet.")
+
+
+def _x402_asset() -> str:
+    """The USDC contract for the configured network."""
+    return X402_USDC_BY_NETWORK.get(_x402_network(),
+                                    X402_USDC_BY_NETWORK["eip155:84532"])
+
+
+# The settlement sentence is network-dependent, so it is substituted into the
+# agent-facing documents rather than hardcoded. The previous literal
+# "TESTNET ONLY ... a mainnet wallet cannot complete it" became false the moment
+# X402_NETWORK changed, and would have told agents to avoid a working mainnet
+# payment path. Derived here, after the helpers, but still at import time.
 
 
 def _x402_network() -> str:
@@ -561,6 +608,12 @@ def _x402_pay_to():
         return None
 
 
+# Computed here, after every helper it calls is defined (_x402_settlement_words
+# -> _x402_network), and still at import time so the replacement below sees it.
+X402_SETTLEMENT = _x402_settlement_words()
+LLMS_TXT = LLMS_TXT.replace("{X402_SETTLEMENT}", X402_SETTLEMENT)
+
+
 AGENT_JSON = {
     "schema_version": "1.0",
     "name": "AgentLedger",
@@ -575,10 +628,7 @@ AGENT_JSON = {
         "description": "Get a workspace_key with no human at all by paying via "
                         "POST /v1/billing/x402 (the paying wallet becomes the workspace "
                         "identity), or at GET /start — no signup, no login, no card. "
-                        "NOTE: /v1/billing/x402 is TESTNET ONLY right now (Base Sepolia "
-                        "eip155:84532, testnet USDC); a mainnet wallet cannot complete it "
-                        "until mainnet onboarding lands, so prefer GET /start unless you "
-                        "hold a testnet wallet. "
+                        f"NOTE: /v1/billing/x402 {X402_SETTLEMENT} "
                         "Claiming a NEW agent_id "
                         "requires that workspace_key in the first POST /v1/track or "
                         "/v1/budget body; that call mints an agent_secret in the "
@@ -602,10 +652,8 @@ AGENT_JSON = {
                         "wallet — no human, no login. Present an x402 payment in the "
                         "X-PAYMENT header; the paying wallet becomes the workspace "
                         "identity. Do this first: a workspace_key is required to "
-                        "claim a new agent_id. TESTNET ONLY: settles on Base Sepolia "
-                        "(eip155:84532) with testnet USDC, so a mainnet wallet cannot "
-                        "complete it until mainnet onboarding lands. If you hold no "
-                        "testnet wallet, mint at GET /start instead (no wallet, no card).",
+                        f"claim a new agent_id. {X402_SETTLEMENT} "
+                        "If you hold no wallet, mint at GET /start instead (no wallet, no card).",
          "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
@@ -696,7 +744,7 @@ def mcp_wellknown_json():
                     "discovery": "https://aiagentscity.com/.well-known/x402",
                     "endpoint": "https://aiagentscity.com/v1/billing/x402",
                     "network": _x402_network(),
-                    "mainnet": _x402_network() == "eip155:845"},
+                    "mainnet": _x402_is_mainnet()},
     })
 
 
@@ -719,12 +767,18 @@ def x402_wellknown_json():
         "enabled": enabled,
         "scheme": "exact",
         "network": _x402_network(),
-        "mainnet": _x402_network() == "eip155:845",
-        "asset": X402_ASSET_FOR_DISCOVERY,
+        "mainnet": _x402_is_mainnet(),
+        "asset": _x402_asset(),
         "assetSymbol": "USDC",
         "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
         "payTo": _x402_pay_to(),
-        "facilitator": x402_verify.X402_FACILITATOR_URL,
+        # Publish the RESOLVED facilitator, not the raw env var: the raw var is
+        # now empty by default (it is an explicit override), so publishing it
+        # would advertise an empty string to every agent reading the docs while
+        # the service actually talks to x402.org or CDP. `mode` is additive, so
+        # nothing that already parses this document breaks.
+        "facilitator": x402_verify.FACILITATOR_URL_RESOLVED,
+        "facilitatorMode": x402_verify.FACILITATOR_MODE,
         "endpoint": "https://aiagentscity.com/v1/billing/x402",
         "method": "POST",
         "howToPay": "POST /v1/billing/x402 with an X-PAYMENT header carrying a "
@@ -732,10 +786,8 @@ def x402_wellknown_json():
                     "returns a workspace_id and a workspace_key (shown once), "
                     "bound to the paying wallet, with no human, no email and no card.",
         "returns": ["workspace_id", "workspace_key"],
-        "note": ("Base Sepolia TESTNET: testnet USDC only, not real money. "
-                 "A mainnet wallet cannot complete this until mainnet "
-                 "onboarding lands. To get a workspace with no wallet at all, "
-                 "use GET /start."),
+        "note": (f"{X402_SETTLEMENT} To get a workspace with no wallet at "
+                 "all, use GET /start."),
     }
     if not enabled:
         content["disabledReason"] = getattr(x402_verify, "X402_DISABLED_REASON", "unknown")
@@ -773,7 +825,8 @@ def agents_txt():
         "\n"
         "GET A WORKSPACE (no human needed)\n"
         "  GET  /start                 free workspace, no wallet, no card\n"
-        "  POST /v1/billing/x402       pay $0.01 in testnet USDC; wallet IS the identity\n"
+        "  POST /v1/billing/x402       pay $0.01 in USDC; wallet IS the identity\n"
+        f"                              ({X402_SETTLEMENT})\n"
         "  Discovery: https://aiagentscity.com/.well-known/x402\n"
         "\n"
         "CAPABILITIES\n"
@@ -1079,9 +1132,9 @@ def security_page():
 
 @app.get("/quickstart", response_class=HTMLResponse)
 def quickstart_page():
-    """Zero to a metered agent in five minutes. The install line is the git URL
-    because nothing is published on PyPI yet, and the name agent-ledger there
-    belongs to a different author."""
+    """Zero to a metered agent in five minutes. Published on PyPI/npm as
+    aiagentscity-ledger — the name agent-ledger belongs to a different
+    author, hence the umbrella-namespace package name instead."""
     import site_pages
     return HTMLResponse(site_pages.page(
         "Quickstart — AgentLedger",
@@ -1163,8 +1216,7 @@ no human in the loop at all:</p>
 <pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
 <p class="mut">The paying wallet becomes the workspace identity.</p>
-<p class="warn"><b>Currently testnet only.</b> This path settles on Base Sepolia
-(<code>eip155:84532</code>) with testnet USDC. A mainnet wallet cannot complete it yet.
+<p class="warn">{X402_SETTLEMENT_HTML}</p>
 Mainnet arrives when Coinbase CDP onboarding completes; until then, mint at
 <a href="/start" style="color:#8b949e">/start</a> — it needs no wallet and no card.</p>
 <p class="mut">Agent-facing docs:
@@ -1234,8 +1286,7 @@ automated loop — so the mint is capped at 3 workspaces per address per day.</p
 If it is lost, it cannot be recovered in this version.</p>
 <p>Running an agent rather than a browser? The path is
 <code>POST /v1/billing/x402</code>, which is not affected by this limit — but it is
-<b>testnet only</b> right now (Base Sepolia, <code>eip155:84532</code>, testnet USDC),
-so a mainnet wallet cannot complete it until mainnet onboarding lands.</p>
+{X402_SETTLEMENT_HTML}</p>
 <p><a class="plain" href="/llms.txt">/llms.txt</a> has the full API docs.</p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
@@ -1247,7 +1298,8 @@ def start_page():
     would let any crawler, link-preview bot or accidental reload burn one of
     the 50 launch-window workspaces and orphan a key nobody ever saw. The
     form POSTs to this same path, which does the minting."""
-    return _start_form_html()
+    return _start_form_html().replace(
+        "{X402_SETTLEMENT_HTML}", _x402_settlement_words())
 
 
 _START_WINDOW_SECONDS = 86400
@@ -1304,7 +1356,9 @@ def start_mint(request: Request):
     # a cache (or a browser's back-forward cache) holding this response would
     # strand a credential we cannot reissue. no-referrer keeps the key out of
     # any Referer header on the outbound click to Stripe.
-    return HTMLResponse(_start_key_html(workspace_id, raw_key, checkout),
+    return HTMLResponse(
+        _start_key_html(workspace_id, raw_key, checkout).replace(
+            "{X402_SETTLEMENT_HTML}", _x402_settlement_words()),
                         headers={"Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})
 
