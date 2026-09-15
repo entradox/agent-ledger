@@ -323,3 +323,61 @@ def test_different_wallets_get_different_workspaces(client, monkeypatch):
     r2 = c.post("/v1/billing/x402", headers={"X-PAYMENT": "p"})
     assert r1.json()["workspace_id"] != r2.json()["workspace_id"]
     assert r1.json()["workspace_key"] and r2.json()["workspace_key"]
+
+
+def test_verify_payment_reads_payment_signature_header(monkeypatch):
+    """x402 has two live client generations: v1 sends X-PAYMENT, v2 (the SDK's
+    own current client — encode_payment_signature_header) sends
+    PAYMENT-SIGNATURE. Regression test: the route used to read only x-payment,
+    silently dropping every valid v2 payment (server saw no payment, replied
+    402 again, client's signed authorization was never even inspected)."""
+    from x402.http.types import HTTPProcessResult, HTTPResponseInstructions
+
+    captured = {}
+
+    class _Server:
+        def process_http_request(self, ctx):
+            captured["payment_header"] = ctx.payment_header
+            return HTTPProcessResult(type="payment-error",
+                                     response=HTTPResponseInstructions(
+                                         status=402, headers={}, body={}))
+
+    import x402_verify
+    from x402.http import HTTPRequestContext
+    monkeypatch.setattr(x402_verify, "X402_ENABLED", True)
+    monkeypatch.setattr(x402_verify, "HTTPRequestContext", HTTPRequestContext)
+    monkeypatch.setattr(x402_verify, "resource_server", _Server())
+
+    req = _FakeRequest(payment=None)
+    req.headers = {"payment-signature": "v2-signed-payload"}
+    x402_verify.verify_payment(req)
+
+    assert captured["payment_header"] == "v2-signed-payload"
+
+
+def test_verify_payment_prefers_payment_signature_over_x_payment(monkeypatch):
+    """Matches the SDK's own reference FastAPI middleware order
+    (payment-signature checked before x-payment) for the case a proxy or a
+    dual-mode client sends both."""
+    from x402.http.types import HTTPProcessResult, HTTPResponseInstructions
+
+    captured = {}
+
+    class _Server:
+        def process_http_request(self, ctx):
+            captured["payment_header"] = ctx.payment_header
+            return HTTPProcessResult(type="payment-error",
+                                     response=HTTPResponseInstructions(
+                                         status=402, headers={}, body={}))
+
+    import x402_verify
+    from x402.http import HTTPRequestContext
+    monkeypatch.setattr(x402_verify, "X402_ENABLED", True)
+    monkeypatch.setattr(x402_verify, "HTTPRequestContext", HTTPRequestContext)
+    monkeypatch.setattr(x402_verify, "resource_server", _Server())
+
+    req = _FakeRequest(payment=None)
+    req.headers = {"payment-signature": "v2-value", "x-payment": "v1-value"}
+    x402_verify.verify_payment(req)
+
+    assert captured["payment_header"] == "v2-value"

@@ -222,7 +222,15 @@ def verify_payment(request) -> dict:
         adapter=_FastAPIAdapter(request),
         path=request.url.path,
         method=request.method,
-        payment_header=request.headers.get("x-payment"),
+        # x402 has two live header conventions in the wild: v2 clients send
+        # PAYMENT-SIGNATURE, v1 clients send X-PAYMENT. The SDK's own reference
+        # FastAPI middleware checks both (payment-signature first) — mirrored
+        # here since AgentLedger builds its own HTTPRequestContext by hand
+        # instead of using that middleware. Missing this meant every v2 client
+        # (the current, higher-adoption generation) signed and sent a valid
+        # payment that this route silently never looked for.
+        payment_header=(request.headers.get("payment-signature")
+                        or request.headers.get("x-payment")),
         route_pattern=ROUTE_KEY,
     )
     outcome = resource_server.process_http_request(ctx)
