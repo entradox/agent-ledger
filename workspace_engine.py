@@ -201,29 +201,145 @@ def reissue_key(workspace_id: str) -> str:
     return raw_key
 
 
-def mark_pro(workspace_id: str, stripe_customer_id: str) -> None:
+def mark_pro(workspace_id: str, stripe_customer_id: str,
+             stripe_subscription_id: str = "",
+             pro_until: Optional[float] = None,
+             period_source: str = "") -> None:
+    """Grant Pro, optionally with the paid period's end.
+
+    `pro_until` is the load-bearing argument for D-1269. Originally mark_pro
+    set it to None unconditionally, and is_workspace_pro() reads None as
+    "never expires" — so ONE $19 payment granted Pro permanently and a
+    cancelled or non-paying customer kept it forever. The read path was always
+    correct; the bug was never writing a clock.
+
+    `pro_until=None` is still accepted and still means "no expiry", deliberately:
+    it is the fail-open case. A caller that cannot determine the period end must
+    never expire a paying customer, so unknown stays Pro. Only a caller that
+    actually knows the period end passes one.
+    """
     record = get_workspace(workspace_id)
     if record is None:
         raise WorkspaceError(f"workspace not found: {workspace_id}")
     record["plan"] = "pro"
     record["agent_cap"] = None
-    # A paid subscription supersedes any scarcity grant: clear the expiry so
-    # a first-50 workspace that later subscribes doesn't inherit the grant's
-    # one-year clock.
-    record["pro_until"] = None
+    # A paid subscription supersedes any scarcity grant: write the paid period
+    # (or None = no expiry) so a first-50 workspace that later subscribes does
+    # not inherit the grant's one-year clock.
+    record["pro_until"] = pro_until
     record["stripe_customer_id"] = stripe_customer_id
+    if stripe_subscription_id:
+        record["stripe_subscription_id"] = stripe_subscription_id
+    if period_source:
+        record["pro_period_source"] = period_source
+        record["pro_period_updated_at"] = time.time()
+    _write_workspace(record)
+    # Index by customer so a later lifecycle event — which carries ONLY a
+    # customer id, no workspace id and often no client_reference_id — can find
+    # the workspace it must downgrade. Without this the cancellation arrives and
+    # there is no way to act on it.
+    if stripe_customer_id:
+        (_index_dir("by_stripe_customer") / _hash(stripe_customer_id)).write_text(workspace_id)
+
+
+def iter_workspaces() -> list:
+    """Every workspace record. Used by the subscription lifecycle to resolve a
+    Stripe customer to a workspace when the by_stripe_customer index has no
+    entry (a subscription created before that index existed).
+
+    Reads the workspaces directory directly and skips anything unreadable: a
+    single corrupt file must not make a cancellation event impossible to
+    process, which would leave a cancelled customer on Pro forever.
+    """
+    out = []
+    for f in _workspaces_dir().glob("*.json"):
+        try:
+            out.append(json.loads(f.read_text()))
+        except Exception:
+            continue
+    return out
+
+
+def get_workspace_by_stripe_customer(stripe_customer_id: str) -> Optional[dict]:
+    return _lookup_by_index("by_stripe_customer", stripe_customer_id)
+
+
+def set_pro_period(workspace_id: str, pro_until, *,
+                   source: str = "", reason: str = "") -> None:
+    """Move an existing Pro subscription's paid-period end.
+
+    Used by a renewal (extend), by a cancellation (set to the period end so the
+    customer keeps what they paid for), and by a payment failure (set the grace
+    deadline). Idempotent: writing the same deadline twice is a no-op in effect.
+
+    `pro_until` may be None, meaning NO EXPIRY. That is the fail-open path: a
+    caller that cannot determine a period end must not guess one, because a
+    guessed deadline in the past would silently downgrade a paying customer.
+    """
+    record = get_workspace(workspace_id)
+    if record is None:
+        raise WorkspaceError(f"workspace not found: {workspace_id}")
+    record["pro_until"] = pro_until
+    if source:
+        record["pro_period_source"] = source
+    if reason:
+        record["pro_period_reason"] = reason
+    record["pro_period_updated_at"] = time.time()
+    _write_workspace(record)
+
+
+def revoke_pro(workspace_id: str, *, reason: str = "", source: str = "") -> None:
+    """Drop a workspace back to the free tier, preserving the audit trail.
+
+    Deliberately does NOT touch `stripe_customer_id` — the customer link and the
+    by_stripe_customer index must survive, or a customer who re-subscribes would
+    become unreachable and a second cancellation could not be matched.
+    """
+    record = get_workspace(workspace_id)
+    if record is None:
+        raise WorkspaceError(f"workspace not found: {workspace_id}")
+    record["plan"] = "free"
+    record["agent_cap"] = WORKSPACE_FREE_AGENT_CAP
+    record["pro_until"] = None
+    record["pro_scarcity"] = False
+    if reason:
+        record["pro_revoked_reason"] = reason
+    if source:
+        record["pro_revoked_source"] = source
+    record["pro_revoked_at"] = time.time()
+    _write_workspace(record)
+
+
+def clear_grace(workspace_id: str) -> None:
+    """Remove the payment-failure grace marker after a successful renewal.
+
+    Kept separate from set_pro_period so a caller cannot accidentally clear the
+    marker on a workspace that is still in grace. Without this the record would
+    keep reading `payment_failed` after the customer paid, which misreports a
+    healthy subscriber as lapsed.
+    """
+    record = get_workspace(workspace_id)
+    if record is None:
+        raise WorkspaceError(f"workspace not found: {workspace_id}")
+    record.pop("pro_period_reason", None)
     _write_workspace(record)
 
 
 def is_workspace_pro(workspace_id: str) -> bool:
     """Pro via one of two routes, checked in this order:
 
-    1. A Stripe subscription (mark_pro) — plan == "pro" with no pro_until.
-       Subscriptions don't expire on a timer; cancellation is a separate,
-       out-of-scope webhook.
+    1. A Stripe subscription (mark_pro) — plan == "pro". If a pro_until is
+       present it is the end of the paid period (or, after a failed renewal,
+       the end of the grace window); past it the workspace is free.
     2. A scarcity grant — plan == "pro" WITH a pro_until, which expires one
        year after the workspace was created. Without this check a first-50
        workspace would be Pro forever, which is not what was offered.
+
+    `pro_until is None` means NO EXPIRY. This is the fail-open branch and it is
+    intentional (D-1269): an unknown period end must keep a paying customer Pro
+    rather than silently downgrading them. As of D-1269 every subscription that
+    receives a lifecycle event has a real pro_until written, so this branch
+    covers legacy records and grants only.
     """
     record = get_workspace(workspace_id)
     if not record or record.get("plan") != "pro":

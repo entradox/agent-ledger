@@ -32,6 +32,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -186,8 +187,26 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
         workspace_id = resolve_paying_workspace(sess, email)
         if workspace_id:
             import workspace_engine
+            # D-1269: write a clock. `pro_until=None` means "never expires", so
+            # granting Pro with no deadline is what made a $19/month subscription
+            # permanent. The checkout session does not carry the subscription's
+            # period end, so a conservative backstop is used until a lifecycle
+            # event supplies the exact value — invoice.paid for
+            # billing_reason=subscription_create arrives within seconds and
+            # corrects it. The backstop is deliberately slightly GENEROUS
+            # (BILLING_PERIOD_BACKSTOP_SECONDS > one month) because expiring a
+            # paying customer early is far worse than one extra day of access.
+            subscription_id = sess.get("subscription") or ""
             try:
-                workspace_engine.mark_pro(workspace_id, sess.get("customer", ""))
+                # Computed inside the try: an unexpected payload shape here must
+                # not escape as a 500, because Stripe retries a 5xx forever.
+                period_end = _period_end_from(sess) or (
+                    time.time() + BILLING_PERIOD_BACKSTOP_SECONDS)
+                workspace_engine.mark_pro(
+                    workspace_id, sess.get("customer", ""),
+                    stripe_subscription_id=subscription_id,
+                    pro_until=float(period_end),
+                    period_source="checkout.session.completed")
                 granted = True
             except Exception as exc:
                 # An unresolvable workspace_id used to be swallowed with `pass`,
@@ -217,6 +236,237 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
 
     return {"received": True, "granted": granted, "plan": plan,
             "fulfilled_via": source}
+
+
+# ── D-1269: Stripe subscription lifecycle ───────────────────────────────────
+# Principal decision (2026-09-15): cancellation is PERIOD-END — a customer who
+# cancels keeps Pro until the end of the period they already paid for. A failed
+# renewal gets a GRACE window before downgrade, so a transient card problem
+# never removes access from someone who is trying to pay.
+
+#: How long a failed renewal keeps Pro before the workspace is downgraded.
+#: Chosen to cover Stripe's own smart retries (default 4 attempts over ~3 weeks
+#: is longer; 7 days covers the common transient-decline case) while bounding
+#: how long a genuinely lapsed customer keeps being served for free.
+RENEWAL_GRACE_SECONDS = 7 * 24 * 60 * 60
+
+#: Backstop period written at checkout when the session carries no period end.
+#: Deliberately a month plus slack: a billing period is one month, and the exact
+#: value arrives on the following invoice.paid (billing_reason=subscription_create
+#: or subscription_cycle) within seconds. Too short and a paying customer loses
+#: access before their renewal is recorded; slightly generous costs at most a day.
+BILLING_PERIOD_BACKSTOP_SECONDS = 32 * 24 * 60 * 60
+
+
+def _period_end_from(obj: dict) -> int:
+    """The paid-period end (unix seconds) from a Stripe subscription/invoice.
+
+    Stripe moved this field: modern API versions put it on the subscription ITEM
+    (`items.data[].current_period_end`), older ones on the subscription itself
+    (`current_period_end`). Both are checked — reading only one silently yields
+    0 on the other, which would write a period end of 1970 and instantly
+    downgrade a paying customer. Returns 0 when genuinely absent.
+    """
+    for key in ("current_period_end", "period_end"):
+        v = obj.get(key)
+        if isinstance(v, (int, float)) and v > 0:
+            return int(v)
+    items = ((obj.get("items") or {}).get("data")) or []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in ("current_period_end", "period_end"):
+            v = item.get(key)
+            if isinstance(v, (int, float)) and v > 0:
+                return int(v)
+    return 0
+
+
+def _resolve_lifecycle_workspace(obj: dict, customer_id: str) -> Optional[str]:
+    """Find the workspace a lifecycle event refers to.
+
+    Subscription and invoice payloads carry a CUSTOMER id and usually no
+    workspace id — the `client_reference_id` that made checkout attribution work
+    is not echoed on them. So the lookup order is:
+      1. an explicit client_reference_id, when the payload has one;
+      2. the by_stripe_customer index, written by mark_pro();
+      3. a workspace whose stored owner_email matches the customer's email
+         (covers a period when the index was not yet written).
+    Returns None when it cannot be resolved; callers decide the consequence.
+    """
+    wid = resolve_paying_workspace(
+        {"client_reference_id": obj.get("client_reference_id") or ""}, "")
+    if wid:
+        return wid
+    if customer_id:
+        import workspace_engine
+        rec = workspace_engine.get_workspace_by_stripe_customer(customer_id)
+        if rec:
+            return rec["workspace_id"]
+    email = (obj.get("customer_email")
+             or (obj.get("customer_details") or {}).get("email") or "")
+    if email:
+        import workspace_engine
+        for rec in workspace_engine.iter_workspaces():
+            if (rec.get("owner_email") or "").lower() == email.lower():
+                return rec["workspace_id"]
+    return None
+
+
+def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dict]:
+    """Dispatch the post-purchase subscription events. None = not ours.
+
+    Never raises: Stripe retries a 5xx forever, and an unhandled exception here
+    would turn one malformed event into an endless delivery loop.
+    """
+    obj = (event.get("data") or {}).get("object") or {}
+    customer_id = obj.get("customer") or ""
+
+    if event_type == "customer.subscription.deleted":
+        # PERIOD-END CANCELLATION. Stripe sends this when a subscription ends —
+        # both when a customer cancels and when it lapses. The customer already
+        # paid for the current period, so they keep Pro until it actually ends:
+        # honour the period, do not revoke on the event.
+        wid = _resolve_lifecycle_workspace(obj, customer_id)
+        if not wid:
+            _record_grant_failure("cancel_unresolved", obj.get("id", ""), "",
+                                  "subscription.deleted: no workspace for customer",
+                                  customer_id)
+            return {"received": True, "revoked": False,
+                    "reason": "workspace unresolved"}
+        period_end = _period_end_from(obj)
+        import workspace_engine
+        try:
+            if period_end:
+                workspace_engine.set_pro_period(
+                    wid, float(period_end), source=event_type,
+                    reason="cancelled — access runs to the paid period end")
+            else:
+                # No period end in the payload: keep Pro rather than guess a
+                # deadline and cut off a paying customer early (fail open).
+                pass
+            metrics.record_event("subscription_cancelled")
+            metrics.record_onboarding("subscription_cancelled", wid)
+        except Exception as exc:
+            _record_grant_failure("cancel_failed", obj.get("id", ""), "",
+                                  str(exc), wid)
+            return {"received": True, "revoked": False, "reason": str(exc)[:80]}
+        return {"received": True, "revoked": False,
+                "pro_until": period_end or None, "workspace_id": wid}
+
+    if event_type == "customer.subscription.updated":
+        # A plan change, a cancellation scheduled at period end, or a status
+        # change. Keep pro_until in step with what Stripe says the period is, so
+        # a subscription that is extended or shortened in the dashboard is
+        # reflected here instead of drifting from the record.
+        status = (obj.get("status") or "").lower()
+        wid = _resolve_lifecycle_workspace(obj, customer_id)
+        if not wid:
+            return {"received": True, "updated": False,
+                    "reason": "workspace unresolved"}
+        period_end = _period_end_from(obj)
+        import workspace_engine
+        try:
+            if status in ("active", "trialing"):
+                workspace_engine.set_pro_period(
+                    wid, float(period_end) if period_end else None,
+                    source=event_type, reason=f"status={status}")
+            elif status in ("canceled", "unpaid", "incomplete_expired"):
+                # Already ended (not merely scheduled to). Honour the period
+                # end if Stripe gives one, else revoke now.
+                if period_end and period_end > time.time():
+                    workspace_engine.set_pro_period(
+                        wid, float(period_end), source=event_type,
+                        reason=f"status={status}, runs to period end")
+                else:
+                    workspace_engine.revoke_pro(wid, reason=f"status={status}",
+                                                source=event_type)
+        except Exception as exc:
+            _record_grant_failure("subscription_updated_failed",
+                                  obj.get("id", ""), "", str(exc), wid)
+            return {"received": True, "updated": False, "reason": str(exc)[:80]}
+        return {"received": True, "updated": True, "status": status,
+                "workspace_id": wid}
+
+    if event_type == "invoice.paid":
+        # RENEWAL vs INITIAL. The first invoice is recorded by
+        # checkout.session.completed; counting it again here would double the
+        # revenue figure. Only a subscription_cycle invoice is new money.
+        reason = obj.get("billing_reason") or ""
+        wid = _resolve_lifecycle_workspace(obj, customer_id)
+        amount = obj.get("amount_paid") or 0
+        if wid:
+            import workspace_engine
+            period_end = _period_end_from(obj)
+            try:
+                # A successful payment clears any grace deadline and moves the
+                # clock to the new period.
+                rec = workspace_engine.get_workspace(wid)
+                if rec and rec.get("plan") == "pro":
+                    workspace_engine.set_pro_period(
+                        wid, float(period_end) if period_end else None,
+                        source=event_type, reason=f"billing_reason={reason}")
+                    # Clear a grace marker so a recovered customer reads as
+                    # healthy rather than as still-failing.
+                    if str(rec.get("pro_period_reason") or "").startswith("payment_failed"):
+                        workspace_engine.clear_grace(wid)
+            except Exception as exc:
+                _record_grant_failure("invoice_paid_failed", obj.get("id", ""),
+                                      "", str(exc), wid)
+        if reason == "subscription_cycle" and amount:
+            # New recurring money. This is the line that makes months 2..N
+            # visible; before D-1269 they were recorded nowhere.
+            try:
+                metrics.record_event("subscription_renewed",
+                                     amount_cents=int(amount))
+                if wid:
+                    metrics.record_onboarding("subscription_renewed", wid,
+                                              amount_cents=int(amount))
+            except Exception:
+                pass
+        return {"received": True, "renewal": reason == "subscription_cycle",
+                "amount_paid": amount, "workspace_id": wid or None}
+
+    if event_type == "invoice.payment_failed":
+        # GRACE, not an immediate cut-off. A declined card is usually transient
+        # and Stripe retries; revoking on the first failure would remove access
+        # from a customer who is actively trying to pay.
+        wid = _resolve_lifecycle_workspace(obj, customer_id)
+        if not wid:
+            _record_grant_failure("payment_failed_unresolved",
+                                  obj.get("id", ""), "",
+                                  "invoice.payment_failed: no workspace for customer",
+                                  customer_id)
+            return {"received": True, "grace": False,
+                    "reason": "workspace unresolved"}
+        import workspace_engine
+        # Grace must never SHORTEN a period the customer already paid for. If
+        # their paid period runs beyond the grace window, the later of the two
+        # wins — otherwise a payment failure would remove access the customer
+        # had already bought, which is worse than the leak it is closing.
+        grace_until = time.time() + RENEWAL_GRACE_SECONDS
+        try:
+            rec = workspace_engine.get_workspace(wid)
+            existing = (rec or {}).get("pro_until")
+            if isinstance(existing, (int, float)) and existing > grace_until:
+                grace_until = float(existing)
+                grace_reason = ("payment_failed — grace shorter than the paid "
+                                "period, keeping the paid period")
+            else:
+                grace_reason = "payment_failed — grace window, Pro retained"
+            workspace_engine.set_pro_period(
+                wid, grace_until, source=event_type, reason=grace_reason)
+            metrics.record_event("subscription_payment_failed")
+            metrics.record_onboarding("subscription_payment_failed", wid)
+        except Exception as exc:
+            _record_grant_failure("payment_failed_grace_failed",
+                                  obj.get("id", ""), "", str(exc), wid)
+            return {"received": True, "grace": False, "reason": str(exc)[:80]}
+        return {"received": True, "grace": True, "workspace_id": wid,
+                "grace_until": int(grace_until),
+                "grace_days": RENEWAL_GRACE_SECONDS // 86400}
+
+    return None
 
 
 @router.post("/stripe/webhook")
@@ -306,6 +556,14 @@ async def stripe_webhook(request: Request):
         return {"received": True, "granted": False, "reason": "payment failed"}
 
     if event_type != "checkout.session.completed":
+        # ── D-1269 subscription lifecycle ──────────────────────────────────
+        # Every event below was previously dropped by this one line, which is
+        # why a cancellable, renewable $19/month subscription behaved as a
+        # one-time charge: cancellation, failed renewal and renewal were all
+        # silently ignored. Dispatched before the fall-through.
+        lifecycle = _handle_subscription_lifecycle(event_type, event)
+        if lifecycle is not None:
+            return lifecycle
         return {"received": True, "ignored": event.get("type")}
 
     sess = event["data"]["object"]

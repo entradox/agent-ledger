@@ -112,9 +112,13 @@ def test_paid_workspace_is_actually_pro_afterwards(env):
     rec = ws.get_workspace(workspace_id)
     assert rec["plan"] == "pro"
     assert rec["stripe_customer_id"] == "cus_test_1"
-    # A subscription supersedes a scarcity grant's clock; a paying customer
-    # must not inherit an expiry and silently lapse in a year.
-    assert rec["pro_until"] is None
+    # A subscription supersedes a scarcity grant's clock, so the paying customer
+    # must not inherit the grant's one-year expiry. D-1269 changed how that is
+    # expressed: the subscription now carries its OWN period end rather than
+    # None. (Before D-1269 this asserted `is None`, which is what made one $19
+    # payment grant Pro permanently — the assertion encoded the defect.)
+    assert rec["pro_until"] is not None, "a paid subscription must carry its own period clock"
+    assert rec["pro_until"] > time.time(), "the paid period must be in the future"
 
 
 def test_pro_workspace_gets_unbounded_agent_cap(env):
@@ -505,9 +509,16 @@ def test_scarcity_grant_and_paid_subscription_are_distinguishable(env):
     _post(c, _completed(paid))
     assert ws.is_workspace_pro(paid) is True
     assert ws.get_workspace(paid)["stripe_customer_id"] == "cus_test_1"
-    assert ws.get_workspace(paid)["pro_until"] is None, (
-        "a paid subscription must not carry the grant's one-year expiry"
-    )
+    # The paid workspace must not carry the GRANT's one-year expiry — it carries
+    # its own paid-period clock (D-1269). Asserting `is None` here previously
+    # encoded the defect: None means "never expires", which made the $19/month
+    # subscription permanent.
+    paid_until = ws.get_workspace(paid)["pro_until"]
+    grant_until = ws.get_workspace(granted)["pro_until"]
+    assert paid_until is not None, "paid subscription has no period clock"
+    assert paid_until != grant_until, (
+        "the paid workspace inherited the grant's expiry instead of its own")
+    assert paid_until > time.time()
 
 
 # ── amounts that are not the Pro price ──────────────────────────────────────
