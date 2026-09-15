@@ -318,6 +318,18 @@ def create_track(req: TrackRequest, request: Request):
                     metrics.record_onboarding("track_written", ws)
             except Exception:
                 pass
+        # Stickiness (D-1270 follow-up): traffic and mint counts answer "did
+        # anyone show up" -- this answers "is the same workspace still relying
+        # on it a day later." Runs on EVERY write, not just the first, since a
+        # workspace only "returns" on a write that happens after its first one.
+        try:
+            import identity, workspace_engine
+            ws_id = identity.workspace_of_agent(req.agent_id)
+            if ws_id and workspace_engine.mark_write_and_check_returning(
+                    ws_id, returning_after_seconds=metrics.RETURNING_WORKSPACE_SECONDS):
+                metrics.record_onboarding("workspace_returned", ws_id)
+        except Exception:
+            pass
     except Exception:
         pass
     return result

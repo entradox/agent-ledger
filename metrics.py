@@ -88,7 +88,13 @@ ONBOARDING_STEPS = (
     "track_written",       # and wrote its first spend entry (same call)
     "x402_paid",           # x402 settled -> a NEW workspace was minted+Pro'd
     "x402_repeat_paid",    # x402 settled -> an EXISTING wallet paid again
+    "workspace_returned",  # wrote again >=24h after its first-ever write
 )
+
+# How long after a workspace's first write a later write counts as "returned"
+# (stickiness, not just a one-time poke). One place so the track route and any
+# future caller agree on the definition.
+RETURNING_WORKSPACE_SECONDS = 24 * 3600
 
 _FORBIDDEN_ONBOARDING_FIELDS = ("ip_hash", "workspace_key", "agent_secret",
                                 "agent_secret_hash", "workspace_key_hash")

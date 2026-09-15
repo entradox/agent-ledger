@@ -325,6 +325,34 @@ def clear_grace(workspace_id: str) -> None:
     _write_workspace(record)
 
 
+def mark_write_and_check_returning(workspace_id: str, *,
+                                   returning_after_seconds: float) -> bool:
+    """Record this workspace's first-ever write time if it doesn't have one
+    yet, and report whether THIS write happened >= returning_after_seconds
+    after that first one.
+
+    Traffic and minted-workspace counts (already tracked) answer "did anyone
+    show up." They can't answer "did the same workspace still rely on this
+    a day later" -- a workspace that writes once and vanishes looks identical
+    to one that's actually in daily use. This is the anchor that distinction
+    needs: set once, at the real first write, never moved.
+
+    Writes to disk only on the FIRST call for a workspace (setting the
+    anchor) -- every later call is a read-only comparison, so this stays
+    cheap on the hot write path.
+    """
+    record = get_workspace(workspace_id)
+    if record is None:
+        raise WorkspaceError(f"workspace not found: {workspace_id}")
+    first_write_at = record.get("first_write_at")
+    now = time.time()
+    if first_write_at is None:
+        record["first_write_at"] = now
+        _write_workspace(record)
+        return False
+    return (now - first_write_at) >= returning_after_seconds
+
+
 def is_workspace_pro(workspace_id: str) -> bool:
     """Pro via one of two routes, checked in this order:
 

@@ -186,6 +186,40 @@ def test_claiming_an_agent_is_recorded_as_activation(client):
     assert f["track_written"]["workspaces"] == 1
 
 
+def test_a_second_write_within_the_window_is_not_yet_a_return(client):
+    ws, html = _mint(client)
+    key = re.search(r"(wk_live_[A-Za-z0-9_\-]+)", html).group(1)
+    r1 = client.post("/v1/track", headers={"AL-API-Version": AL_VERSION},
+                     json={"agent_id": "sticky-agent", "rail": "manual",
+                           "amount_cents": 100, "service": "s", "workspace_key": key})
+    secret = r1.json()["agent_secret"]
+    r2 = client.post("/v1/track", headers={"AL-API-Version": AL_VERSION},
+                     json={"agent_id": "sticky-agent", "rail": "manual",
+                           "amount_cents": 100, "service": "s", "agent_secret": secret})
+    assert r2.status_code == 200, r2.text
+    assert _funnel().get("workspace_returned", {}).get("workspaces", 0) == 0
+
+
+def test_a_write_a_day_later_is_recorded_as_returning(client):
+    """A workspace that's still writing >=24h after its first write is the
+    stickiness signal traffic/mint counts can't answer on their own."""
+    import workspace_engine
+    ws, html = _mint(client)
+    key = re.search(r"(wk_live_[A-Za-z0-9_\-]+)", html).group(1)
+    r1 = client.post("/v1/track", headers={"AL-API-Version": AL_VERSION},
+                     json={"agent_id": "sticky-agent-2", "rail": "manual",
+                           "amount_cents": 100, "service": "s", "workspace_key": key})
+    secret = r1.json()["agent_secret"]
+    record = workspace_engine.get_workspace(ws)
+    record["first_write_at"] -= 90_000  # backdate past the 24h window
+    workspace_engine._write_workspace(record)
+    r2 = client.post("/v1/track", headers={"AL-API-Version": AL_VERSION},
+                     json={"agent_id": "sticky-agent-2", "rail": "manual",
+                           "amount_cents": 100, "service": "s", "agent_secret": secret})
+    assert r2.status_code == 200, r2.text
+    assert _funnel()["workspace_returned"]["workspaces"] == 1
+
+
 def test_the_post_mint_page_keeps_the_money_path_and_softens_the_upsell(client):
     """Two invariants on the page whose layout is a conversion decision:
     the upgrade link MUST carry client_reference_id (that is the whole

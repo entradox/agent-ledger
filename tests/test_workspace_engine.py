@@ -202,3 +202,35 @@ def test_scarcity_claims_left_counts_workspaces_not_agents(monkeypatch):
         assert ledger_engine.scarcity_claims_left() == 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_first_write_sets_the_anchor_and_is_not_returning(engine):
+    """The FIRST call for a workspace sets first_write_at and reports False --
+    a workspace's first write is activation, not a return."""
+    ws_id, _ = engine.create_workspace(owner_email="a@example.com")
+    is_returning = engine.mark_write_and_check_returning(ws_id, returning_after_seconds=86400)
+    assert is_returning is False
+    assert engine.get_workspace(ws_id)["first_write_at"] is not None
+
+
+def test_a_write_before_the_window_is_not_returning(engine):
+    ws_id, _ = engine.create_workspace(owner_email="a@example.com")
+    engine.mark_write_and_check_returning(ws_id, returning_after_seconds=86400)
+    is_returning = engine.mark_write_and_check_returning(ws_id, returning_after_seconds=86400)
+    assert is_returning is False
+
+
+def test_a_write_after_the_window_is_returning(engine):
+    """Backdate the anchor rather than sleep 24h in a test suite."""
+    ws_id, _ = engine.create_workspace(owner_email="a@example.com")
+    engine.mark_write_and_check_returning(ws_id, returning_after_seconds=86400)
+    record = engine.get_workspace(ws_id)
+    record["first_write_at"] -= 90_000  # 25h in the past
+    engine._write_workspace(record)
+    is_returning = engine.mark_write_and_check_returning(ws_id, returning_after_seconds=86400)
+    assert is_returning is True
+
+
+def test_unknown_workspace_raises(engine):
+    with pytest.raises(engine.WorkspaceError):
+        engine.mark_write_and_check_returning("ws_does_not_exist", returning_after_seconds=86400)
