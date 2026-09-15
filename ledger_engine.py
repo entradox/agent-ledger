@@ -238,11 +238,12 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     workspace_id = identity.resolve_workspace_key(workspace_key)
     workspace = workspace_engine.get_workspace(workspace_id) if workspace_id else None
     if workspace is None:
+        import api_server
         raise WorkspaceKeyRequiredError(
             "a new agent_id requires a valid workspace_key — get one "
             "self-serve at https://aiagentscity.com/start (no signup, no login, "
             "no card), or by paying at POST /v1/billing/x402 if you hold a "
-            "testnet wallet (that path is Base Sepolia testnet only for now)")
+            f"wallet ({api_server._x402_settlement_words()})")
 
     # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still
     # has agent_cap=None stored, so reading the field directly would leave a
@@ -257,13 +258,21 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
             _link = os.environ.get(
                 "AL_STRIPE_PAYMENT_LINK",
                 "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+            import x402_verify
+            pass_hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
             raise BetaCapExceededError(
-                f"Free tier: {agent_cap} agents per workspace. Upgrade to Pro ($19/mo) "
-                "for unlimited agents on this workspace: "
+                f"Free tier: {agent_cap} agents per workspace. Two ways to lift it, no "
+                "human required for either: "
+                f"(1) POST /v1/billing/x402 with a wallet payment ({x402_verify.X402_MINT_PRICE}) "
+                f"for a Pro pass — unlimited agents for {pass_hours}h. Paying mints/resolves "
+                "a workspace bound to your wallet, which is a DIFFERENT workspace from this "
+                "one if this one wasn't created that way — the agents already on this "
+                "workspace stay here; "
+                "(2) upgrade THIS workspace to Pro ($19/mo, unlimited agents, no expiry): "
                 f"{_link}?client_reference_id={workspace_id} "
                 "(or POST /v1/billing/checkout with this workspace's credentials to get "
-                "that link programmatically). The reference matters: without "
-                "client_reference_id the payment cannot be attached to a workspace.")
+                "that link programmatically — needs client_reference_id or the payment "
+                "can't be attached to a workspace).")
 
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)

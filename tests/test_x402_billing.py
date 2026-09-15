@@ -31,6 +31,31 @@ def test_verified_payment_mints_workspace(client, monkeypatch):
     assert "workspace_key" in r.json()
 
 
+def test_verified_payment_grants_a_real_pro_pass(client, monkeypatch):
+    """D-1270: paying via x402 used to mint a workspace identical to the free
+    /start path -- same 3-agent cap, nothing extra -- so there was no
+    rational reason to pay. A settled payment must now actually grant Pro
+    (unlimited agents), not just a fresh free-tier clone."""
+    c, api_server = client
+    import workspace_engine
+    monkeypatch.setattr(
+        "x402_verify.verify_payment",
+        lambda request: {"verified": True, "payer_wallet": "0xPRO1", "tx_hash": "0xTXPRO1",
+                        "amount": "10000"})
+    r = c.post("/v1/billing/x402", headers={"X-PAYMENT": "fake-payment-header"})
+    assert r.status_code == 200
+    ws = workspace_engine.get_workspace(r.json()["workspace_id"])
+    assert workspace_engine.is_workspace_pro(ws["workspace_id"]) is True
+    assert ws["agent_cap"] is None, "Pro must lift the free-tier agent cap"
+    # It's a PASS, not a permanent grant -- must have a real expiry, not the
+    # fail-open pro_until=None (that path is reserved for "unknown period",
+    # never for "known 24h period").
+    import time
+    assert ws["pro_until"] is not None
+    assert ws["pro_until"] > time.time()
+    assert ws["pro_until"] < time.time() + (25 * 3600), "pass should be ~24h, not indefinite"
+
+
 def test_unverified_payment_rejected(client, monkeypatch):
     c, api_server = client
     monkeypatch.setattr(

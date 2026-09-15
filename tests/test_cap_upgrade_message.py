@@ -96,6 +96,22 @@ def test_cap_402_advertises_a_workspace_bound_link(client):
     )
 
 
+def test_cap_402_also_advertises_the_x402_pass(client):
+    """The cap response must also offer the no-human x402 path (D-1270): an
+    agent that hits this wall should be able to act on the SAME response
+    without a browser or a card, not just be told a human upgrade exists."""
+    tc, _, ws_key, workspace_engine = client
+    _fill_to_cap(tc, ws_key, workspace_engine)
+    message = str(_overflow_message(tc, ws_key))
+
+    assert "/v1/billing/x402" in message, (
+        "the cap response should hand the agent a machine-payable option, not "
+        "only a Stripe link a human has to click"
+    )
+    import x402_verify
+    assert x402_verify.X402_MINT_PRICE in message
+
+
 def test_cap_402_never_ships_a_bare_payment_link(client):
     """Any buy.stripe.com URL in the cap response must be bound to the workspace."""
     tc, _, ws_key, workspace_engine = client

@@ -86,6 +86,8 @@ ONBOARDING_STEPS = (
     "checkout_abandoned",  # Stripe says the session expired unpaid
     "agent_claimed",       # the workspace claimed its first agent_id
     "track_written",       # and wrote its first spend entry (same call)
+    "x402_paid",           # x402 settled -> a NEW workspace was minted+Pro'd
+    "x402_repeat_paid",    # x402 settled -> an EXISTING wallet paid again
 )
 
 _FORBIDDEN_ONBOARDING_FIELDS = ("ip_hash", "workspace_key", "agent_secret",

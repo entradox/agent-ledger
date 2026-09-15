@@ -47,6 +47,13 @@ CDP_API_KEY_SECRET = os.environ.get("CDP_API_KEY_SECRET", "")
 X402_NETWORK = os.environ.get("X402_NETWORK", "eip155:84532")
 X402_MINT_PRICE = os.environ.get("X402_MINT_PRICE", "$0.01")
 
+# What a settled x402 payment actually buys (D-1270): a time-boxed Pro pass —
+# unlimited agents on the resolved workspace — rather than the free-tier-
+# equivalent workspace it used to mint. Lives here, next to X402_MINT_PRICE,
+# so every module that talks about the x402 offer (the billing route, the
+# cap-exceeded quote) reads one number instead of each hardcoding its own.
+X402_PRO_PASS_SECONDS = int(os.environ.get("X402_PRO_PASS_SECONDS", 24 * 3600))
+
 # Resolved facilitator: explicit URL wins, else CDP, else the free public one.
 FACILITATOR_URL_RESOLVED = (X402_FACILITATOR_URL
                             or ("https://api.cdp.coinbase.com/platform/v2/x402"

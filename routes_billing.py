@@ -756,6 +756,34 @@ def x402_billing(request: Request):
         idempotency_release(tx_hash, wallet, "x402_mint")
         raise
 
+    # Grant the Pro pass this settlement paid for. Every verified, deduplicated
+    # settlement reaches this line exactly once (a replayed tx_hash returned
+    # the cached response above and never gets here), so each real payment
+    # buys its own 24h window — paying again resets the clock forward rather
+    # than stacking, which matches "buy a day pass" rather than "bank time."
+    workspace_engine.mark_pro(workspace_id, "",
+                              pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
+                              period_source="x402_pass")
+
+    # amount is USDC atomic units (6 decimals) on the settlement the SDK
+    # verified against — convert to cents for the same amount_cents field
+    # checkout_completed already reports, so both payment rails roll up
+    # together. Never let a malformed/missing amount break a real settlement.
+    try:
+        amount_cents = round(int(result.get("amount")) / 10_000)
+    except (TypeError, ValueError):
+        amount_cents = None
+    event_kwargs = {"amount_cents": amount_cents} if amount_cents is not None else {}
+    metrics.record_event("x402_settled", **event_kwargs)
+    if raw_key is not None:
+        # A genuinely new workspace was minted by this payment.
+        metrics.record_onboarding("workspace_minted", workspace_id, source="x402")
+        metrics.record_onboarding("x402_paid", workspace_id, **event_kwargs)
+    else:
+        # Same wallet, a later real payment — resolved to its existing
+        # workspace and just extended/renewed the Pro window.
+        metrics.record_onboarding("x402_repeat_paid", workspace_id, **event_kwargs)
+
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
     if raw_key is None:
         payload["message"] = (
