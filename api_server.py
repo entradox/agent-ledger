@@ -29,7 +29,8 @@ import metrics
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse, Response)
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -408,6 +409,7 @@ across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status (live health, version, uptime, counters)
+Buyer skill (how an agent buys this, as markdown): GET /skill.md
 Privacy: GET /privacy · Terms: GET /terms
 
 Data handling: cost metadata only — agent id, rail, service label, amount, token
@@ -757,6 +759,86 @@ X402_SETTLEMENT = _x402_settlement_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_SETTLEMENT}", X402_SETTLEMENT)
 X402_PASS_OFFER = _x402_pass_offer_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_PASS_OFFER}", X402_PASS_OFFER)
+
+
+# ── The buyer skill, published where a machine surface can find it (D-1313) ──
+# The validated x402 buyer skill had no home: /skill, /skills, /buyer-skill and
+# /SKILL.md were all 404, and /docs is FastAPI's Swagger UI, not a docs site.
+# Principal decision (2026-09-16): serve it at GET /skill.md as markdown and link
+# it from llms.txt.
+#
+# The file itself is VERSIONED IN THE REPO, not inlined here, so the published
+# text is reviewable in a diff. It is served with every live value SUBSTITUTED
+# rather than pasted, for the same reason D-1312 derived the settlement prose:
+# this project has shipped a stale x402 literal three times (`eip155:845`, the
+# testnet asset, the stale mainnet copy), and a price/network/asset baked into
+# prose is simply a fourth chance to do it again.
+#
+# NOTE: skill/ is NOT exempt in .railwayignore — that filter's `*.md` rule
+# excludes every markdown file from the build context (only README.md is
+# negated). A skill file that ships locally but not in the image would 404 in
+# production while every local test stayed green, so the file is explicitly
+# un-ignored there. Keep the two in sync.
+SKILL_FILE = Path(__file__).parent / "skill" / "agent-ledger-buyer.md"
+
+
+def _x402_network_label() -> str:
+    """Human-readable name for the configured network.
+
+    Derived, not literal: "Base mainnet" hardcoded would be false the moment
+    X402_NETWORK is flipped back to a testnet for a rehearsal.
+    """
+    return "Base mainnet" if _x402_is_mainnet() else "Base Sepolia testnet"
+
+
+def _x402_amount_atomic() -> str:
+    """The x402 price in USDC atomic units (6 decimals) — what the 402 carries."""
+    return str(int(round(X402_MINT_PRICE_FOR_DISCOVERY * 1_000_000)))
+
+
+def _skill_markdown() -> str:
+    """The buyer skill with every live value substituted, read per request.
+
+    Per request rather than frozen at import, matching the /agent-ledger
+    pattern, so the served document cannot contradict the running config.
+    """
+    import x402_verify
+    pay_to = _x402_pay_to()
+    text = SKILL_FILE.read_text(encoding="utf-8")
+    for token, value in (
+        ("{X402_NETWORK}", _x402_network()),
+        ("{X402_NETWORK_LABEL}", _x402_network_label()),
+        ("{X402_ASSET}", _x402_asset()),
+        ("{X402_AMOUNT_ATOMIC}", _x402_amount_atomic()),
+        ("{X402_PRICE_USD}", f"{X402_MINT_PRICE_FOR_DISCOVERY:.2f}"),
+        # Omitted entirely when x402 is unconfigured, so the sentence stays
+        # grammatical instead of rendering an empty pair of backticks.
+        ("{X402_PAY_TO_NOTE}", f" (`{pay_to}`)" if pay_to else ""),
+        ("{X402_PASS_HOURS}", str(round(x402_verify.X402_PRO_PASS_SECONDS / 3600))),
+        ("{FREE_AGENT_CAP}", str(BETA_AGENT_CAP)),
+        ("{AL_API_VERSION}", AL_API_VERSION),
+    ):
+        text = text.replace(token, value)
+    return text
+
+
+@app.get("/skill.md")
+@app.get("/skill")
+def skill_md():
+    """The validated x402 buyer skill as markdown, for an agent to actually use.
+
+    Served at /skill too: /.well-known/x402 and /x402.json set the precedent of
+    answering the extensionless spelling a prober tries first, and one function
+    serves both, so the two spellings cannot drift apart.
+
+    text/markdown (not text/plain) because the body IS markdown — declaring it
+    plain invites a client to show raw source. A missing file is a 404, never a
+    500: a deploy that omitted it must not read as a server fault.
+    """
+    if not SKILL_FILE.is_file():
+        raise HTTPException(404, "buyer skill not deployed")
+    return Response(_skill_markdown(),
+                    media_type="text/markdown; charset=utf-8")
 
 
 AGENT_JSON = {

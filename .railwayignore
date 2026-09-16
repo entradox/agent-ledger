@@ -4,6 +4,15 @@ deploy.sh
 .railwayignore
 *.md
 !README.md
+# skill/ IS a served asset, not collateral. The `*.md` rule above excludes EVERY
+# markdown file from the image, which silently emptied /app/skill/agent-ledger/
+# (SKILL.md) and dropped /app/recipes.md while both stayed green locally:
+#   live MCP skills_list_tool -> {"skills":[]}   (non-empty on a dev box)
+#   live GET /recipes.md      -> 404
+# D-1313 adds skill/agent-ledger-buyer.md and serves it at GET /skill.md, so the
+# directory must ship. Negation must come AFTER `*.md` (later rule wins).
+!skill/*.md
+!skill/**/*.md
 tests/
 .claude/
 .claude-build-prompt-*.md
