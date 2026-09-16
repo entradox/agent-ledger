@@ -28,12 +28,112 @@ from ledger_engine import (
 import metrics
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
 APP_VERSION = "0.4.1"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
+
+# ── OpenAPI augmentation for agent payment-directory discovery (D-1293) ──────
+# x402scan (the main x402 directory) FOUND this service via /openapi.json but
+# REFUSED to register the payable endpoint:
+#
+#   registerFromOrigin -> {"success": false, "error": {"type": "noValidResources",
+#     "message": "No valid x402 or free (SIWX) resources were found for this
+#      origin"}}, failed: 1, skipped: 75, failedDetails: [{"url":
+#      "/v1/billing/x402", "error": "validation: Missing input schema — add a
+#      requestBody or parameter schema to your OpenAPI spec so agents know what
+#      to send"}]
+#
+# Verified live 2026-09-16. The route takes a raw Request and reads no body, so
+# FastAPI emitted no requestBody, and the endpoint was classified
+# non-invocable and dropped — the one route that can actually take money was
+# the one route the catalogue could not list.
+#
+# This is applied as an override rather than via openapi_extra= on the route so
+# EVERY payment value is read from the same live config the endpoint charges
+# from. That is the project's standing drift rule (the `eip155:845` bug, the
+# hardcoded testnet asset, the stale mainnet copy): a second literal copy of
+# price/network/asset is a second thing that can go wrong silently.
+_ORIGINAL_OPENAPI = app.openapi
+
+
+def _augmented_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = _ORIGINAL_OPENAPI()
+    try:
+        import x402_verify
+        net = _x402_network()
+        asset = _x402_asset()
+        pay_to = _x402_pay_to()
+        amount = str(int(round(X402_MINT_PRICE_FOR_DISCOVERY * 1_000_000)))
+        op = schema["paths"].get("/v1/billing/x402", {}).get("post")
+        if op is not None:
+            op["requestBody"] = {
+                "required": False,
+                "description": (
+                    "No body is required — the payment rides in the "
+                    "PAYMENT-SIGNATURE (or X-PAYMENT) header. Send an empty "
+                    "JSON object to ask for the 402 challenge."),
+                "content": {"application/json": {"schema": {
+                    "type": "object", "properties": {},
+                    "example": {},
+                }}},
+            }
+            resp = op.setdefault("responses", {})
+            resp["402"] = {
+                "description": (
+                    "Payment required. The PAYMENT-REQUIRED response header "
+                    "carries the base64url x402 challenge (price, network, "
+                    "asset, payTo, maxTimeoutSeconds)."),
+                "headers": {"PAYMENT-REQUIRED": {
+                    "description": "base64url x402 payment challenge",
+                    "schema": {"type": "string"}}},
+                "content": {"application/json": {"schema": {
+                    "type": "object",
+                    "properties": {"error": {"type": "object"}}}}},
+            }
+            op["x-payment-info"] = {
+                "protocols": [{"protocol": "x402", "version": 2,
+                               "scheme": "exact", "network": net}],
+                "pricingMode": "fixed",
+                "currency": "USDC",
+                "amountUnit": "atomic",
+                "amount": amount,
+                "asset": asset,
+                "network": net,
+                "payTo": pay_to,
+                "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
+                "priceDescription": (
+                    f"${X402_MINT_PRICE_FOR_DISCOVERY:.2f} USDC buys a "
+                    f"{round(x402_verify.X402_PRO_PASS_SECONDS / 3600)}h Pro "
+                    "pass on a workspace bound to the paying wallet"),
+            }
+        info = schema.setdefault("info", {})
+        info["x-guidance"] = (
+            "AgentLedger is per-agent AI spend tracking with ENFORCED budget "
+            "caps. Two ways in, both machine-only. (1) FREE, no wallet: "
+            "GET /start returns a workspace_key (shown once); claim an agent "
+            "with it in the body of POST /v1/track, set a cap with "
+            "POST /v1/budget, then route traffic through /proxy/{provider}/... "
+            "so an over-budget call is refused with 402 BEFORE the provider is "
+            "contacted. (2) PAID, no human: POST /v1/billing/x402 with a "
+            "wallet-signed x402 payment mints a workspace bound to the paying "
+            "wallet. NOTE: a workspace_key claims NEW agents; an agent_secret "
+            "writes to an existing one. Plain POST /v1/track can reject the "
+            "ledger write that would cross a cap but cannot un-spend a charge "
+            "that already happened — only the proxy/wrapper path stops money.")
+    except Exception:
+        # Discovery must never 500 because x402 is unconfigured on a dev box.
+        pass
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _augmented_openapi
 
 from routes_agents import router as agents_router
 app.include_router(agents_router)
@@ -831,6 +931,7 @@ def oauth_discovery_absent():
 
 
 @app.get("/.well-known/x402")
+@app.get("/.well-known/x402.json")
 def x402_wellknown_json():
     """The till, published where agents actually look.
 
@@ -841,10 +942,22 @@ def x402_wellknown_json():
 
     Values are read from the same env the verifier uses, so this cannot drift
     from what the endpoint actually charges.
+
+    Served at BOTH spellings deliberately. x402scan's own spec says it fetches
+    `/.well-known/x402` (no extension) first and falls back to `.json`, and its
+    `registerFromOrigin` is documented to fail with `noDiscovery` if only one
+    variant is served. They are one function, so they cannot disagree.
     """
     import x402_verify
     enabled = bool(getattr(x402_verify, "X402_ENABLED", False))
+    # The x402scan compatibility fan-out. Its discovery spec wants
+    # {"version": 1, "resources": [...]} — a list of what is payable, which is
+    # a DIFFERENT document from a 402 challenge body. Both are served here so a
+    # scanner gets what it expects without losing the rich challenge detail the
+    # rest of this document already carried.
     content = {
+        "version": 1,
+        "resources": ["POST https://aiagentscity.com/v1/billing/x402"],
         "x402Version": 2,
         "enabled": enabled,
         "scheme": "exact",

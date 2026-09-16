@@ -53,10 +53,12 @@ def render(network, cdp=True):
         "out = {\n"
         "  'agentjson': c.get('/.well-known/agent-card.json').text,\n"
         "  'x402': c.get('/.well-known/x402').text,\n"
+        "  'x402json': c.get('/.well-known/x402.json').text,\n"
         "  'llms': c.get('/llms.txt').text,\n"
         "  'agents': c.get('/agents.txt').text,\n"
         "  'mcp': c.get('/.well-known/mcp.json').text,\n"
         "  'start': c.get('/start').text,\n"
+        "  'openapi': c.get('/openapi.json').json(),\n"
         "}\n"
         "print('===JSON==='); print(json.dumps(out))\n"
     ) % str(REPO)
@@ -215,3 +217,51 @@ def test_oauth_discovery_paths_answer_instead_of_404ing():
         # a fake one would be worse than the 404.
         body = r.json()
         assert body == {}, f"{p} must declare no authorization server, got {body}"
+
+
+# ── D-1293: the payable endpoint must be REGISTERABLE by a directory ──────────
+
+def test_the_x402_endpoint_has_an_input_schema_and_a_402():
+    """x402scan refused to register the ONLY endpoint that takes money:
+    "validation: Missing input schema — add a requestBody or parameter schema
+    to your OpenAPI spec so agents know what to send" (live, 2026-09-16:
+    registerFromOrigin -> noValidResources, failed 1 / skipped 75).
+
+    The route takes a raw Request, so FastAPI emitted no requestBody and the
+    endpoint was treated as non-invocable. A directory cannot list an endpoint
+    it does not know how to call.
+    """
+    doc = render(MAINNET)["openapi"]
+    op = doc["paths"]["/v1/billing/x402"]["post"]
+    assert "requestBody" in op, "no input schema — directory registration will fail"
+    assert op["requestBody"]["content"]["application/json"]["schema"]["type"] == "object"
+    assert "402" in op["responses"], "the 402 challenge is this endpoint's primary contract"
+
+
+def test_x_payment_info_is_derived_from_the_configured_network():
+    """Prices/network/asset must come from the same config the endpoint charges
+    from. A second literal copy is a second thing that can go wrong silently —
+    the exact bug class of `eip155:845` and the hardcoded testnet asset."""
+    for net, usdc in ((MAINNET, USDC_MAINNET), (TESTNET, USDC_TESTNET)):
+        doc = render(net)["openapi"]
+        xpi = doc["paths"]["/v1/billing/x402"]["post"]["x-payment-info"]
+        assert xpi["network"] == net, f"network did not follow config: {xpi['network']}"
+        assert xpi["asset"] == usdc, "asset did not follow the network"
+        assert xpi["payTo"] == PAYTO
+        assert xpi["amount"] == "10000"        # $0.01 in USDC atomic units
+        assert xpi["pricingMode"] == "fixed"
+        assert xpi["protocols"][0]["protocol"] == "x402"
+    assert "x-guidance" in render(MAINNET)["openapi"]["info"]
+
+
+def test_both_well_known_spellings_serve_the_fan_out():
+    """x402scan fetches `/.well-known/x402` first, then `.json`. Its docs say
+    registerFromOrigin fails with `noDiscovery` when only one variant exists.
+    One function serves both, so they cannot disagree."""
+    docs = render(MAINNET)
+    a, b = json.loads(docs["x402"]), json.loads(docs["x402json"])
+    assert a["version"] == 1 and b["version"] == 1
+    assert a["resources"] == b["resources"] == ["POST https://aiagentscity.com/v1/billing/x402"]
+    # the rich challenge detail must survive the addition
+    assert a["x402Version"] == 2
+    assert a["payTo"] == PAYTO
