@@ -681,6 +681,30 @@ def _x402_settlement_words() -> str:
             "testnet wallet.")
 
 
+def _x402_settlement_class() -> str:
+    """Wrapper class for the settlement sentence on the landing page.
+
+    On mainnet the sentence describes a working payment path, so it is
+    informational; on testnet it is a genuine warning that a mainnet wallet
+    cannot pay. Derived alongside the words: a literal class would be one more
+    thing that can disagree with the configured network — the defect D-1312
+    removed from the sentence itself.
+    """
+    return "note" if _x402_is_mainnet() else "warnnote"
+
+
+def _x402_settlement_span() -> str:
+    """The settlement sentence as a styled <span>, class derived per network.
+
+    Distinct from `_x402_settlement_words()` (the bare sentence, which
+    `{X402_SETTLEMENT_HTML}` has always meant on /start and the key page).
+    This placeholder carries its own wrapper because the wrapper depends on the
+    network too, and a literal class would be the same defect in CSS.
+    """
+    return (f'<span class="{_x402_settlement_class()}">'
+            f'{_x402_settlement_words()}</span>')
+
+
 def _x402_pass_offer_words() -> str:
     """One-line description of what an x402 payment actually buys (D-1270).
 
@@ -1036,8 +1060,7 @@ def agents_txt():
         "  /llms.txt                         dense API reference\n"
         "\n"
         "PAYMENT STATUS\n"
-        "  x402 is LIVE but settles on Base Sepolia TESTNET (eip155:84532).\n"
-        "  It is not real money yet. Mainnet is pending onboarding.\n"
+        f"  x402 is LIVE and {X402_SETTLEMENT}\n"
         "\n"
         "CONTACT\n"
         "  entradox@icloud.com\n"
@@ -1045,6 +1068,20 @@ def agents_txt():
 
 
 def _status_html() -> str:
+    """The /agent-ledger landing page.
+
+    D-1312: this page used to be read straight off disk with no substitution, so
+    it kept serving a literal "Testnet only right now ... a mainnet wallet cannot
+    complete it" span after mainnet landed — on the same paywall that settles real
+    USDC. The sentence is network-derived now, like every other surface: the
+    template is static but the substitution runs per request, so the words always
+    follow the live configuration.
+    """
+    return (_status_html_template()
+            .replace("{X402_SETTLEMENT_SPAN}", _x402_settlement_span()))
+
+
+def _status_html_template() -> str:
     return (Path(__file__).parent / "status.html").read_text()
 
 

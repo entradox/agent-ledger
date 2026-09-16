@@ -11,6 +11,14 @@ success while none of these assertions were ever evaluated — and a real
 contradiction on `/start` survived inside the "pinned" surface. Converted to real
 test functions so the suite enforces it. Keep them as tests, not a script.
 
+D-1312 widened the net. Two surfaces were still serving the stale claim after
+mainnet landed: `/agent-ledger` (served from status.html with no substitution at
+all) and the MCP tool `ledger_api_docs` (docs_content.py, never routed through the
+derived helper). Both are fetched here now. Note the OLD 'mcp' key fetched
+/.well-known/mcp.json — a DIFFERENT surface from the MCP tool list, which is
+exactly how the gap looked covered. The tool surface is reached by a real
+tools/call, under the keys prefixed `mcp_`.
+
 Run: /opt/miniconda3/bin/python3 -m pytest tests/test_x402_discovery_network.py -q
 """
 import json
@@ -26,6 +34,75 @@ PAYTO = "0x363c520492EDbA89057bCe696B74263B3295a72A"
 TESTNET, MAINNET = "eip155:84532", "eip155:8453"
 USDC_TESTNET = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 USDC_MAINNET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+# Phrases that are only ever true on a testnet. A mainnet surface carrying any of
+# them is telling a paying agent the paywall will not work for them.
+TESTNET_ONLY_PHRASES = ("TESTNET ONLY", "84532", "Sepolia", "cannot complete it")
+
+# Every surface fetched in both modes. The set is asserted below, so dropping one
+# by accident fails loudly rather than silently removing coverage.
+ALL_SURFACES = ("llms", "start", "agents", "agentjson", "x402", "mcp",
+                "agentledger", "mcp_rest_docs", "mcp_all_docs")
+
+# The child is real Python, not a string built out of escaped newlines: it stays
+# readable, editable, and free of the backslash-escaping traps that come with
+# concatenating a script one line at a time.
+CHILD = '''import os, sys, json
+sys.path.insert(0, "@@REPO@@")
+from fastapi.testclient import TestClient
+import api_server as a
+
+H = {"Accept": "application/json, text/event-stream",
+     "Content-Type": "application/json"}
+
+
+def mcp_call(c, name, args):
+    """A real tools/call against the mounted MCP app.
+
+    D-1312: THIS is the surface `ledger_api_docs` serves. The guard used to
+    assert on /.well-known/mcp.json under a key named "mcp", which is how a
+    testnet-only claim survived in the MCP docs while the test passed.
+    """
+    r = c.post("/mcp/", headers=H, json={"jsonrpc": "2.0", "id": 1,
+        "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "guard", "version": "1"}}})
+    h = dict(H)
+    sid = r.headers.get("mcp-session-id")
+    if sid:
+        h["mcp-session-id"] = sid
+    c.post("/mcp/", headers=h,
+           json={"jsonrpc": "2.0", "method": "notifications/initialized"})
+    r = c.post("/mcp/", headers=h, json={"jsonrpc": "2.0", "id": 2,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": args}})
+    for line in r.text.splitlines():
+        if line.startswith("data:"):
+            payload = json.loads(line[5:].strip())
+            return json.loads(payload["result"]["content"][0]["text"])["markdown"]
+    return r.text
+
+
+# As a context manager so the FastMCP lifespan runs. Without it the MCP session
+# manager is uninitialized and every tools/call raises -- a harness failure that
+# would otherwise look like a product failure.
+with TestClient(a.app) as c:
+    out = {
+      'agentjson': c.get('/.well-known/agent-card.json').text,
+      'x402': c.get('/.well-known/x402').text,
+      'x402json': c.get('/.well-known/x402.json').text,
+      'llms': c.get('/llms.txt').text,
+      'agents': c.get('/agents.txt').text,
+      'mcp': c.get('/.well-known/mcp.json').text,
+      'start': c.get('/start').text,
+      'agentledger': c.get('/agent-ledger').text,
+      'mcp_rest_docs': mcp_call(c, 'ledger_api_docs', {'topic': 'rest'}),
+      'mcp_all_docs': mcp_call(c, 'ledger_api_docs', {}),
+      'openapi': c.get('/openapi.json').json(),
+    }
+print('===JSON===')
+print(json.dumps(out))
+'''
 
 
 def render(network, cdp=True):
@@ -45,23 +122,7 @@ def render(network, cdp=True):
     if cdp:
         env.update({"CDP_API_KEY_ID": "test-key-id",
                     "CDP_API_KEY_SECRET": "test-key-secret"})
-    code = (
-        "import sys, json; sys.path.insert(0, %r)\n"
-        "from fastapi.testclient import TestClient\n"
-        "import api_server as a\n"
-        "c = TestClient(a.app)\n"
-        "out = {\n"
-        "  'agentjson': c.get('/.well-known/agent-card.json').text,\n"
-        "  'x402': c.get('/.well-known/x402').text,\n"
-        "  'x402json': c.get('/.well-known/x402.json').text,\n"
-        "  'llms': c.get('/llms.txt').text,\n"
-        "  'agents': c.get('/agents.txt').text,\n"
-        "  'mcp': c.get('/.well-known/mcp.json').text,\n"
-        "  'start': c.get('/start').text,\n"
-        "  'openapi': c.get('/openapi.json').json(),\n"
-        "}\n"
-        "print('===JSON==='); print(json.dumps(out))\n"
-    ) % str(REPO)
+    code = CHILD.replace("@@REPO@@", str(REPO))
     r = subprocess.run([sys.executable, "-c", code], capture_output=True,
                        text=True, env=env, cwd=str(REPO))
     if r.returncode != 0:
@@ -88,6 +149,18 @@ def test_app_serves_discovery_in_both_modes(docs, net):
     d = docs[net]
     if "error" in d:
         pytest.fail(f"app failed to serve under {net}: {d['error'][:400]}")
+
+
+@pytest.mark.parametrize("net", [TESTNET, MAINNET])
+def test_every_guarded_surface_is_actually_fetched(docs, net):
+    """A guard can only pin what it actually fetched.
+
+    Kept as a test so a typo in a key — or a surface quietly dropped from the
+    child dict — fails here instead of removing coverage. That is precisely how
+    /agent-ledger and the MCP tool surface went unchecked through D-1232.
+    """
+    missing = [s for s in ALL_SURFACES if s not in docs[net]]
+    assert not missing, f"guard never fetched: {missing}"
 
 
 # ── the configured network is what discovery advertises ───────────────────────
@@ -122,16 +195,54 @@ def test_never_advertises_the_wrong_networks_token(docs, net, wrong_asset):
 # This is the assertion that catches the real-world failure. On mainnet, a page
 # saying "a mainnet wallet cannot complete it" drives paying agents away.
 
-@pytest.mark.parametrize("surface", ["llms", "start", "agents", "agentjson", "x402", "mcp"])
+@pytest.mark.parametrize("surface", ALL_SURFACES)
 def test_mainnet_never_claims_testnet_only(docs, surface):
-    d = docs[MAINNET]
-    text = d[surface]
-    assert "TESTNET ONLY" not in text.upper(), \
-        f"{surface} claims TESTNET ONLY while running on mainnet"
-    assert "cannot complete it" not in text.lower(), \
-        f"{surface} tells a mainnet wallet it cannot pay"
+    text = docs[MAINNET][surface]
+    for phrase in TESTNET_ONLY_PHRASES:
+        assert phrase not in text, (
+            f"{surface} carries {phrase!r} while running on mainnet — this is "
+            f"the sentence that drives paying agents away from a paywall that "
+            f"settles real USDC")
     assert USDC_TESTNET not in text, \
         f"{surface} advertises the testnet USDC token on mainnet"
+
+
+@pytest.mark.parametrize("surface", ALL_SURFACES)
+def test_no_surface_leaks_an_unsubstituted_placeholder(docs, surface):
+    """The D-1270 bug class, across every guarded surface.
+
+    A page that renders `{X402_SETTLEMENT_HTML}` literally means no .replace()
+    ran on it — the same wiring gap that let /agent-ledger keep a stale literal
+    for a whole release while seven other surfaces were verified.
+    """
+    text = docs[MAINNET][surface] + docs[TESTNET][surface]
+    assert "{X402_SETTLEMENT" not in text, \
+        f"{surface} rendered an unsubstituted settlement placeholder"
+
+
+# ── the negative control: the fix must be DERIVED, not a deletion ────────────
+# Without this, "fixing" it by deleting the sentence outright would pass every
+# mainnet assertion above — and leave a testnet deployment lying to its users.
+
+@pytest.mark.parametrize("surface", ["agentledger", "mcp_rest_docs"])
+def test_testnet_still_discloses_testnet(docs, surface):
+    """D-1312's two surfaces must FOLLOW the network, in both directions."""
+    text = docs[TESTNET][surface]
+    assert "TESTNET" in text.upper(), \
+        f"{surface} must disclose testnet mode when configured for testnet"
+    assert "84532" in text, \
+        f"{surface} must name the testnet network it actually settles on"
+    assert USDC_MAINNET not in text, \
+        f"{surface} must not advertise mainnet USDC while on testnet"
+
+
+def test_quickstart_docs_disclose_testnet_in_testnet_mode(docs):
+    """The quickstart block carried the same hardcoded claim as the REST block,
+    so both are covered — one guard that misses a sibling block is how this
+    defect survived three times."""
+    text = docs[TESTNET]["mcp_all_docs"]
+    assert "TESTNET" in text.upper(), \
+        "the MCP docs bundle must disclose testnet mode when on testnet"
 
 
 def test_mainnet_start_page_advertises_a_working_payment_path(docs):
@@ -146,8 +257,35 @@ def test_mainnet_start_page_advertises_a_working_payment_path(docs):
         "/start must not claim mainnet is still pending while it is live"
 
 
+def test_mainnet_landing_page_advertises_a_working_payment_path(docs):
+    """Regression (D-1312): /agent-ledger said 'Testnet only right now ... a
+    mainnet wallet cannot complete it' while the endpoint settled real mainnet
+    USDC. It is the first page a human or crawler reads."""
+    page = docs[MAINNET]["agentledger"]
+    assert "MAINNET" in page.upper(), \
+        "/agent-ledger must state it settles on mainnet"
+    assert "pending onboarding" not in page.lower(), \
+        "/agent-ledger must not claim mainnet is still pending while it is live"
+
+
+def test_agents_txt_payment_status_follows_the_network(docs):
+    """Regression (D-1312): /agents.txt carried a THIRD copy of the claim —
+    'It is not real money yet. Mainnet is pending onboarding.' — which the
+    hardcoded guard phrase list never matched, so it passed on mainnet."""
+    for net, expected in ((MAINNET, "MAINNET"), (TESTNET, "TESTNET")):
+        body = docs[net]["agents"]
+        assert expected in body.upper(), \
+            f"/agents.txt PAYMENT STATUS must state {expected} under {net}"
+        assert "pending onboarding" not in body.lower(), \
+            "/agents.txt must not claim mainnet is pending"
+
+
 def test_testnet_mode_still_discloses_testnet(docs):
-    """The mirror assertion: testnet must not masquerade as mainnet."""
+    """The mirror assertion: testnet must not masquerade as mainnet.
+
+    Covers llms.txt (D-1232) and the two D-1312 surfaces are asserted
+    separately below so a failure names the surface that broke.
+    """
     assert "TESTNET" in docs[TESTNET]["llms"].upper(), \
         "llms.txt must disclose testnet mode"
     assert USDC_MAINNET not in docs[TESTNET]["llms"], \
