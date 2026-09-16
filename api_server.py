@@ -800,6 +800,36 @@ def mcp_manifest_aliases():
     return mcp_wellknown_json()
 
 
+@app.get("/.well-known/oauth-protected-resource")
+@app.get("/.well-known/oauth-protected-resource/mcp")
+@app.get("/.well-known/oauth-authorization-server")
+@app.get("/.well-known/oauth-authorization-server/mcp")
+@app.get("/mcp/.well-known/oauth-protected-resource")
+@app.get("/mcp/.well-known/oauth-authorization-server")
+def oauth_discovery_absent():
+    """Answer the OAuth discovery probes honestly, instead of 404ing them.
+
+    An MCP client that wants authenticated transport walks RFC 9728 / RFC 8414
+    discovery before it will connect. Measured 2026-09-16 in /data/metrics.jsonl:
+    150 such probes 404'd, including /mcp/-relative variants. A 404 reads as
+    "discovery is broken"; it does not read as "no auth here".
+
+    This deployment has no auth layer at all — MCP here is deliberately open
+    (`claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/`
+    needs no login). The correct answer is therefore an explicit empty discovery
+    document: it tells the client no authorization server exists, so it should
+    proceed unauthenticated, and it stops the 404 loop.
+
+    Returning a fake authorization_server here would be worse than the 404: it
+    would send a client to an endpoint that cannot issue tokens.
+    """
+    return JSONResponse(
+        status_code=200,
+        content={},
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/.well-known/x402")
 def x402_wellknown_json():
     """The till, published where agents actually look.
@@ -1474,15 +1504,38 @@ try:
     app.router.lifespan_context = _combined_lifespan
 
     class _McpSlashRewrite:
-        """Internally rewrite `POST /mcp` to `/mcp/` so no 307 is ever issued.
+        """Make `/mcp` answer like `/mcp/`, and tolerate a missing Content-Type.
 
-        Starlette's redirect_slashes answers `POST /mcp` with a 307 to `/mcp/`.
-        A client that does not re-send the body on 307 then lands on the mount
-        with an empty body and gets `400 Bad Request` — forever, because the
-        next retry follows the same path. Measured on live 2026-09-14 from
-        /data/metrics.jsonl: 104 distinct agents hit that 307, and two of them
-        (`88b16a824d91`, `cda40c3d5993`) had made 336 and 328 attempts with
-        ZERO successes, retrying every ~5 minutes for three days.
+        Two front-door defects measured live in /data/metrics.jsonl:
+
+        1. Starlette's redirect_slashes answers `POST /mcp` with a 307 to `/mcp/`.
+           A client that does not re-send the body on 307 then lands on the mount
+           with an empty body and gets `400 Bad Request` — forever, because the
+           next retry follows the same path. Measured 2026-09-14: 104 distinct
+           agents hit that 307, two of them (`88b16a824d91`, `cda40c3d5993`) with
+           336 and 328 attempts and ZERO successes, retrying every ~5 minutes.
+
+        2. The MCP SDK's DNS-rebinding guard (`transport_security.validate_request`)
+           rejects a POST with NO Content-Type header outright:
+           `Response("Invalid Content-Type header", status_code=400)`. This runs
+           BEFORE the JSON-RPC handler, so an otherwise-valid client that simply
+           omits the header is turned away at the door and never gets a hint why.
+           Measured 2026-09-16: 79 distinct agents had 1,162 such 400s and zero
+           successes while hammering `/mcp` and `/mcp/` exclusively —
+           `cda40c3d5993` alone had 630 attempts across 3 days. They are not
+           scanners; they are asking to talk MCP and we are refusing on a header
+           they did not know to send.
+
+           A JSON-RPC POST body is JSON by definition. Two client habits get refused
+           before the handler runs, both with the same unhelpful 400: sending no
+           Content-Type at all, and sending the HTTP client's DEFAULT form
+           encoding (`application/x-www-form-urlencoded` — what `curl -d`, urllib
+           and requests all use unless told otherwise). The second is what the live
+           agents actually sent; assuming "no header" alone would have missed every
+           one of them. Neither habit means the body is malformed, so we relabel to
+           JSON and let the JSON parser be the judge — a genuinely non-JSON body
+           still fails, with a parse error that names the real problem. A
+           deliberate non-JSON type (text/plain, text/xml) is left alone.
 
         This is a pure ASGI middleware, not BaseHTTPMiddleware: it only mutates
         `scope` and delegates. That matters because MCP streamable-http answers
@@ -1497,10 +1550,41 @@ try:
             self.asgi_app = asgi_app
 
         async def __call__(self, scope, receive, send):
-            if scope.get("type") == "http" and scope.get("path") == "/mcp":
-                scope = dict(scope)
-                scope["path"] = "/mcp/"
-                scope["raw_path"] = b"/mcp/"
+            if scope.get("type") == "http":
+                path = scope.get("path", "")
+
+                if path == "/mcp":
+                    scope = dict(scope)
+                    scope["path"] = "/mcp/"
+                    scope["raw_path"] = b"/mcp/"
+                if scope.get("method") == "POST" and str(path).startswith("/mcp"):
+                    headers = list(scope.get("headers") or [])
+                    _ct = ""
+                    for k, v in headers:
+                        if k.lower() == b"content-type":
+                            _ct = v.decode("latin-1").split(";")[0].strip().lower()
+                            break
+                    # A JSON-RPC POST body is JSON. Two client habits get refused
+                    # before the handler runs, both with an unhelpful
+                    # "Invalid Content-Type header" 400 from the SDK's
+                    # DNS-rebinding guard:
+                    #   - no Content-Type at all
+                    #   - the HTTP client's default form encoding
+                    #     (`curl -d`, urllib and requests all send
+                    #     application/x-www-form-urlencoded unless told otherwise)
+                    # Neither means the body is malformed, so relabel it JSON and
+                    # let the JSON parser be the judge. A body that is genuinely
+                    # not JSON still fails — with a JSON-RPC parse error that
+                    # names the real problem instead of blaming a header.
+                    # A deliberate non-JSON type (text/plain, text/xml, ...) is
+                    # left alone: that is an explicit client choice, and we should
+                    # not silently reinterpret it.
+                    if _ct in ("", "application/x-www-form-urlencoded"):
+                        headers = [(k, v) for k, v in headers
+                                   if k.lower() != b"content-type"]
+                        headers.append((b"content-type", b"application/json"))
+                        scope = dict(scope)
+                        scope["headers"] = headers
             await self.asgi_app(scope, receive, send)
 
     # Added before the mount so it wraps the whole router, including /mcp/.

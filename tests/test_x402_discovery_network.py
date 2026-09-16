@@ -188,3 +188,30 @@ def test_agent_requested_discovery_spellings_are_served(docs, path):
     r = TestClient(a.app).get(code_path)
     assert r.status_code == 200, f"{path} must be served, got {r.status_code}"
     assert r.json(), f"{path} must return a non-empty document"
+
+
+# ── D-1280: agents stuck at the MCP door ─────────────────────────────────────
+# Measured 2026-09-16 in /data/metrics.jsonl: 79 distinct agents with 1,162
+# "Invalid Content-Type header" 400s and ZERO successes, hammering only /mcp and
+# /mcp/. One had 630 attempts across 3 days. The SDK's DNS-rebinding guard
+# (transport_security.validate_request) rejects the POST before the JSON-RPC
+# handler, so a client that omits Content-Type — or sends the HTTP client's
+# default form encoding — is turned away with no hint why.
+
+def test_oauth_discovery_paths_answer_instead_of_404ing():
+    """150 OAuth discovery probes 404'd. A 404 reads as 'discovery broken'."""
+    from fastapi.testclient import TestClient
+    import api_server as a
+    c = TestClient(a.app)
+    for p in ["/.well-known/oauth-protected-resource",
+              "/.well-known/oauth-protected-resource/mcp",
+              "/.well-known/oauth-authorization-server",
+              "/.well-known/oauth-authorization-server/mcp",
+              "/mcp/.well-known/oauth-protected-resource",
+              "/mcp/.well-known/oauth-authorization-server"]:
+        r = c.get(p)
+        assert r.status_code == 200, f"{p} -> {r.status_code}"
+        # Must be an EMPTY doc: we have no auth server, and pointing a client at
+        # a fake one would be worse than the 404.
+        body = r.json()
+        assert body == {}, f"{p} must declare no authorization server, got {body}"
