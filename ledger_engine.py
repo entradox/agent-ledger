@@ -417,16 +417,60 @@ def _delete_agent_row(agent_id: str) -> None:
 
 
 def is_pro(agent_id: str) -> dict:
-    """Plan info for agent_id. Site-wide Stripe Pro (pro_active()) takes
-    precedence over a per-agent scarcity grant; an expired scarcity grant
-    reads back as free. Returns {"plan": ..., "pro_until": float|None,
-    "is_pro": bool}."""
+    """Plan info for agent_id — resolved with the WORKSPACE as the source of truth.
+
+    Precedence, highest first:
+      1. the workspace this agent is claimed in, if it is Pro (Stripe subscription
+         or the x402 Pro pass). `effective_agent_cap` is the field the write path
+         actually enforces, so reading the same record here is what makes the
+         report agree with the gate.
+      2. site-wide Stripe Pro (pro_active()).
+      3. the retired per-agent scarcity grant — legacy records only; nothing has
+         written this since the window moved to per-workspace identity.
+
+    Why the workspace check exists (found 2026-09-16): an x402 payment granted
+    Pro by calling workspace_engine.mark_pro(), but this function only ever read
+    the per-AGENT pro_until. So a workspace that had genuinely paid reported
+    `plan: "free"` on every agent report — the one surface a paying customer
+    reads told them they had received nothing. The enforcement gate said Pro
+    (agents past the free cap were accepted) while the report said free; the
+    report was the lie.
+
+    Order matters: the workspace is checked BEFORE pro_active(), because
+    pro_active() is a whole-instance flag that describes no individual
+    workspace's paid state.
+    """
+    import workspace_engine
+    ws_id = _workspace_of_agent(agent_id)
+    if ws_id:
+        record = workspace_engine.get_workspace(ws_id)
+        if record and record.get("plan") == "pro":
+            until = record.get("pro_until")
+            if until is None or until > _time.time():
+                return {"plan": "pro_workspace",
+                        "pro_until": until, "is_pro": True}
     if pro_active():
         return {"plan": "pro_stripe", "pro_until": None, "is_pro": True}
     pro_until = _get_pro_until(agent_id)
     if pro_until is not None and pro_until > _time.time():
         return {"plan": "pro_scarcity", "pro_until": pro_until, "is_pro": True}
     return {"plan": "free", "pro_until": None, "is_pro": False}
+
+
+def _workspace_of_agent(agent_id: str) -> Optional[str]:
+    """Resolve the workspace an agent is claimed in, or None.
+
+    Imported locally (import-cycle rule, same as scarcity_claims_left below):
+    identity imports ledger_engine at call time, and workspace_engine imports
+    this module at import time. Any failure here must NOT take the report down —
+    an agent with no workspace, or a corrupt workspace file, is simply "not
+    workspace-Pro", which is the pre-existing behaviour.
+    """
+    try:
+        import identity
+        return identity.workspace_of_agent(agent_id)
+    except Exception:
+        return None
 
 
 def scarcity_claims_left() -> int:

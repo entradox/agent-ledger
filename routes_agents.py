@@ -409,7 +409,8 @@ def _render_report_page(agent_id: str, r, days: int) -> str:
     exceeded = bool(budget.get("exceeded") or budget.get("token_exceeded"))
     safe_agent_id = html.escape(agent_id)
     plan_badge = {"free": "Free", "pro_scarcity": "Pro (launch window)",
-                  "pro_stripe": "Pro"}.get(r.plan, html.escape(r.plan))
+                  "pro_stripe": "Pro", "pro_workspace": "Pro"}.get(
+                      r.plan, html.escape(r.plan))
 
     def bar(used_pct: float, danger: bool) -> str:
         used_pct = max(0.0, min(100.0, used_pct))
