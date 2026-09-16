@@ -289,8 +289,18 @@ def create_track(req: TrackRequest, request: Request):
     result = entry.to_dict()
     if auto_priced:
         result["priced"] = "auto"
-        result["_note"] = (f"amount_cents was computed from {req.tokens_in + req.tokens_out} "
-                           f"tokens on '{req.model}'. Send amount_cents to override.")
+        import proxy as _proxy
+        resolved, how = _proxy.resolve_model(req.model)
+        if how:
+            # The caller sent a real provider id (claude-sonnet-4-20250514), not
+            # the short key. Say so explicitly: a silently substituted price is
+            # exactly the kind of thing a spend product must not do quietly.
+            result["priced_model"] = resolved
+            result["_note"] = (f"amount_cents was computed from {req.tokens_in + req.tokens_out} "
+                               f"tokens on '{req.model}' ({how}). Send amount_cents to override.")
+        else:
+            result["_note"] = (f"amount_cents was computed from {req.tokens_in + req.tokens_out} "
+                               f"tokens on '{req.model}'. Send amount_cents to override.")
     if created:
         result["agent_secret"] = secret
         result["_note"] = ("Save this agent_secret — required for every future write "

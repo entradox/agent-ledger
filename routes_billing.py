@@ -699,10 +699,29 @@ def x402_billing(request: Request):
         # verbatim rather than flattening it to a bare 402 string.
         unpaid = result.get("unpaid_response")
         if unpaid:
+            body = unpaid.get("body")
+            if not body:
+                # The SDK's payment-required envelope is carried in the
+                # PAYMENT-REQUIRED *header*, so an unauthenticated caller with
+                # an empty or malformed request body got back literally `{}` —
+                # a 402 that explains nothing. Keep the header (it is what a
+                # discovery client parses) and add the same typed envelope every
+                # other endpoint returns, so a human reading the response knows
+                # what to do and a generic error handler recognises the shape.
+                note = (result.get("error")
+                        or "payment required — retry with a signed x402 payment "
+                           "header (PAYMENT-SIGNATURE or X-PAYMENT); the "
+                           "PAYMENT-REQUIRED response header carries the price, "
+                           "network and pay_to")
+                body = error_envelope(unpaid["status"], note,
+                                      error_type="payment_required_error",
+                                      code="payment_required")
             return JSONResponse(status_code=unpaid["status"],
-                                content=unpaid.get("body") or {},
+                                content=body,
                                 headers=unpaid.get("headers") or {})
-        raise HTTPException(402, "payment not verified")
+        raise HTTPException(402, detail=error_envelope(
+            402, result.get("error") or "payment not verified",
+            code="payment_not_verified"))
     wallet = result.get("payer_wallet")
     if not wallet:
         # Same defensive shape as the tx_hash guard below. A settlement with

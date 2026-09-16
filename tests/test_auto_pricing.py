@@ -55,6 +55,67 @@ def _report(tc, secret):
     return tc.get(f"/v1/report/{AGENT}", headers={"X-Agent-Secret": secret}).json()
 
 
+def test_a_real_provider_model_id_auto_prices(env):
+    """muse-ai functional test, 2026-09-15.
+
+    The wrapper and the proxy forward the caller's REAL model string, so a
+    tokens-only write sent `claude-sonnet-4-20250514` and was refused with
+    `model_not_priced` while that same model sat in the table as
+    `claude-sonnet-4-5`. Every tokens-only write from a real SDK therefore died
+    on the primary enforcement path.
+    """
+    tc, key, secret = env
+    r = _track(tc, secret, rail="api_key", model="claude-sonnet-4-20250514",
+               tokens_in=1000, tokens_out=100, service="")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["priced"] == "auto"
+    assert body["priced_model"] == "claude-sonnet-4-5"
+    # 1000 in @ $3/MTok + 100 out @ $15/MTok = $0.0045 -> 0.45 cents
+    assert body["amount_cents"] == 0
+    assert "alias of" in body["_note"]
+
+
+def test_a_dated_openai_snapshot_prices_at_its_base_rate(env):
+    tc, key, secret = env
+    r = _track(tc, secret, rail="api_key", model="gpt-4o-2024-08-06",
+               tokens_in=1_000_000, tokens_out=0, service="")
+    assert r.status_code == 200, r.text
+    assert r.json()["priced_model"] == "gpt-4o"
+
+
+def test_a_dearer_dated_snapshot_is_still_refused(env):
+    """The guard against a naive 'strip the date suffix' alias rule.
+
+    OpenAI prices gpt-4o-2024-05-13 at $5/$15 against base gpt-4o at $2.50/$10
+    (platform.openai.com/docs/pricing). Stripping the date would auto-price it
+    at HALF its real cost — under-metering a spend cap, the exact failure the
+    cap exists to prevent. It must stay unpriced and be refused, not guessed.
+    """
+    tc, key, secret = env
+    r = _track(tc, secret, rail="api_key", model="gpt-4o-2024-05-13",
+               tokens_in=1000, tokens_out=100, service="")
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "model_not_priced"
+
+
+def test_a_genuinely_unknown_model_is_still_refused(env):
+    tc, key, secret = env
+    r = _track(tc, secret, rail="api_key", model="not-a-real-model-9",
+               tokens_in=1000, tokens_out=100, service="")
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "model_not_priced"
+
+
+def test_an_exact_table_hit_is_not_reported_as_alias_resolved(env):
+    """A direct hit must not claim it was 'resolved' — nothing was substituted."""
+    tc, key, secret = env
+    r = _track(tc, secret, rail="api_key", model="claude-sonnet-4-5",
+               tokens_in=1000, tokens_out=100, service="")
+    assert r.status_code == 200, r.text
+    assert "priced_model" not in r.json()
+
+
 # ── the feature ────────────────────────────────────────────────────────────
 
 def test_a_tokens_only_write_is_priced_for_you(env):

@@ -309,16 +309,22 @@ the <code>npx</code> launcher). Note the console command it installs is
 One line changes, and every call afterwards is recorded and checked against the
 budget before it is sent.</p>
 <pre><code>pip install "aiagentscity-ledger[wrapper]"
+agent-ledger init --agent my-agent      # prints agent_secret ONCE and writes .env
 
 import agentledger
 from openai import OpenAI
 
 client = agentledger.wrap(OpenAI(), agent_id="my-agent",
-                          workspace_key="wk_live_...")
+                          agent_secret="as_...")   # from .env / the init output
 
 client.chat.completions.create(model="gpt-4o",
                                messages=[{"role": "user", "content": "hi"}])
 # cost is computed from the provider's own token counts, not from your estimate</code></pre>
+<p class="mut">No <code>agent-ledger</code> CLI? Claim the agent by sending your
+<code>workspace_key</code> in the <b>body</b> of a first
+<code>POST /v1/track</code> — the response returns that agent's
+<code>agent_secret</code>. Either way the secret is what the wrapper needs:
+a workspace_key authorizes workspace-level reads, not a proxied call.</p>
 <p class="mut">Set a cap and the next call is refused <b>before the provider is
 contacted</b> — see it appear on your <a href="/dashboard">dashboard</a>.</p>
 

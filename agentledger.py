@@ -57,14 +57,32 @@ def detect_provider(client) -> str:
         f"Pass provider='openai' or provider='anthropic' explicitly.")
 
 
-def wrap(client, *, agent_id: str, agent_secret: str,
-         provider: Optional[str] = None, base_url: Optional[str] = None):
+def wrap(client, *, agent_id: str, agent_secret: Optional[str] = None,
+         provider: Optional[str] = None, base_url: Optional[str] = None,
+         workspace_key: Optional[str] = None):
     """Repoint an SDK client at AgentLedger. Returns the same client.
 
     agent_id / agent_secret come from `agent-ledger init` (or POST /start plus
     a first write). They identify WHICH agent gets billed; the provider
     credential the client already holds is forwarded untouched.
+
+    `workspace_key` is accepted ONLY so that a stale example raises a useful
+    error instead of a bare TypeError. It cannot authorize a proxied call: the
+    proxy authenticates with the agent's own secret (X-AL-Secret), and a
+    workspace_key is not one. The public snippet used to advertise
+    `workspace_key=`, which meant the very first line a user copy-pasted from
+    the site died with "wrap() got an unexpected keyword argument". If you are
+    here because of that message, the fix is one call away — see below.
     """
+    if workspace_key and not agent_secret:
+        raise ValueError(
+            "agentledger.wrap() takes agent_secret, not workspace_key. A "
+            "workspace_key cannot authorize a proxied call — the proxy "
+            "authenticates per agent. Get the agent's secret with:\n"
+            "    agent-ledger init --agent <name>        # prints it once and writes .env\n"
+            "or claim the agent by sending your workspace_key in the BODY of a "
+            "first POST /v1/track (the response returns agent_secret). Then:\n"
+            "    agentledger.wrap(client, agent_id='<name>', agent_secret='as_...')")
     if not agent_id or not agent_secret:
         raise ValueError("agentledger.wrap() needs both agent_id and agent_secret")
     provider = provider or detect_provider(client)

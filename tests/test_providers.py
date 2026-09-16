@@ -184,12 +184,21 @@ def test_cached_tokens_are_reported_for_a_real_call(env):
     assert tokens["tokens_in"] == 1_000_000
 
 
-def test_a_provider_without_cache_fields_prices_all_input_at_standard(env):
-    """Providers that report no cache split must behave exactly as before."""
+def test_a_provider_without_cache_fields_prices_all_input_at_standard(env, monkeypatch):
+    """Providers that report no cache split must behave exactly as before.
+
+    Runs against a synthetic no-cache entry: gpt-4o-mini used to be the only
+    such row, and it now carries OpenAI's real cached-input rate, so the real
+    table no longer exercises this path.
+    """
     import proxy
-    cost = proxy.cost_cents_exact("gpt-4o-mini", 1_000_000, 0)
-    assert round(cost, 4) == 15.0
-    assert proxy.cost_cents_exact("gpt-4o-mini", 1_000_000, 0, cache_hit_in=1_000_000) == 15.0
+    table = dict(proxy.prices())
+    table["test-no-cache-model"] = {"in": 15.0, "out": 60.0, "provider": "test"}
+    monkeypatch.setattr(proxy, "prices", lambda: table)
+    monkeypatch.setattr(proxy, "aliases", lambda: {})
+    assert round(proxy.cost_cents_exact("test-no-cache-model", 1_000_000, 0), 4) == 1500.0
+    assert proxy.cost_cents_exact("test-no-cache-model", 1_000_000, 0,
+                                  cache_hit_in=1_000_000) == 1500.0
 
 
 # ── the price table is honest about itself ─────────────────────────────────
@@ -215,5 +224,8 @@ def test_the_pricing_endpoint_says_how_many_are_unverified(env):
         "nothing is flagged unverified — either the table really was fully "
         "checked, or the flag has stopped meaning anything")
     assert body["models"]["claude-sonnet-5"]["verified"] is True
-    assert body["models"]["gpt-4o-mini"]["verified"] is False
+    # OpenAI's rows were verified on 2026-09-15; DeepSeek's still are not (they
+    # came from a docs page summarised by a search result, not an operator read).
+    assert body["models"]["gpt-4o-mini"]["verified"] is True
+    assert body["models"]["deepseek-v4-flash"]["verified"] is False
     assert body["models"]["deepseek-v4-flash"]["cache_hit"] == 0.0028

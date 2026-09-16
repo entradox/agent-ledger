@@ -168,6 +168,21 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="card"><table id="breakdown"></table></div>
   <h2>Alerts</h2>
   <div class="card"><ul class="alerts" id="alerts"></ul></div>
+  <h2>Webhooks</h2>
+  <div class="card">
+    <p class="muted" style="margin-top:0">Alerts are pushed to a URL you own —
+    Slack, Discord, Zapier or your own endpoint — with retries. Every attempt is
+    logged below, successes and failures alike.</p>
+    <p><input id="whurl" type="url" placeholder="your-endpoint-url (Slack, Discord, Zapier)"
+              spellcheck="false"></p>
+    <p id="whev"></p>
+    <p><input id="whlabel" type="text" placeholder="label (optional, e.g. #alerts)"></p>
+    <p><button id="whadd">Register webhook</button></p>
+    <p id="whmsg" class="muted"></p>
+    <table id="whlist"></table>
+    <p><a href="#" id="whlog-toggle" class="muted">show recent deliveries</a></p>
+    <table id="whlog" style="display:none"></table>
+  </div>
 </div>
 
 <script>
@@ -215,6 +230,14 @@ function render(d){
     kpi('agents tracked', String(agents.length)) +
     kpi('alerts', String((d.alerts||[]).length));
   document.getElementById('chart').innerHTML = svgChart(d.daily_series||[]);
+  // Event checkboxes: all ticked by default, matching the API's own default
+  // (omit `events` to receive every one).
+  document.getElementById('whev').innerHTML = WH_EVENTS.map(function(e){
+    return '<label class="muted" style="margin-right:14px">' +
+      '<input type="checkbox" id="ev_'+e.replace(/\./g,'_')+'" checked ' +
+      'style="width:auto;vertical-align:middle"> '+esc(e)+'</label>';
+  }).join('');
+  loadWebhooks();
   var rows = agents.map(function(a){
     var b=a.budget||{}, pct=b.used_pct||0, st=b.status||'ok';
     return '<tr><td>'+esc(a.agent_id)+'</td><td>'+esc(a.tier)+'</td>'+
@@ -285,6 +308,99 @@ document.getElementById('csv').onclick = function(){
 var existing = recall();
 if (existing) load(existing);
 
+// ── webhooks ───────────────────────────────────────────────────────────────
+// The endpoint existed and the marketing copy promised pushed alerts, but no
+// page linked to it: the only way to register a destination was to hand-craft
+// an API call from the docs. This is the missing surface.
+var WH_EVENTS = ['alert.raised','budget.warning','budget.exceeded','anomaly.detected'];
+function whMsg(text, bad){
+  var el = document.getElementById('whmsg');
+  el.textContent = text || '';
+  el.style.color = bad ? '#f85149' : '#3fb950';
+}
+function whApi(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({'X-Workspace-Key': KEY}, opts.headers || {});
+  return fetch(path, opts);
+}
+function renderWebhooks(list){
+  var rows = (list || []).map(function(w){
+    return '<tr><td><code>'+esc(w.url)+'</code></td>'+
+      '<td>'+esc((w.events||[]).join(', '))+'</td>'+
+      '<td>'+esc(w.label||'—')+'</td>'+
+      '<td><a href="#" class="whdel" data-id="'+esc(w.id)+'">remove</a></td></tr>';
+  }).join('');
+  document.getElementById('whlist').innerHTML =
+    '<tr><th>url</th><th>events</th><th>label</th><th></th></tr>' +
+    (rows || '<tr><td colspan="4" class="muted">No webhooks yet.</td></tr>');
+  Array.prototype.forEach.call(document.querySelectorAll('.whdel'), function(a){
+    a.onclick = function(e){
+      e.preventDefault();
+      whApi('/v1/webhooks/'+encodeURIComponent(a.getAttribute('data-id')), {method:'DELETE'})
+        .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+        .then(function(res){
+          whMsg(res.ok ? 'Removed.' : (res.d.error ? res.d.error.message : 'Failed'), !res.ok);
+          return loadWebhooks();
+        });
+    };
+  });
+}
+function loadWebhooks(){
+  if(!KEY) return;
+  whApi('/v1/webhooks').then(function(r){ return r.json(); }).then(function(d){
+    renderWebhooks(d.webhooks);
+  }).catch(function(){});
+}
+function loadDeliveries(){
+  whApi('/v1/webhooks/deliveries?limit=50').then(function(r){ return r.json(); })
+    .then(function(d){
+      var rows = (d.deliveries||[]).map(function(i){
+        var ok = i.status === 'delivered';
+        return '<tr><td>'+esc(String(i.timestamp||'').slice(0,19))+'</td>'+
+          '<td>'+esc(i.event||'')+'</td>'+
+          '<td><span class="pill '+(ok?'ok':'exceeded')+'">'+esc(i.status||'')+'</span></td>'+
+          '<td>'+esc(String(i.error||i.url||'').slice(0,60))+'</td></tr>';
+      }).join('');
+      document.getElementById('whlog').innerHTML =
+        '<tr><th>when</th><th>event</th><th>status</th><th>detail</th></tr>' +
+        (rows || '<tr><td colspan="4" class="muted">No deliveries recorded yet.</td></tr>');
+    }).catch(function(){});
+}
+document.getElementById('whlog-toggle').onclick = function(e){
+  e.preventDefault();
+  var t = document.getElementById('whlog');
+  var show = t.style.display === 'none';
+  t.style.display = show ? 'table' : 'none';
+  this.textContent = show ? 'hide recent deliveries' : 'show recent deliveries';
+  if (show) loadDeliveries();
+};
+document.getElementById('whadd').onclick = function(){
+  if(!KEY) return;
+  var url = document.getElementById('whurl').value.trim();
+  if(!url){ whMsg('Enter a URL first.', true); return; }
+  var events = WH_EVENTS.filter(function(e){
+    var cb = document.getElementById('ev_'+e.replace(/\./g,'_'));
+    return cb && cb.checked;
+  });
+  whMsg('Registering…');
+  whApi('/v1/webhooks', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url:url, events:events.length?events:null,
+                          label:document.getElementById('whlabel').value.trim()})
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      if(!res.ok){
+        whMsg(res.d.error ? res.d.error.message : 'Registration failed', true);
+        return;
+      }
+      whMsg('Registered. Alerts will POST to ' + res.d.webhook.url);
+      document.getElementById('whurl').value = '';
+      document.getElementById('whlabel').value = '';
+      loadWebhooks();
+    }).catch(function(e){ whMsg(e.message, true); });
+};
+
 // ── demo mode ──────────────────────────────────────────────────────────────
 // The same page and the same renderer, fed by a synthetic fixture instead of a
 // workspace. No credential is involved, so nothing can be leaked or written.
@@ -300,6 +416,14 @@ if (__DEMO__) {
   var app = document.getElementById('app');
   app.insertBefore(banner, app.firstChild);
   document.getElementById('csv').style.display = 'none';
+  // Demo mode has no workspace and no key, so the webhook form has nothing to
+  // authenticate as. Show the section (it is part of the product surface) but
+  // disable the controls rather than presenting a button that cannot work.
+  ['whurl','whlabel','whadd'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) { el.disabled = true; el.style.opacity = '.5'; }
+  });
+  whMsg('Read-only demo — register webhooks from your own workspace dashboard.', false);
   fetch('/v1/demo/summary').then(function(r){ return r.json(); }).then(render)
     .catch(function(e){ document.getElementById('gateerr').textContent = e.message; });
 }

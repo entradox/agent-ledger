@@ -77,11 +77,24 @@ def test_buckets_are_clamped_so_fresh_input_cannot_go_negative():
     assert round(cost, 4) == 20.0        # everything landed in the cheapest tier, once
 
 
-def test_a_model_without_cache_rates_behaves_exactly_as_before():
-    cost = proxy.cost_cents_exact("gpt-4o-mini", 1_000_000, 0)
-    assert round(cost, 4) == 15.0
-    assert proxy.cost_cents_exact("gpt-4o-mini", 1_000_000, 0,
-                                  cache_hit_in=1_000_000) == 15.0
+def test_a_model_without_cache_rates_behaves_exactly_as_before(monkeypatch):
+    """A model whose price entry carries NO cache rates must charge every input
+    token the standard rate.
+
+    NOTE: this used to point at gpt-4o-mini, whose entry genuinely had no cache
+    rates then. It does now (OpenAI lists a cached-input price), so the real
+    table no longer contains a no-cache entry to exercise this with. The
+    behaviour is still load-bearing — a future provider row can omit them — so
+    the assertion runs against a synthetic entry instead of being dropped.
+    """
+    table = dict(proxy.prices())
+    table["test-no-cache-model"] = {"in": 15.0, "out": 60.0, "provider": "test"}
+    monkeypatch.setattr(proxy, "prices", lambda: table)
+    monkeypatch.setattr(proxy, "aliases", lambda: {})
+
+    assert round(proxy.cost_cents_exact("test-no-cache-model", 1_000_000, 0), 4) == 1500.0
+    assert proxy.cost_cents_exact("test-no-cache-model", 1_000_000, 0,
+                                  cache_hit_in=1_000_000) == 1500.0
 
 
 # ── provider usage parsing: two different conventions ─────────────────────
@@ -133,7 +146,19 @@ def test_claude_prices_are_marked_verified_with_a_source():
         assert entry["source"].startswith("https://platform.claude.com"), model
 
 
-def test_openai_prices_are_still_flagged_unverified():
-    """They were never checked against OpenAI's page. Saying so is the point of
-    the flag — a table that marks everything verified is a table nobody checks."""
-    assert proxy.lookup("gpt-4o-mini")["verified"] is False
+def test_openai_prices_are_verified_and_say_where_they_came_from():
+    """These WERE unverified placeholders; they were checked against OpenAI's
+    pricing page on 2026-09-15 and now carry a source + as_of date.
+
+    The assertion that previously stood here (`verified is False`) was accurate
+    when written and is now a stale claim, not a requirement — the real
+    requirement is that the flag tracks reality in BOTH directions. The
+    counterpart check (something is still flagged unverified) lives in
+    tests/test_providers.py so the flag cannot silently become always-true.
+    """
+    entry = proxy.lookup("gpt-4o-mini")
+    assert entry["verified"] is True
+    assert entry["source"] == "https://platform.openai.com/docs/pricing"
+    assert entry["as_of"] == "2026-09-15"
+    # Cached input is a real, separate rate for this model — not a copy of `in`.
+    assert entry["cache_hit"] == 0.075

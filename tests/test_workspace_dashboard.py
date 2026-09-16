@@ -195,7 +195,13 @@ def test_the_csv_has_a_header_and_one_row_per_entry(env):
 
 def test_the_dashboard_forbids_every_external_resource(env):
     """A page that holds a workspace key must not be able to load a third-party
-    script, so no CDN and no vendored chart library — inline SVG from the JSON."""
+    script, so no CDN and no vendored chart library — inline SVG from the JSON.
+
+    This scans the SERVED BYTES, not the source template, so a URL that only
+    ever reaches the page through a JSON body (a webhook the user registered)
+    is not a false positive. What must never appear is a reference the browser
+    would resolve on its own: a scheme, a CDN host, or an external origin.
+    """
     tc, *_ = env
     r = tc.get("/dashboard")
     assert r.status_code == 200
@@ -203,8 +209,12 @@ def test_the_dashboard_forbids_every_external_resource(env):
     assert "default-src 'none'" in csp
     assert "connect-src 'self'" in csp
     body = r.text
-    for external in ("cdn.", "unpkg", "jsdelivr", "googleapis", "http://", "https://"):
+    for external in ("cdn.", "unpkg", "jsdelivr", "googleapis",
+                     "http://", "https://", "//hooks.", "integrity="):
         assert external not in body, f"the page references {external!r}"
+    # The webhook section is part of the page, and it must carry no scheme at
+    # all until the user types one — a placeholder is where this leaked before.
+    assert "whurl" in body and "Register webhook" in body
 
 
 def test_the_page_itself_contains_no_secret_and_no_data(env):

@@ -29,6 +29,7 @@ Money handling worth knowing about:
 """
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -116,7 +117,7 @@ def _data_dir() -> Path:
 
 # ── price table ────────────────────────────────────────────────────────────
 
-_cache = {"mtime": 0.0, "data": {}}
+_cache = {"mtime": 0.0, "data": {}, "aliases": {}}
 
 
 def prices() -> dict:
@@ -128,15 +129,82 @@ def prices() -> dict:
         return {}
     if mtime != _cache["mtime"]:
         try:
-            _cache["data"] = json.loads(PRICE_FILE.read_text()).get("models", {})
+            doc = json.loads(PRICE_FILE.read_text())
+            _cache["data"] = doc.get("models", {})
+            _cache["aliases"] = doc.get("aliases", {}) or {}
             _cache["mtime"] = mtime
         except Exception:
             _cache["data"] = {}
+            _cache["aliases"] = {}
     return _cache["data"]
 
 
+def aliases() -> dict:
+    """Exact provider model id -> canonical priced row. Loaded with prices()."""
+    prices()   # ensures the mtime check has run
+    return _cache["aliases"]
+
+
+# A dated snapshot suffix, e.g. claude-sonnet-4-5-20250929 / gpt-4o-2024-08-06.
+_DATED_SUFFIX = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{8})$")
+# Latest-alias suffixes the SDKs themselves send as the model string.
+_LATEST_SUFFIX = re.compile(r"-(latest|preview|stable)$")
+
+
+def resolve_model(model: str) -> tuple[Optional[str], Optional[str]]:
+    """Canonical priced key for a model string, plus how it was resolved.
+
+    Returns (canonical_key, reason) — canonical_key is None when the model is
+    genuinely unpriced, and reason is "" in the exact-hit case.
+
+    Why this exists: the wrapper and the proxy forward the caller's REAL model
+    string, so the auto-pricing path saw `claude-sonnet-4-20250514` and refused
+    the write with `model_not_priced` even though the same model was sitting in
+    the table under its short name. Every tokens-only write from a real SDK was
+    therefore rejected on the primary enforcement path.
+
+    Three resolutions, in order — all of them claims the table actually makes:
+
+    1. **Exact table hit.** No guessing involved.
+    2. **Explicit `aliases` entry.** The table asserts these two strings are
+       the same model at the same price.
+    3. **Dated/latest suffix strip, ONLY when the stripped key exists AND is
+       flagged `dated_variants_same_price`.** The flag is the load-bearing
+       part, not the regex. A blanket strip is UNSAFE: OpenAI prices
+       `gpt-4o-2024-05-13` at $5/$15 against base `gpt-4o` at $2.50/$10, so
+       stripping the date there would meter a request at HALF its real cost —
+       under-counting the exact number a spend cap is meant to stop. A family
+       is only auto-stripped once its dates are verified to be same-price.
+    """
+    name = (model or "").strip()
+    if not name:
+        return None, ""
+    table = prices()
+    if name in table:
+        return name, ""
+
+    aliased = aliases().get(name)
+    if aliased and aliased in table:
+        return aliased, f"alias of {aliased}"
+
+    if _LATEST_SUFFIX.search(name):
+        base = _LATEST_SUFFIX.sub("", name)
+        if base in table and base != name:
+            return base, f"resolved to {base} (latest alias)"
+
+    if _DATED_SUFFIX.search(name):
+        base = _DATED_SUFFIX.sub("", name)
+        entry = table.get(base)
+        if entry is not None and entry.get("dated_variants_same_price"):
+            return base, f"resolved to {base} (dated snapshot, same price)"
+
+    return None, ""
+
+
 def lookup(model: str) -> Optional[dict]:
-    return prices().get(model or "")
+    """The price entry for a model string, resolving provider ids to rows."""
+    key, _ = resolve_model(model)
+    return prices().get(key) if key else None
 
 
 def price_provenance() -> dict:
@@ -148,10 +216,16 @@ def price_provenance() -> dict:
         "count": len(table),
         "verified_count": sum(1 for v in table.values() if v.get("verified")),
         "source": str(PRICE_FILE.name),
+        "aliases": aliases(),
+        "alias_count": len(aliases()),
         "_note": ("Anyone relying on these numbers for cost decisions should check them "
                   "against their provider's pricing page. Unverified entries are "
                   "placeholders. An unlisted model is not blocked — it passes through "
-                  "and raises an alert."),
+                  "and raises an alert. `aliases` maps real provider model ids (e.g. "
+                  "claude-sonnet-4-20250514) to the priced row they resolve to; a dated "
+                  "id is only resolved automatically for rows marked "
+                  "dated_variants_same_price, because some vendors price dated snapshots "
+                  "differently from their base model."),
     }
 
 

@@ -126,7 +126,14 @@ workspace key is shown once, on the spot.</p>
   <li><b>Per-agent dollar spend</b> — the ledger is keyed by <code>agent_id</code>, not by request trace. <i>Which of my twenty agents is burning money?</i> is the primary query, not a derived one.</li>
   <li><b>Enforcement, two ways</b> — through the proxy or wrapper the call is refused <b>before the provider is contacted</b>; on the plain API the ledger <i>write</i> that would cross the cap is rejected with <code>402</code>. Same error envelope, different guarantee — and we say which is which everywhere.</li>
   <li><b>Cost computed from real tokens</b> — you do not have to send us a dollar amount. Give us <code>model</code> and <code>tokens_in</code>/<code>tokens_out</code> and the price is looked up; cache-aware, because Anthropic bills input at four different rates and a flat rate was <b>7.4x wrong</b> on a real session.</li>
-  <li><b>Alerts that reach you</b> — an 80% warning, a crossed cap and a spending anomaly are <b>pushed</b> to a webhook you register, with retries. Not a feed you have to remember to poll.</li>
+  <li><b>Alerts that reach you</b> — an 80% warning, a crossed cap and a spending anomaly are <b>pushed</b> to a webhook you register, with retries. Not a feed you have to remember to poll.
+  Register one from your <a href="/dashboard">dashboard</a> (Webhooks section: URL, event
+  checkboxes, delivery log) or straight at the API — <code>POST /v1/webhooks</code> with
+  <code>{"url": "https://..."}</code> and an optional <code>events</code> subset of
+  <code>alert.raised</code>, <code>budget.warning</code>, <code>budget.exceeded</code>,
+  <code>anomaly.detected</code> (omit it for all four). <code>GET /v1/webhooks/deliveries</code>
+  shows what was delivered and what failed. Payloads carry cost metadata only — never a
+  secret, a prompt or a response.</li>
   <li><b>Shareable reports</b> — a signed, expiring, revocable link per agent that opens in any browser. Text it to your co-founder.</li>
   <li><b>MCP + REST + CLI parity</b> — same ledger, same credential rules, same typed errors on all three.</li>
 </ul>
@@ -161,10 +168,13 @@ workspace key is shown once, on the spot.</p>
 }</pre>
   <p><b>Or the Python wrapper</b> — one line, every call metered and capped:</p>
   <pre class="cmd">pip install "aiagentscity-ledger[wrapper]"
-client = agentledger.wrap(OpenAI(), agent_id="my-agent", workspace_key="wk_live_...")</pre>
+client = agentledger.wrap(OpenAI(), agent_id="my-agent", agent_secret="as_...")</pre>
   <p class="mut" style="border:0;padding:0;margin-top:6px">Published on PyPI as
   <code>aiagentscity-ledger</code> — the umbrella namespace, which nobody else can
-  register because it is our domain.</p>
+  register because it is our domain. <code>agent_secret</code> comes from
+  <code>agent-ledger init --agent my-agent</code> (printed once, also written to
+  <code>.env</code>), or from the response to a first <code>POST /v1/track</code>
+  that carries your <code>workspace_key</code> in the body.</p>
   <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
   <p><b>Try it in your agent:</b> "Track my Claude Code spend" · "Alert when any agent exceeds $50/day" · "Weekly P&amp;L report".</p>
 </div>
