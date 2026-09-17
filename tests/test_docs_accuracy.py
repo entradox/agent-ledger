@@ -271,3 +271,61 @@ def test_recipes_md_mirrors_docs_content_exactly():
 def test_claiming_recipes_send_a_workspace_key(pattern):
     from docs_content import get_example
     assert "workspace_key" in get_example(pattern)
+
+
+# ── Served-surface PRICE integrity (D-1319 review) ──────────────────────────
+# The defect this pins: /agents.txt served "pay $0.01 in USDC" as a hardcoded
+# literal while every other surface derived the price from
+# x402_verify.X402_MINT_PRICE. Reproduced: with X402_MINT_PRICE=$0.05 the SAME
+# document rendered the correct derived "$0.05" three lines below the stale
+# "$0.01" — so the document visibly contradicted itself.
+#
+# WHY THIS IS A PROPERTY, NOT A PHRASE LIST: this project has shipped five
+# stale-claim defects, and each earlier guard tested the phrasing someone
+# thought of. A literal price is mode- and config-independent, so the durable
+# assertion is "no served surface holds a raw price literal at all" — which
+# catches every wording, and cannot be satisfied by rewording.
+#
+# The price is set to a value DIFFERENT from the shipped default so a hardcoded
+# "$0.01" fails even while the default is unchanged. That matters: a guard that
+# only fails under a non-default config is a guard that never fires in prod.
+
+_PRICE_SENTINEL = "$0.05"
+# "$0.01" is the shipped default; any occurrence in a served body is a literal,
+# because every correct surface now derives from X402_MINT_PRICE.
+_DEFAULT_LITERAL = "$0.01"
+
+
+def _served_bodies(monkeypatch):
+    """Every text surface a caller can read, rendered under a sentinel price."""
+    monkeypatch.setenv("X402_MINT_PRICE", _PRICE_SENTINEL)
+    import importlib
+    import x402_verify
+    importlib.reload(x402_verify)
+    import api_server
+    importlib.reload(api_server)
+
+    bodies = {
+        "/agents.txt": api_server.agents_txt(),
+        "/skill.md": api_server._skill_markdown(),
+        "/llms.txt": api_server.LLMS_TXT,
+    }
+    return bodies
+
+
+@pytest.mark.parametrize("surface", ["/agents.txt", "/skill.md", "/llms.txt"])
+def test_no_served_surface_hardcodes_the_price(surface, monkeypatch):
+    """No served surface may carry a raw price literal — it must derive it.
+
+    Fails if any surface still contains the default "$0.01" while the configured
+    price is "$0.05". A derived surface tracks the config; a literal cannot.
+    """
+    bodies = _served_bodies(monkeypatch)
+    text = bodies[surface]
+    assert _DEFAULT_LITERAL not in text, (
+        f"{surface} still hardcodes {_DEFAULT_LITERAL!r} while the configured "
+        f"price is {_PRICE_SENTINEL!r} — derive it from "
+        f"x402_verify.X402_MINT_PRICE instead")
+    assert _PRICE_SENTINEL in text, (
+        f"{surface} never mentions the configured price {_PRICE_SENTINEL!r} — "
+        f"either it is not deriving the price, or it drops the price entirely")

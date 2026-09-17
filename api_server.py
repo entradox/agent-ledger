@@ -1137,6 +1137,12 @@ def agents_txt():
     Content is derived from AGENT_JSON and the live route set, so it cannot
     assert a capability the API does not have.
     """
+    # The price must be DERIVED, never a literal: this function's own docstring
+    # promises it "cannot assert a capability the API does not have", and a
+    # hardcoded "$0.01" broke exactly that promise the moment X402_MINT_PRICE was
+    # configured to anything else (reproduced: served "$0.01" while the same
+    # document, three lines later, correctly rendered the derived price).
+    import x402_verify
     caps = "\n".join(
         f"  {c['method']:5s} {c['endpoint']:38s} {c['description'].splitlines()[0]}"
         for c in AGENT_JSON.get("capabilities", [])
@@ -1155,7 +1161,8 @@ def agents_txt():
         "\n"
         "GET A WORKSPACE (no human needed)\n"
         "  GET  /start                 free workspace, no wallet, no card\n"
-        "  POST /v1/billing/x402       pay $0.01 in USDC; wallet IS the identity\n"
+        f"  POST /v1/billing/x402       pay {x402_verify.X402_MINT_PRICE} in USDC; "
+        "wallet IS the identity\n"
         f"                              ({X402_SETTLEMENT})\n"
         "  Discovery: https://aiagentscity.com/.well-known/x402\n"
         "\n"
