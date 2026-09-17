@@ -785,11 +785,23 @@ def x402_billing(request: Request):
                 # discovery client parses) and add the same typed envelope every
                 # other endpoint returns, so a human reading the response knows
                 # what to do and a generic error handler recognises the shape.
-                note = (result.get("error")
-                        or "payment required — retry with a signed x402 payment "
-                           "header (PAYMENT-SIGNATURE or X-PAYMENT); the "
-                           "PAYMENT-REQUIRED response header carries the price, "
-                           "network and pay_to")
+                # The SDK's raw exception text is NOT safe to reflect to an
+                # unauthenticated caller: it can carry absolute filesystem paths
+                # and internal module names (reproduced: a synthesized error
+                # string with "/Users/.../SECRET/path" was echoed verbatim into
+                # the public body). But a refusal must still tell the agent which
+                # NETWORK this deployment is configured for — an unexplained
+                # non-payment surface is its own defect, asserted by
+                # test_the_till_envelope_matches_the_configured_network. So name
+                # the configured network and drop everything else.
+                note = ("payment required — retry with a signed x402 payment "
+                        "header (PAYMENT-SIGNATURE or X-PAYMENT); the "
+                        "PAYMENT-REQUIRED response header carries the price, "
+                        "network and pay_to"
+                        if unpaid["status"] == 402 else
+                        f"this deployment's x402 rail is not available on "
+                        f"{x402_verify.X402_NETWORK} — see /llms.txt for how to "
+                        f"pay on an available rail")
                 etype = ("api_error" if unpaid["status"] == 503
                          else "payment_required_error")
                 body = error_envelope(unpaid["status"], note,
@@ -802,9 +814,21 @@ def x402_billing(request: Request):
             # challenge (a challenge that cannot be verified is worse than none).
             if mpp_verify.requires_mpp_secret_key():
                 realm = request.headers.get("host", "aiagentscity.com")
-                mpp_challenge = mpp_verify.build_challenge(request, realm=realm)
-                if mpp_challenge is not None:
-                    response_headers["WWW-Authenticate"] = mpp_challenge.to_www_authenticate(realm)
+                # This is the UNAUTHENTICATED discovery path: any exception here
+                # (an SDK fault, a missing method on a stub, a malformed realm)
+                # would turn a public 402/503 into an unhandled 500. The challenge
+                # is an enhancement to the response, never a precondition for it,
+                # so a failure degrades to "no MPP challenge" — the x402
+                # PAYMENT-REQUIRED header is still emitted and the endpoint stays
+                # payable. Reproduced: a raising charge() propagated out of the
+                # route and the caller saw a bare 500.
+                try:
+                    mpp_challenge = mpp_verify.build_challenge(request, realm=realm)
+                    if mpp_challenge is not None:
+                        response_headers["WWW-Authenticate"] = \
+                            mpp_challenge.to_www_authenticate(realm)
+                except Exception:  # noqa: BLE001 — discovery must never 500
+                    pass
             return JSONResponse(status_code=unpaid["status"],
                                 content=body,
                                 headers=response_headers)
@@ -820,15 +844,26 @@ def x402_billing(request: Request):
         raise HTTPException(402, detail=error_envelope(
             402, "payer wallet missing from settlement — no identity to bind "
                  "a workspace to, refusing to mint", code="x402_no_payer_wallet"))
-    # Settlement sanity: a verified payment of ANY size to ANY recipient must
-    # not mint a workspace. `recipient` is the pay_to on the PaymentRequirements
-    # the SDK verified the payment against — the one field whose meaning is
-    # unambiguous. Defence in depth: under the real SDK that pay_to comes from
-    # this service's own X402_PAY_TO config, so a mismatch means the route and
-    # the treasury config have drifted apart. X402_RECEIVING_ADDRESS defaults
-    # to X402_PAY_TO so the two can never silently diverge when an operator
-    # only sets one (the common case) — set X402_RECEIVING_ADDRESS explicitly
-    # only if it must differ from X402_PAY_TO for a real reason.
+    # Settlement sanity: a verified payment to a FOREIGN recipient must not mint
+    # a workspace. `recipient` is the pay_to on the PaymentRequirements the SDK
+    # verified the payment against — the one field whose meaning is unambiguous.
+    # Defence in depth: under the real SDK that pay_to comes from this service's
+    # own X402_PAY_TO config, so a mismatch means the route and the treasury
+    # config have drifted apart. X402_RECEIVING_ADDRESS defaults to X402_PAY_TO
+    # so the two can never silently diverge when an operator only sets one (the
+    # common case) — set X402_RECEIVING_ADDRESS explicitly only if it must differ
+    # from X402_PAY_TO for a real reason.
+    #
+    # WHAT THIS DOES *NOT* CHECK — stated plainly because an earlier comment here
+    # claimed otherwise and that claim was false: there is no AMOUNT check and no
+    # ASSET check in this route, on either rail. Underpayment refusal rests
+    # entirely on the x402 SDK's PaymentRequirements (`price=X402_MINT_PRICE`)
+    # being verified by the facilitator under the "exact" scheme — which is why
+    # an underpayment cannot currently reach `verified: True`. If this rail ever
+    # moves to the "upto" scheme (where partial settlement is legitimate and
+    # `settlement_overrides` exist), that missing amount guard becomes
+    # load-bearing and MUST be added — comparing against
+    # `x402_verify.x402_mint_price_atomic()`, never a literal.
     expected_recipient = os.environ.get("X402_RECEIVING_ADDRESS") or os.environ.get("X402_PAY_TO", "")
     if expected_recipient:
         recipient = result.get("recipient")

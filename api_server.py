@@ -1180,8 +1180,15 @@ def agents_txt():
         "\n"
         "PAYMENT STATUS\n"
         f"  x402 is LIVE and {X402_SETTLEMENT}\n"
-        f"  MPP is LIVE via the custom `x402-base` method (same Base USDC rail); "
-        "not Stripe/Tempo directly (no settlement credentials for those rails).\n"
+        # HONESTY (card criterion 8): do NOT claim MPP is LIVE. The challenge is
+        # validated by Stripe/Tempo's own validator, but no MPP payment has ever
+        # SETTLED funds end-to-end (needs a funded payer wallet), and the rail is
+        # not deployed. "MPP is LIVE" was an over-promise on a served discovery
+        # surface — the exact defect class this project has shipped repeatedly.
+        f"  MPP is ACCEPTED via the custom `x402-base` method (same Base USDC rail); "
+        "the challenge is validated but the rail has not yet settled a payment "
+        "end-to-end. Not Stripe/Tempo directly (no settlement credentials for "
+        "those rails).\n"
         "\n"
         "CONTACT\n"
         "  entradox@icloud.com\n"
