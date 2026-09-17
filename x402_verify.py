@@ -225,6 +225,33 @@ def _instructions_to_dict(resp):
     }
 
 
+class SettlementOutcomeUnknown(Exception):
+    """The settlement call was made, then failed in an unclassifiable way.
+
+    Raised ONLY from around `process_settlement` — i.e. after the payment has
+    been handed to the facilitator, where USDC may already have moved on-chain.
+    Callers must NOT answer a retryable "pay me again" (that invites a double
+    charge) and must NOT mint without a confirmed settlement. They return a
+    non-retryable typed error instead.
+
+    Why this lives here: only this module knows which line separates
+    "verification refused" (definitively unpaid, safe to retry) from
+    "settlement attempted" (ambiguous, never safe to invite a retry). Deriving
+    that from a flag elsewhere would be a guess; deriving it here is exact.
+    """
+
+    def __init__(self, cause: BaseException, reference: str | None = None):
+        self.cause = cause
+        # The settlement reference (tx hash) when one is known. It normally is
+        # not: this is raised when settlement failed mid-flight, before a hash
+        # was returned. Kept as an explicit attribute so callers never have to
+        # guess whether a reference exists.
+        self.reference = reference
+        super().__init__(
+            f"settlement outcome unknown (reference={reference or 'unknown'}): "
+            f"{cause}")
+
+
 def verify_payment(request) -> dict:
     """Verify + settle the x402 payment carried on `request`.
 
@@ -282,8 +309,18 @@ def verify_payment(request) -> dict:
                 "error": "no payment was required for this route — refusing "
                          "to mint without a settlement"}
 
-    settle = resource_server.process_settlement(
-        outcome.payment_payload, outcome.payment_requirements, ctx)
+    # ── SETTLEMENT BOUNDARY ──────────────────────────────────────────────────
+    # Everything above is verification: a refusal there is definitively
+    # "unpaid" and safe to answer with a retryable 402. Past this call the
+    # facilitator may already have broadcast a USDC transfer, so a failure is
+    # AMBIGUOUS and must never be reported as a plain "not paid".
+    # A returned settle.success == False is a definitive refusal (the SDK
+    # obtained an answer and it was no); only a RAISE is ambiguous.
+    try:
+        settle = resource_server.process_settlement(
+            outcome.payment_payload, outcome.payment_requirements, ctx)
+    except Exception as exc:  # noqa: BLE001 — classify, never mask
+        raise SettlementOutcomeUnknown(exc) from exc
     if not settle.success:
         return {"verified": False, "payer_wallet": None, "tx_hash": None,
                 "error": settle.error_reason,

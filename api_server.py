@@ -427,12 +427,10 @@ LLMS_TXT = """# AgentLedger
 Per-agent spend management — the Datadog for agent spending. Track spend
 across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
-Payment acceptance (2026-09-17): POST /v1/billing/x402 accepts both x402
-(PAYMENT-SIGNATURE / X-PAYMENT header) and MPP (Authorization: Payment ...)
-credentials, settling on the same Base USDC x402 rail. The MPP method is the
-custom `x402-base` method — not Stripe/Tempo, because this service does not
-hold Stripe/Tempo settlement credentials. Stripe/Tempo MPP agents can discover
-and pay via the `x402-base` offer.
+Payment acceptance (2026-09-17): POST /v1/billing/x402 accepts x402 payment
+(PAYMENT-SIGNATURE / X-PAYMENT header). {MPP_ACCEPTANCE}
+The custom `x402-base` method is not Stripe/Tempo — this service does not
+hold Stripe/Tempo settlement credentials.
 
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status (live health, version, uptime, counters)
@@ -451,9 +449,7 @@ write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
 workspace identity — {X402_PASS_OFFER}), or by
 opening GET /start — no signup, no login, no card, but capped at 3 agents.
-{X402_SETTLEMENT} The same endpoint also accepts an MPP credential
-(Authorization: Payment ...) using the custom `x402-base` method, settling
-on the same rail. Missing or invalid key on a new claim gets 401
+{X402_SETTLEMENT} {MPP_ACCEPTANCE} Missing or invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
 {"agent_secret": "...", "_note": "..."}. Save it — every later write to that
@@ -464,8 +460,8 @@ an X-Agent-Secret or X-Workspace-Key header (either credential proving
 access to that agent_id) — missing/wrong gets 401. There is no
 unauthenticated read path, on REST or MCP.
 A free workspace is capped at 3 agents; a 4th new
-agent_id gets 402 with two upgrade paths in the error body: pay via x402
-or MPP yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
+agent_id gets 402 with two upgrade paths in the error body: pay via x402{MPP_OR}
+yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
 or a human upgrades the workspace to Pro ($19/mo, unlimited, no expiry) via
 the Stripe link the same error returns. The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
@@ -630,7 +626,11 @@ def glama_claim():
 
 @app.get("/llms.txt", response_class=PlainTextResponse)
 def llms_txt():
-    return LLMS_TXT
+    """Served with the MPP claims derived per request, so the document cannot
+    advertise a rail that this deployment has not actually enabled."""
+    return (LLMS_TXT
+            .replace("{MPP_ACCEPTANCE}", _mpp_acceptance_words())
+            .replace("{MPP_OR}", _mpp_or_words()))
 
 ROBOTS_TXT = """User-agent: *
 Allow: /
@@ -787,6 +787,46 @@ X402_SETTLEMENT = _x402_settlement_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_SETTLEMENT}", X402_SETTLEMENT)
 X402_PASS_OFFER = _x402_pass_offer_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_PASS_OFFER}", X402_PASS_OFFER)
+
+
+def _mpp_acceptance_words() -> str:
+    """The MPP half of the payment-acceptance sentence, derived PER REQUEST.
+
+    Derived, not frozen at import. A static "accepts MPP" string is served even
+    when MPP_SECRET_KEY is unset (or no receiving address is configured), so the
+    document would advertise a payment method the endpoint cannot actually
+    accept — the stale-claim defect class this project has shipped five times.
+    Every other payment claim on these surfaces (price, network, asset) is
+    already derived per request; this one was the exception.
+
+    It also states the credential contract, because the `x402_header` field is
+    THIS SERVICE'S OWN invention — not part of the MPP standard and not carried
+    in the challenge — so a generic MPP client cannot guess it.
+    """
+    try:
+        import mpp_verify
+        enabled = bool(mpp_verify.MPP_ENABLED)
+    except Exception:  # noqa: BLE001 — never let prose break a served doc
+        enabled = False
+    if not enabled:
+        return ("MPP is NOT enabled on this deployment, so only x402 payment is "
+                "accepted here.")
+    return ("It also accepts an MPP credential (Authorization: Payment "
+            "<base64 credential>) via the custom `x402-base` method, settling "
+            "on the same rail. The credential payload must carry the signed "
+            "x402 payment under the key \"x402_header\" — that field is this "
+            "service's own contract, not part of the MPP standard. MPP is NOT "
+            "live-verified yet: the challenge passes Stripe/Tempo's validator, "
+            "but no MPP payment has settled funds end-to-end.")
+
+
+def _mpp_or_words() -> str:
+    """' or MPP' only where MPP is really enabled (else the sentence over-promises)."""
+    try:
+        import mpp_verify
+        return " or MPP" if mpp_verify.MPP_ENABLED else ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 # ── The buyer skill, published where a machine surface can find it (D-1313) ──
@@ -1176,7 +1216,7 @@ def agents_txt():
         "  /.well-known/mcp/server-card.json MCP registry card\n"
         "  /openapi.json                     OpenAPI 3 spec\n"
         "  /llms.txt                         dense API reference\n"
-        "  /skill.md                         buyer skill (x402 + MPP, markdown)\n"
+        "  /skill.md                         buyer skill (x402, markdown)\n"
         "\n"
         "PAYMENT STATUS\n"
         f"  x402 is LIVE and {X402_SETTLEMENT}\n"

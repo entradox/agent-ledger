@@ -69,7 +69,6 @@ class X402BaseChargeIntent:
         `verify_payment` path can be reused.
         """
         import x402_verify
-        from x402.http import HTTPRequestContext as X402HTTPRequestContext
 
         payload = credential.payload or {}
         x402_header = payload.get("x402_header")
@@ -112,15 +111,39 @@ class X402BaseChargeIntent:
             def get_body(self):
                 return ""
 
-        raw_headers = {"payment-signature": x402_header}
-        ctx = X402HTTPRequestContext(
-            adapter=_Adapter(raw_headers),
-            path="/v1/billing/x402",
-            method="POST",
-            payment_header=x402_header,
-            route_pattern=x402_verify.ROUTE_KEY,
-        )
-        result = x402_verify.verify_payment(ctx)
+        # verify_payment() takes a Starlette-Request-like object and reads
+        # `.url.path`, `.method`, `.headers` and `.query_params` off it. Passing
+        # the x402 SDK's own X402HTTPRequestContext here (which carries only
+        # payment_header + route_pattern) raised AttributeError before settlement
+        # was ever attempted — so no MPP credential could ever be paid, and the
+        # route's fall-through turned that crash into a retryable 402. Reproduced:
+        # "'HTTPRequestContext' object has no attribute 'url'".
+        class _Url:
+            def __init__(self, raw):
+                self._raw = raw
+
+            @property
+            def path(self):
+                return "/v1/billing/x402"
+
+            def __str__(self):
+                return self._raw
+
+        class _SettledRequest:
+            """Minimal Request stand-in carrying the credential's x402 envelope."""
+
+            def __init__(self, x402_header: str):
+                self._headers = {"payment-signature": x402_header,
+                                 "x-payment": x402_header}
+                self.method = "POST"
+                self.url = _Url("https://aiagentscity.com/v1/billing/x402")
+                self.query_params: dict[str, str] = {}
+
+            @property
+            def headers(self):
+                return self._headers
+
+        result = x402_verify.verify_payment(_SettledRequest(x402_header))
         if not result.get("verified"):
             from mpp.errors import VerificationFailedError
             raise VerificationFailedError(
@@ -237,6 +260,20 @@ def build_challenge(request: Any, realm: str | None = None) -> Any:
     # base units using the method's decimals (6 for USDC). Pass the dollar
     # price (e.g. '0.01') so it emits 10000 atomic units.
     amount = str(float(str(x402_verify.X402_MINT_PRICE).lstrip("$")))
+    # ── Advertise the credential contract ────────────────────────────────────
+    # The intent requires the signed x402 payment under payload["x402_header"].
+    # That key is OUR invention — it is not part of the MPP standard and it was
+    # NOT carried anywhere a payer could read, so no off-the-shelf mppx/pympp
+    # client could construct a credential this server would accept. The tests
+    # never caught it because every paying-path test hand-builds that field.
+    # Publishing it in the challenge's `extra` (the SDK's own field for string
+    # metadata on the charge request) is what makes the rail payable by a client
+    # that did not read our source. Without this the only client that can pay is us.
+    _credential_contract = {
+        "credential_payload.x402_header":
+            "required - the base64 x402 v2 signed payment envelope (the same "
+            "value an X-PAYMENT / PAYMENT-SIGNATURE header would carry)",
+    }
     # Prefer the request's Host header, then the configured override, then the
     # deployment default. mppx validates realm against the origin it is probing.
     effective_realm = realm
@@ -249,14 +286,17 @@ def build_challenge(request: Any, realm: str | None = None) -> Any:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(mpp_server.charge(authorization=None, amount=amount))
+        return asyncio.run(mpp_server.charge(
+            authorization=None, amount=amount, extra=_credential_contract))
     # Already inside an event loop (e.g. FastAPI sync route in async worker):
     # schedule the coroutine on that loop and block the worker thread until it
     # completes. run_sync + asyncio.run would raise here.
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor() as pool:
         future = pool.submit(
-            asyncio.run, mpp_server.charge(authorization=None, amount=amount)
+            asyncio.run,
+            mpp_server.charge(authorization=None, amount=amount,
+                              extra=_credential_contract)
         )
         challenge = future.result()
         # The challenge object carries a realm set at create time; update it
@@ -302,6 +342,12 @@ def verify_credential(authorization: str | None) -> dict[str, Any]:
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
             receipt = pool.submit(asyncio.run, coro).result()
+    # NOTE: x402_verify.SettlementOutcomeUnknown is deliberately NOT caught here.
+    # It means the payment reached the settlement rail and then failed, so the
+    # route must not answer with a retryable 402. The SDK re-raises it unchanged
+    # (mpp/server/verify.py: `except Exception: emit_failure; raise`), letting it
+    # reach the route's dedicated handler. Re-exported below so the route can
+    # reference it without importing x402_verify itself.
     # A Receipt is the only acceptable success value. If the SDK ever returns a
     # Challenge here, the credential was NOT paid — refuse rather than pretend.
     if receipt is None or not hasattr(receipt, "reference"):
@@ -317,3 +363,9 @@ def verify_credential(authorization: str | None) -> dict[str, Any]:
 # Intent-to-route bridge: X402BaseChargeIntent stores the x402 settlement
 # result keyed by tx hash so verify_credential can hand it back.
 _last_settlement_result: dict[str, dict[str, Any]] = {}
+
+# Re-exported so callers can classify an ambiguous settlement without importing
+# x402_verify directly (the route already imports both, but keeping the name
+# here makes the money-safety contract discoverable next to the MPP method).
+import x402_verify as _x402  # noqa: E402
+SettlementOutcomeUnknown = _x402.SettlementOutcomeUnknown

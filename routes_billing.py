@@ -27,6 +27,7 @@ not hypothetical.
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import time
@@ -697,9 +698,38 @@ def x402_billing(request: Request):
     if mpp_auth and mpp_auth.strip().lower().startswith("payment "):
         try:
             mpp_receipt = mpp_verify.verify_credential(mpp_auth)
+        except mpp_verify.SettlementOutcomeUnknown as ambiguous:
+            # ── MONEY SAFETY: never swallow this one ─────────────────────────
+            # The credential reached the settlement rail and then failed, so
+            # USDC may already have moved on-chain. Falling through (the old
+            # behaviour) answered with the x402 path's generic "payment
+            # required — retry with a payment header", which tells an agent
+            # that ALREADY PAID to pay again — a double charge, and the settled
+            # tx_hash was never recorded so the retry was not even deduplicated.
+            #
+            # Answer with a distinct, non-retryable status instead. 409, not
+            # 402: 402 means "pay me", and paying again is the one thing that
+            # must not happen here. The reference is echoed so an operator can
+            # reconcile the settlement against the chain.
+            logging.error(
+                "MPP settlement outcome unknown on /v1/billing/x402 "
+                "(reference=%s): %r",
+                getattr(ambiguous, "reference", None),
+                getattr(ambiguous, "cause", ambiguous))
+            raise HTTPException(409, detail=error_envelope(
+                409,
+                "your payment may have settled but could not be confirmed; do "
+                "NOT retry with a new payment — quote this reference to "
+                "support and it will be reconciled",
+                error_type="payment_outcome_unknown",
+                code="mpp_settlement_outcome_unknown"))
         except Exception as mpp_err:  # noqa: BLE001
             # Fall through to x402 path if the MPP credential cannot be
             # verified, so a client using x402 headers is not broken.
+            # Safe: verify_credential only raises SettlementOutcomeUnknown once
+            # the payment has entered the settlement rail (handled above); every
+            # exception that reaches here was raised BEFORE settlement, so
+            # nothing settled and a plain "not paid" answer is truthful.
             pass
     if mpp_receipt:
         # The MPP intent settled via the existing x402 path. Transform its
