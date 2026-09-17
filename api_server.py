@@ -67,10 +67,11 @@ def _augmented_openapi():
     schema = _ORIGINAL_OPENAPI()
     try:
         import x402_verify
+        import mpp_verify
         net = _x402_network()
         asset = _x402_asset()
         pay_to = _x402_pay_to()
-        amount = str(int(round(X402_MINT_PRICE_FOR_DISCOVERY * 1_000_000)))
+        amount = str(x402_verify.x402_mint_price_atomic())
         op = schema["paths"].get("/v1/billing/x402", {}).get("post")
         if op is not None:
             op["requestBody"] = {
@@ -97,22 +98,41 @@ def _augmented_openapi():
                     "type": "object",
                     "properties": {"error": {"type": "object"}}}}},
             }
+            offer = mpp_verify.mpp_offer_dict(path="/v1/billing/x402")
             op["x-payment-info"] = {
-                "protocols": [{"protocol": "x402", "version": 2,
-                               "scheme": "exact", "network": net}],
-                "pricingMode": "fixed",
-                "currency": "USDC",
-                "amountUnit": "atomic",
-                "amount": amount,
-                "asset": asset,
-                "network": net,
-                "payTo": pay_to,
-                "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
-                "priceDescription": (
-                    f"${X402_MINT_PRICE_FOR_DISCOVERY:.2f} USDC buys a "
-                    f"{round(x402_verify.X402_PRO_PASS_SECONDS / 3600)}h Pro "
-                    "pass on a workspace bound to the paying wallet"),
+                # HARD CONSTRAINT, proven by Stripe/Tempo's own validator
+                # (`npx mppx@latest validate`): you CANNOT mix offers[] with flat
+                # payment-info fields at the same level. Doing so fails the
+                # document with "Cannot mix offers with flat payment info
+                # fields" and the endpoint stops being discoverable as MPP.
+                # So `offers` OWNS the top level, and the D-1293 x402scan keys
+                # (which must all survive) live under the nested `x402` key.
+                # Do not "simplify" this by flattening — it was tried and the
+                # validator rejected it.
+                "offers": [offer],
+                "x402": {
+                    "protocols": [{"protocol": "x402", "version": 2,
+                                   "scheme": "exact", "network": net}],
+                    "pricingMode": "fixed",
+                    "currency": "USDC",
+                    "amountUnit": "atomic",
+                    "amount": offer["amount"],
+                    "asset": asset,
+                    "network": net,
+                    "payTo": pay_to,
+                    "priceUsd": float(str(x402_verify.X402_MINT_PRICE).lstrip("$")),
+                    "priceDescription": (
+                        f"{x402_verify.X402_MINT_PRICE} USDC buys a "
+                        f"{round(x402_verify.X402_PRO_PASS_SECONDS / 3600)}h Pro "
+                        "pass on a workspace bound to the paying wallet"),
+                },
             }
+        # MPP discovery spec: x-service-info is a ROOT-LEVEL OpenAPI document
+        # extension (sibling of openapi, info, paths), NOT an info member.
+        # Verified against https://mpp.dev/advanced/discovery ("x-service-info …
+        # add service-level metadata to the document root").
+        schema["x-service-info"] = {"docs": {"llms": "/llms.txt"}}
+
         info = schema.setdefault("info", {})
         info["x-guidance"] = (
             "AgentLedger is per-agent AI spend tracking with ENFORCED budget "
@@ -407,6 +427,13 @@ LLMS_TXT = """# AgentLedger
 Per-agent spend management — the Datadog for agent spending. Track spend
 across x402/MPP/API-key rails, budget caps, anomaly alerts, audit trails.
 
+Payment acceptance (2026-09-17): POST /v1/billing/x402 accepts both x402
+(PAYMENT-SIGNATURE / X-PAYMENT header) and MPP (Authorization: Payment ...)
+credentials, settling on the same Base USDC x402 rail. The MPP method is the
+custom `x402-base` method — not Stripe/Tempo, because this service does not
+hold Stripe/Tempo settlement credentials. Stripe/Tempo MPP agents can discover
+and pay via the `x402-base` offer.
+
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status (live health, version, uptime, counters)
 Buyer skill (how an agent buys this, as markdown): GET /skill.md
@@ -424,8 +451,9 @@ write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
 workspace identity — {X402_PASS_OFFER}), or by
 opening GET /start — no signup, no login, no card, but capped at 3 agents.
-{X402_SETTLEMENT} Missing or
-invalid key on a new claim gets 401
+{X402_SETTLEMENT} The same endpoint also accepts an MPP credential
+(Authorization: Payment ...) using the custom `x402-base` method, settling
+on the same rail. Missing or invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
 {"agent_secret": "...", "_note": "..."}. Save it — every later write to that
@@ -437,7 +465,7 @@ access to that agent_id) — missing/wrong gets 401. There is no
 unauthenticated read path, on REST or MCP.
 A free workspace is capped at 3 agents; a 4th new
 agent_id gets 402 with two upgrade paths in the error body: pay via x402
-yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
+or MPP yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
 or a human upgrades the workspace to Pro ($19/mo, unlimited, no expiry) via
 the Stripe link the same error returns. The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
@@ -650,7 +678,7 @@ X402_USDC_BY_NETWORK = {
     "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",   # Base mainnet
 }
 X402_MAINNET_NETWORKS = {"eip155:8453"}
-X402_MINT_PRICE_FOR_DISCOVERY = 0.01
+
 _X402_NETWORK_FALLBACK = "eip155:84532"      # Base Sepolia, the configured default
 
 
@@ -793,7 +821,8 @@ def _x402_network_label() -> str:
 
 def _x402_amount_atomic() -> str:
     """The x402 price in USDC atomic units (6 decimals) — what the 402 carries."""
-    return str(int(round(X402_MINT_PRICE_FOR_DISCOVERY * 1_000_000)))
+    import x402_verify
+    return str(x402_verify.x402_mint_price_atomic())
 
 
 def _skill_markdown() -> str:
@@ -810,7 +839,7 @@ def _skill_markdown() -> str:
         ("{X402_NETWORK_LABEL}", _x402_network_label()),
         ("{X402_ASSET}", _x402_asset()),
         ("{X402_AMOUNT_ATOMIC}", _x402_amount_atomic()),
-        ("{X402_PRICE_USD}", f"{X402_MINT_PRICE_FOR_DISCOVERY:.2f}"),
+        ("{X402_PRICE_USD}", f"{float(str(x402_verify.X402_MINT_PRICE).lstrip('$')):.2f}"),
         # Omitted entirely when x402 is unconfigured, so the sentence stays
         # grammatical instead of rendering an empty pair of backticks.
         ("{X402_PAY_TO_NOTE}", f" (`{pay_to}`)" if pay_to else ""),
@@ -1071,7 +1100,7 @@ def x402_wellknown_json():
         "mainnet": _x402_is_mainnet(),
         "asset": _x402_asset(),
         "assetSymbol": "USDC",
-        "priceUsd": X402_MINT_PRICE_FOR_DISCOVERY,
+        "priceUsd": float(str(x402_verify.X402_MINT_PRICE).lstrip("$")),
         "payTo": _x402_pay_to(),
         # Publish the RESOLVED facilitator, not the raw env var: the raw var is
         # now empty by default (it is an explicit override), so publishing it
@@ -1140,10 +1169,12 @@ def agents_txt():
         "  /.well-known/mcp/server-card.json MCP registry card\n"
         "  /openapi.json                     OpenAPI 3 spec\n"
         "  /llms.txt                         dense API reference\n"
-        "  /skill.md                         buyer skill (x402, markdown)\n"
+        "  /skill.md                         buyer skill (x402 + MPP, markdown)\n"
         "\n"
         "PAYMENT STATUS\n"
         f"  x402 is LIVE and {X402_SETTLEMENT}\n"
+        f"  MPP is LIVE via the custom `x402-base` method (same Base USDC rail); "
+        "not Stripe/Tempo directly (no settlement credentials for those rails).\n"
         "\n"
         "CONTACT\n"
         "  entradox@icloud.com\n"

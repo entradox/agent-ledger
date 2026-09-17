@@ -686,18 +686,60 @@ def x402_billing(request: Request):
     from ledger_engine import (idempotency_begin, idempotency_store,
                                idempotency_release, error_envelope,
                                IdempotencyKeyTooLongError, IdempotencyConflictError)
-    import x402_verify, workspace_engine
-    try:
-        result = x402_verify.verify_payment(request)
-    except x402_verify.X402Unavailable as e:
-        raise HTTPException(503, f"x402 not available on this service: {e}")
-    except Exception as e:
-        raise HTTPException(502, f"x402 payment processing failed: {str(e)[:120]}")
+    import x402_verify, workspace_engine, mpp_verify
+
+    # Path A: an MPP credential can pay the same x402 settlement rail.
+    # Check for MPP first because the x402 SDK treats a missing/invalid
+    # X-PAYMENT header as a new 402 challenge; an MPP credential in
+    # Authorization must be able to short-circuit that.
+    mpp_receipt = None
+    mpp_auth = request.headers.get("authorization")
+    if mpp_auth and mpp_auth.strip().lower().startswith("payment "):
+        try:
+            mpp_receipt = mpp_verify.verify_credential(mpp_auth)
+        except Exception as mpp_err:  # noqa: BLE001
+            # Fall through to x402 path if the MPP credential cannot be
+            # verified, so a client using x402 headers is not broken.
+            pass
+    if mpp_receipt:
+        # The MPP intent settled via the existing x402 path. Transform its
+        # receipt into the same shape x402_verify returns so the rest of the
+        # route (idempotency, workspace minting, metrics) is reused.
+        result = mpp_receipt["result"]
+        if not result.get("verified"):
+            result = {
+                "verified": True,
+                "payer_wallet": mpp_receipt["receipt"].external_id,
+                "tx_hash": mpp_receipt["receipt"].reference,
+                "recipient": x402_verify.X402_PAY_TO,
+                "amount": str(x402_verify.x402_mint_price_atomic()),
+                "asset": mpp_verify._load_x402_config()["asset"],
+                "network": x402_verify.X402_NETWORK,
+                "settlement_headers": {},
+            }
+    else:
+        try:
+            result = x402_verify.verify_payment(request)
+        except x402_verify.X402Unavailable as e:
+            # Path A: even when x402 itself is unavailable (e.g. mainnet without CDP
+            # creds), emit the MPP challenge if MPP is configured, so MPP-only
+            # agents still get a payable challenge. The status stays 503 for x402
+            # because that rail cannot settle; the body explains both.
+            result = {"verified": False, "error": str(e), "unpaid_response": None}
+        except Exception as e:
+            # Path A: even when the x402 SDK raises an unexpected error, still
+            # emit the MPP challenge if MPP is configured. A generic SDK failure
+            # must not hide the MPP-only payment path from discovery agents.
+            result = {"verified": False, "error": str(e), "unpaid_response": None}
     if not result["verified"]:
         # The SDK's own response (402 + PAYMENT-REQUIRED header listing price,
         # network and pay_to) is what discovery clients need; forward it
         # verbatim rather than flattening it to a bare 402 string.
         unpaid = result.get("unpaid_response")
+        if not unpaid and result.get("error"):
+            # x402 unavailable: no SDK response to forward, but we still want
+            # to emit the MPP challenge below. Build a minimal typed body.
+            unpaid = {"status": 503, "headers": {}, "body": None}
         if unpaid:
             body = unpaid.get("body")
             if not body:
@@ -713,12 +755,24 @@ def x402_billing(request: Request):
                            "header (PAYMENT-SIGNATURE or X-PAYMENT); the "
                            "PAYMENT-REQUIRED response header carries the price, "
                            "network and pay_to")
+                etype = ("api_error" if unpaid["status"] == 503
+                         else "payment_required_error")
                 body = error_envelope(unpaid["status"], note,
-                                      error_type="payment_required_error",
-                                      code="payment_required")
+                                      error_type=etype,
+                                      code="payment_required" if unpaid["status"] == 402 else "x402_unavailable")
+            response_headers = dict(unpaid.get("headers") or {})
+            # Path A: add MPP WWW-Authenticate: Payment alongside the existing
+            # x402 PAYMENT-REQUIRED header. This lets Stripe/Tempo MPP agents
+            # discover and pay this endpoint. Fail closed: no secret means no
+            # challenge (a challenge that cannot be verified is worse than none).
+            if mpp_verify.requires_mpp_secret_key():
+                realm = request.headers.get("host", "aiagentscity.com")
+                mpp_challenge = mpp_verify.build_challenge(request, realm=realm)
+                if mpp_challenge is not None:
+                    response_headers["WWW-Authenticate"] = mpp_challenge.to_www_authenticate(realm)
             return JSONResponse(status_code=unpaid["status"],
                                 content=body,
-                                headers=unpaid.get("headers") or {})
+                                headers=response_headers)
         raise HTTPException(402, detail=error_envelope(
             402, result.get("error") or "payment not verified",
             code="payment_not_verified"))
@@ -820,5 +874,9 @@ def x402_billing(request: Request):
     idempotency_store(tx_hash, wallet, "x402_mint", cached_payload, 200)
     # Echo the SDK's PAYMENT-RESPONSE settlement headers so the paying client
     # can see its receipt (tx hash, network) alongside the minted workspace.
+    response_headers = dict(result.get("settlement_headers") or {})
+    # Path A: an MPP-paying client expects a Payment-Receipt header.
+    if mpp_receipt:
+        response_headers["Payment-Receipt"] = mpp_receipt["receipt"].to_payment_receipt()
     return JSONResponse(status_code=200, content=payload,
-                        headers=result.get("settlement_headers") or {})
+                        headers=response_headers)

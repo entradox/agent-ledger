@@ -70,7 +70,7 @@ with TestClient(a.app) as c:
                     "asset": a._x402_asset(),
                     "amount_atomic": a._x402_amount_atomic(),
                     "pay_to": a._x402_pay_to() or "",
-                    "price_usd": f"{a.X402_MINT_PRICE_FOR_DISCOVERY:.2f}",
+                     "price_usd": f"{float(str(__import__('x402_verify').X402_MINT_PRICE).lstrip('$')):.2f}",
                     "free_agent_cap": str(a.BETA_AGENT_CAP),
                     "al_api_version": a.AL_API_VERSION,
                     "pass_hours": str(round(__import__("x402_verify").X402_PRO_PASS_SECONDS / 3600))}}

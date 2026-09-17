@@ -91,6 +91,21 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
+
+# Helpers referenced by both the child and the tests below.
+def decode_payment_request(header_value):
+    """Parse a WWW-Authenticate: Payment header and return its request dict."""
+    import base64
+    params = {}
+    for m in re.finditer(
+            r'([a-zA-Z_][\w-]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s,]+))',
+            header_value[len("Payment "):]):
+        params[m.group(1)] = m.group(2) or m.group(3)
+    req_b64 = params.get("request", "")
+    padded = req_b64 + "=" * (-len(req_b64) % 4)
+    return json.loads(base64.urlsafe_b64decode(padded).decode())
+
+
 # ── APP CONFIG INPUT (never an expected value) ───────────────────────────────
 # These two are handed to the app as configuration. They are INPUTS. No assertion
 # in this file compares a served byte against them: every assertion compares the
@@ -146,6 +161,7 @@ sys.path.insert(0, "@@REPO@@")
 from fastapi.testclient import TestClient
 import api_server as a
 import x402_verify
+import mpp_verify
 
 H = {"Accept": "application/json, text/event-stream",
      "Content-Type": "application/json"}
@@ -229,23 +245,37 @@ with TestClient(a.app) as c:
         surfaces["POST::/v1/billing/x402"] = challenge["decoded"]
         statuses["POST::/v1/billing/x402"] = r.status_code
 
+    # MPP challenge from the same response (Path A). Emitted even when x402 is
+    # disabled by missing CDP creds, as long as MPP is configured, so the guard
+    # can verify the fail-closed shape.
+    www_hdr = r.headers.get("www-authenticate", "")
+    if www_hdr.lower().startswith("payment "):
+        surfaces["POST::/v1/billing/x402/mpp"] = www_hdr
+        statuses["POST::/v1/billing/x402/mpp"] = r.status_code
+        try:
+            surfaces["POST::/v1/billing/x402/mpp_decoded"] = json.dumps(
+                decode_payment_request(www_hdr))
+        except Exception as e:  # noqa: BLE001
+            surfaces["POST::/v1/billing/x402/mpp_decoded"] = "decode error: " + repr(e)
+
     known_ids = sorted(set(a.X402_USDC_BY_NETWORK)
                        | set(a.X402_MAINNET_NETWORKS)
                        | {a._x402_network()})
+
     facts = {
         "network": a._x402_network(),
         "is_mainnet": a._x402_is_mainnet(),
         "label": a._x402_network_label(),
         "asset": a._x402_asset(),
         "pay_to": a._x402_pay_to() or "",
-        # what the discovery documents currently declare
+        # what every discovery document and the MPP offer derive from
         "amount_atomic": a._x402_amount_atomic(),
-        # what the TILL actually charges (x402_verify is the source the SDK
-        # registers the route with). Kept separate so the two can be compared.
-        "till_amount_atomic": str(int(round(
-            float(str(x402_verify.X402_MINT_PRICE).lstrip("$")) * 1_000_000))),
+        # what the TILL actually charges (x402_verify is the single source of
+        # truth; discovery docs now derive from it too).
+        "till_amount_atomic": str(x402_verify.x402_mint_price_atomic()),
         "till_price": x402_verify.X402_MINT_PRICE,
-        "price_usd": a.X402_MINT_PRICE_FOR_DISCOVERY,
+        "price_usd": float(str(x402_verify.X402_MINT_PRICE).lstrip("$")),
+        "mpp_enabled": bool(getattr(mpp_verify, "MPP_ENABLED", False)) if 'mpp_verify' in sys.modules else False,
         "asset_table": dict(a.X402_USDC_BY_NETWORK),
         "known_ids": known_ids,
         "namespaces": sorted({i.split(":")[0] for i in known_ids}),
@@ -271,9 +301,10 @@ def render(network, facilitator=FACILITATOR_INPUT, extra_env=None):
     `facilitator=None`.
     """
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("X402_", "CDP_"))}
+           if not k.startswith(("X402_", "CDP_", "MPP_"))}
     env.update({"X402_PAY_TO": PAY_TO_INPUT, "X402_NETWORK": network,
-                "AGENT_LEDGER_DATA": "/tmp/al_disc_test"})
+                "AGENT_LEDGER_DATA": "/tmp/al_disc_test",
+                "MPP_SECRET_KEY": "test-secret-for-discovery-guard"})
     if facilitator:
         env["X402_FACILITATOR_URL"] = facilitator
     if extra_env:
@@ -528,6 +559,7 @@ def test_the_sweep_reaches_every_surface_that_speaks_for_the_product(docs, net):
     "/.well-known/oauth-authorization-server",
     "/mcp::ledger_api_docs(rest)", "/mcp::ledger_api_docs()",
     "/POST::/v1/billing/x402",
+    "/POST::/v1/billing/x402/mpp",
 ])
 def test_no_surface_violates_the_network_invariants(docs, surface):
     """The property assertion. Wording-independent; identical in both modes.
@@ -539,7 +571,7 @@ def test_no_surface_violates_the_network_invariants(docs, surface):
         surface.startswith("/POST::") else surface
     for net in NETWORKS:
         if key not in docs[net]["surfaces"]:
-            if key == "POST::/v1/billing/x402":
+            if key in ("POST::/v1/billing/x402", "POST::/v1/billing/x402/mpp"):
                 continue  # the till refuses rather than 402s in this mode
             pytest.fail(f"{key} was not swept under {net} — coverage gap")
         found = violations(docs, net, key)
@@ -598,6 +630,13 @@ REQUIRED_DISCLOSURE = (
     "/mcp.json",
     "mcp::ledger_api_docs(rest)",
     "mcp::ledger_api_docs()",
+)
+
+
+# MPP surfaces added by D-1319.
+MPP_SURFACES = (
+    "POST::/v1/billing/x402/mpp",
+    "POST::/v1/billing/x402/mpp_decoded",
 )
 
 
@@ -677,6 +716,179 @@ def test_the_till_envelope_matches_the_configured_network(docs):
     assert served or refused, "the till neither served a challenge nor refused"
 
 
+def test_mpp_challenge_is_well_formed_and_bound(docs):
+    """Path A: the MPP WWW-Authenticate header is valid, honest, and bound.
+
+    The header must use the custom `x402-base` method (not stripe/tempo),
+    charge intent, realm matching the host, and a base64url JCS request
+    containing amount (base units), currency and recipient == payTo. The id
+    must change when terms change (proven by the SDK's HMAC binding).
+    """
+    for net in NETWORKS:
+        f = docs[net]["facts"]
+        if not f["mpp_enabled"]:
+            continue
+        www = docs[net]["surfaces"].get("POST::/v1/billing/x402/mpp", "")
+        assert www, f"{net}: MPP enabled but no WWW-Authenticate: Payment header"
+        params = {}
+        for m in re.finditer(
+                r'([a-zA-Z_][\w-]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s,]+))',
+                www[len("Payment "):]
+        ):
+            params[m.group(1)] = m.group(2) or m.group(3)
+        assert params.get("method") == "x402-base", (
+            f"{net}: MPP method must be the custom x402-base, got "
+            f"{params.get('method')!r}")
+        assert params.get("intent") == "charge", (
+            f"{net}: MPP intent must be charge, got {params.get('intent')!r}")
+        req = decode_payment_request(www)
+        assert req["amount"] == f["till_amount_atomic"], (
+            f"{net}: MPP amount {req['amount']!r} != till amount "
+            f"{f['till_amount_atomic']!r}")
+        assert req["currency"].lower() == f["asset"].lower(), (
+            f"{net}: MPP currency {req['currency']!r} != configured asset")
+        assert req["recipient"].lower() == f["pay_to"].lower(), (
+            f"{net}: MPP recipient {req['recipient']!r} != configured payTo")
+        assert "id" in params and params["id"], f"{net}: MPP challenge missing id"
+
+
+def test_mpp_challenge_absent_without_secret(docs):
+    """Fail closed: no MPP_SECRET_KEY means no WWW-Authenticate challenge."""
+    mainnet = mainnet_network()
+    d = render(mainnet, facilitator=FACILITATOR_INPUT,
+               extra_env={"MPP_SECRET_KEY": ""})
+    assert "error" not in d, d.get("error", "")[:400]
+    assert not d["facts"].get("mpp_enabled"), "MPP must be disabled with no secret"
+    assert "POST::/v1/billing/x402/mpp" not in d["surfaces"], (
+        "a challenge was emitted when no MPP secret is configured")
+
+
+def test_mpp_surface_guard_catches_wrong_amount():
+    """Negative control: a synthetic wrong amount in an MPP offer is RED, then GREEN.
+
+    Criterion 7 requires the guard to catch a bad MPP surface in NEW wording
+    the old phrase list never matched, and then recover when the bad surface is
+    removed. render() boots the app in a subprocess, so in-process monkey-
+    patching cannot reach it; we use a subprocess-only env hook
+    `_MPP_TEST_OFFER_OVERRIDES` that production code never consults for real
+    pricing. The injected amount "99999" is intentionally wrong and is checked
+    by the guard's INV-4 invariant (declared amount must equal what the till
+    charges), not by a phrase list.
+    """
+    net = NETWORKS[0]
+
+    # RED: inject a wrong amount into ONLY the /v1/billing/x402 MPP offer.
+    d = render(net, extra_env={
+        "MPP_SECRET_KEY": "test-secret-for-guard",
+        "_MPP_TEST_OFFER_OVERRIDES": "/v1/billing/x402=99999",
+    })
+    assert "error" not in d, d.get("error", "")[:400]
+    op = json.loads(d["surfaces"]["/openapi.json"])[
+        "paths"]["/v1/billing/x402"]["post"]
+    offer_amounts = [o["amount"] for o in
+                     op.get("x-payment-info", {}).get("offers", [])]
+    assert "99999" in offer_amounts, (
+        "harness: synthetic wrong amount did not reach the MPP offer")
+    red = scan_mode({net: d}, net)
+    red_messages = [m for _s, m in red if "INV-4" in m and "99999" in m]
+    assert red_messages, (
+        f"guard did not go RED on the injected wrong amount. All violations: {red}")
+
+    # GREEN: remove the override; the same surface must be clean again.
+    d2 = render(net, extra_env={"MPP_SECRET_KEY": "test-secret-for-guard"})
+    assert "error" not in d2, d2.get("error", "")[:400]
+    op2 = json.loads(d2["surfaces"]["/openapi.json"])[
+        "paths"]["/v1/billing/x402"]["post"]
+    offer_amounts2 = [o["amount"] for o in
+                      op2.get("x-payment-info", {}).get("offers", [])]
+    assert offer_amounts2, "harness: MPP offer disappeared without override"
+    assert "99999" not in offer_amounts2, (
+        "harness: override leaked into the GREEN boot")
+    green = scan_mode({net: d2}, net)
+    assert not green, (
+        f"guard stayed RED after removing the override: {green}")
+
+
+def test_mpp_offer_is_in_openapi(docs):
+    """The OpenAPI discovery doc carries MPP's offers[] shape alongside x402."""
+    for net in NETWORKS:
+        f = docs[net]["facts"]
+        op = json.loads(docs[net]["surfaces"]["/openapi.json"])[
+            "paths"]["/v1/billing/x402"]["post"]
+        offers = op.get("x-payment-info", {}).get("offers", [])
+        assert offers, f"{net}: x-payment-info.offers[] is missing"
+        offer = offers[0]
+        assert offer["method"] == "x402-base", f"{net}: offer method wrong"
+        assert offer["intent"] == "charge"
+        assert offer["amount"] == f["till_amount_atomic"], (
+            f"{net}: offer amount {offer['amount']!r} != till amount")
+        assert offer["currency"].lower() == f["asset"].lower()
+
+
+# The ten D-1293 x402scan keys that must all SURVIVE in x-payment-info.
+#
+# STRUCTURE (settled by Stripe/Tempo's validator, `npx mppx@latest validate`):
+# `offers[]` owns the top level, and these keys live under the nested `x402`
+# key. Flattening them to the top level was tried and the validator rejected the
+# document outright with:
+#     "Cannot mix offers with flat payment info fields"
+# which costs the endpoint its MPP discoverability. So do NOT "fix" this by
+# flattening. What this guard protects is that none of the ten keys is dropped
+# or renamed — that is the actual D-1293 contract.
+D1293_X_PAYMENT_INFO_KEYS = (
+    "protocols",
+    "pricingMode",
+    "currency",
+    "amountUnit",
+    "amount",
+    "asset",
+    "network",
+    "payTo",
+    "priceUsd",
+    "priceDescription",
+)
+
+
+def test_x_service_info_is_at_openapi_root(docs):
+    """Criterion 5: x-service-info is a document-root extension, not info-level."""
+    for net in NETWORKS:
+        schema = json.loads(docs[net]["surfaces"]["/openapi.json"])
+        # Must be at document root (sibling of openapi, info, paths).
+        assert "x-service-info" in schema, (
+            f"{net}: x-service-info missing from OpenAPI document root")
+        assert schema["x-service-info"].get("docs", {}).get("llms") == "/llms.txt", (
+            f"{net}: x-service-info.docs.llms missing or wrong: "
+            f"{schema.get('x-service-info')}")
+        # Must NOT be at the old wrong location.
+        assert "x-service-info" not in schema.get("info", {}), (
+            f"{net}: x-service-info must not live under info; it is a "
+            "document-root OpenAPI extension")
+
+
+def test_all_d1293_keys_survive_under_the_x402_key(docs):
+    """D-1293 discovery contract: all ten x402scan keys survive in x-payment-info.
+
+    They live under the nested `x402` key because the validator forbids mixing
+    `offers[]` with flat payment-info fields (see the constant's comment). This
+    fails if any key is moved, renamed, or dropped — which is the real contract.
+    """
+    for net in NETWORKS:
+        op = json.loads(docs[net]["surfaces"]["/openapi.json"])[
+            "paths"]["/v1/billing/x402"]["post"]
+        xpi = op.get("x-payment-info", {})
+        # offers[] must own the top level, NOT be mixed with flat fields.
+        assert "offers" in xpi, f"{net}: x-payment-info.offers[] missing"
+        flat_leaks = [k for k in D1293_X_PAYMENT_INFO_KEYS if k in xpi]
+        assert not flat_leaks, (
+            f"{net}: {flat_leaks} are flat at the top level alongside offers[]; "
+            "the validator rejects mixing offers with flat payment info fields")
+        # Every one of the ten keys must still be served, under x402.
+        x402 = xpi.get("x402", {})
+        missing = [k for k in D1293_X_PAYMENT_INFO_KEYS if k not in x402]
+        assert not missing, (
+            f"{net}: x-payment-info.x402 is missing D-1293 keys: {missing}")
+
+
 def test_mainnet_without_settlement_credentials_is_refused_not_advertised():
     """A config that could never settle must fail loudly, not publish a 402.
 
@@ -695,30 +907,27 @@ def test_mainnet_without_settlement_credentials_is_refused_not_advertised():
 
 # ── the documented single source of truth for the price ──────────────────────
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN LATENT DEFECT found while rewriting this guard (D-1314). The price "
-    "the TILL charges comes from x402_verify.X402_MINT_PRICE (env "
-    "X402_MINT_PRICE); the price every discovery document publishes comes from "
-    "the separate literal api_server.X402_MINT_PRICE_FOR_DISCOVERY = 0.01. They "
-    "can disagree, and then an agent is quoted a price the till will not honour. "
-    "Reproduce with X402_MINT_PRICE=$0.05: till asks 50000, /openapi.json and "
-    "/.well-known/x402.json still say 10000. Not fixed here because deriving "
-    "X402_MINT_PRICE_FOR_DISCOVERY from x402_verify is outside D-1314's stated "
-    "scope (api_server.py: /agents.txt DISCOVERY block, sitemap, docstring). "
-    "strict=True on purpose: fixing it makes this test fail, which forces the "
-    "record to be corrected rather than left stale."))
 def test_the_discovery_amount_follows_the_price_the_till_charges():
     """One price, one source. This is INV-2's `amount` case under a changed price.
 
-    Booting with a price that differs from the discovery literal is the only way
-    to tell a DERIVED amount from a transcribed one: with the default price the
-    two agree whether or not the document is derived.
+    Booting with a price that differs from the default is the only way to tell a
+    DERIVED amount from a transcribed one. With a single source, flipping
+    X402_MINT_PRICE must move the MPP offer amount, the x402 challenge amount,
+    and every served discovery document together.
     """
     net = NETWORKS[0]
-    d = render(net, extra_env={"X402_MINT_PRICE": "$0.07"})
+    d = render(net, extra_env={"X402_MINT_PRICE": "$0.07",
+                                "MPP_SECRET_KEY": "test-secret-for-guard"})
     assert "error" not in d, d.get("error", "")[:400]
     assert d["facts"]["till_amount_atomic"] == "70000", \
         "harness: the price override did not reach the till"
+    # The MPP offer must move too.
+    op = json.loads(d["surfaces"]["/openapi.json"])[
+        "paths"]["/v1/billing/x402"]["post"]
+    offer_amounts = [o["amount"] for o in
+                     op.get("x-payment-info", {}).get("offers", [])]
+    assert "70000" in offer_amounts, (
+        "MPP offer amount did not follow the price flip")
     found = scan_mode({net: d}, net)
     assert not found, "\n".join(f"[{s}] {m}" for s, m in found)
 
@@ -794,12 +1003,24 @@ def test_x_payment_info_is_derived_from_the_configured_network(docs, net):
     f = docs[net]["facts"]
     xpi = json.loads(docs[net]["surfaces"]["/openapi.json"])[
         "paths"]["/v1/billing/x402"]["post"]["x-payment-info"]
-    assert xpi["network"] == f["network"], f"network did not follow config: {xpi['network']}"
-    assert xpi["asset"].lower() == f["asset"].lower(), "asset did not follow the network"
-    assert xpi["payTo"].lower() == f["pay_to"].lower(), "payTo is not the configured wallet"
-    assert xpi["amount"] == f["amount_atomic"], "amount did not follow the price config"
-    assert xpi["pricingMode"] == "fixed"
-    assert xpi["protocols"][0]["protocol"] == "x402"
+    # MPP shape: offers[] at the top level.
+    offers = xpi.get("offers", [])
+    assert offers, "x-payment-info.offers[] missing"
+    assert offers[0]["method"] == "x402-base"
+    assert offers[0]["intent"] == "charge"
+    assert offers[0]["amount"] == f["amount_atomic"], "offer amount did not follow price"
+    assert offers[0]["currency"].lower() == f["asset"].lower()
+    # x402scan shape: all ten keys survive, under the nested x402 key
+    # (validator forbids mixing offers[] with flat payment-info fields).
+    x402 = xpi.get("x402", {})
+    for k in D1293_X_PAYMENT_INFO_KEYS:
+        assert k in x402, f"x-payment-info.x402 missing D-1293 key {k!r}"
+    assert x402.get("network") == f["network"], "network missing"
+    assert x402.get("asset").lower() == f["asset"].lower(), "asset missing"
+    assert x402.get("payTo").lower() == f["pay_to"].lower(), "payTo missing"
+    assert x402.get("amount") == f["amount_atomic"], "amount missing"
+    assert x402.get("pricingMode") == "fixed"
+    assert x402.get("protocols", [{}])[0].get("protocol") == "x402"
 
 
 def test_both_well_known_spellings_serve_the_fan_out(docs):

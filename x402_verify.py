@@ -47,6 +47,21 @@ CDP_API_KEY_SECRET = os.environ.get("CDP_API_KEY_SECRET", "")
 X402_NETWORK = os.environ.get("X402_NETWORK", "eip155:84532")
 X402_MINT_PRICE = os.environ.get("X402_MINT_PRICE", "$0.01")
 
+
+def x402_mint_price_atomic(decimals: int = 6) -> int:
+    """The configured mint price in atomic units.
+
+    Single source of truth: every discovery document, the x402 till, and
+    the MPP offer all derive from X402_MINT_PRICE rather than carrying their
+    own literal. The price is a string like "$0.01"; this strips the "$"
+    and converts to base units (1e6 for USDC 6 decimals by default).
+    """
+    raw = str(X402_MINT_PRICE).lstrip("$")
+    try:
+        return int(round(float(raw) * (10 ** decimals)))
+    except (TypeError, ValueError):
+        raise ValueError(f"X402_MINT_PRICE={X402_MINT_PRICE!r} is not a valid price")
+
 # What a settled x402 payment actually buys (D-1270): a time-boxed Pro pass —
 # unlimited agents on the resolved workspace — rather than the free-tier-
 # equivalent workspace it used to mint. Lives here, next to X402_MINT_PRICE,
@@ -66,6 +81,13 @@ FACILITATOR_MODE = ("explicit-url" if X402_FACILITATOR_URL
 # Mainnet identifiers, so a misconfiguration is caught at import rather than at
 # the first real payment. The public facilitator cannot settle these.
 _MAINNET_NETWORKS = {"eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"}
+
+# Canonical USDC contracts per network, so every module that needs the asset
+# (discovery docs, MPP offer) reads one table instead of hardcoding its own.
+X402_USDC_BY_NETWORK = {
+    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",  # Base Sepolia
+    "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",   # Base mainnet
+}
 
 X402_ENABLED = False
 X402_DISABLED_REASON = "not initialized"
@@ -125,6 +147,10 @@ def _init():
                     scheme="exact",
                     pay_to=X402_PAY_TO,
                     price=X402_MINT_PRICE,
+                    # The resource server uses the literal string for display.
+                    # We register it exactly as configured so the 402 envelope
+                    # stays human-readable; amount enforcement is done by the
+                    # atomic price helper below.
                     network=X402_NETWORK,
                     max_timeout_seconds=60,
                 ),
@@ -144,6 +170,7 @@ def _init():
         X402_ENABLED = True
         X402_DISABLED_REASON = ""
     except Exception as e:  # noqa: BLE001 — import must never break the app
+
         X402_ENABLED = False
         X402_DISABLED_REASON = str(e)[:200]
         logging.warning(f"x402 billing route disabled: {X402_DISABLED_REASON}")

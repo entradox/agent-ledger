@@ -20,3 +20,8 @@ httpx>=0.27.0
 # Imported lazily inside x402_verify._init() and only when CDP_API_KEY_ID and
 # CDP_API_KEY_SECRET are both set, so a testnet deployment does not need it.
 cdp-sdk>=1.48.0
+# pympp is the Python SDK for Stripe/Tempo's Machine Payments Protocol (MPP).
+# It provides the server-side challenge/verify primitives used to add an
+# MPP `WWW-Authenticate: Payment` header to the existing x402 paywall.
+# Requires Python >=3.11; this service runs 3.13.
+pympp>=0.11.0
