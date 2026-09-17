@@ -308,3 +308,50 @@ def test_agents_txt_does_not_over_advertise_the_buyer_skill(monkeypatch):
     assert has_mpp_in_skill or not claims_mpp_in_skill, (
         f"/agents.txt claims the buyer skill covers MPP ({line.strip()!r}) but "
         f"the served skill contains no MPP content")
+
+
+def test_no_served_surface_claims_mpp_when_it_is_disabled(monkeypatch):
+    """EVERY surface must agree about MPP — found by rendering a prod-shaped env.
+
+    The llms.txt fix left the same bug alive in /agents.txt, which still said
+    "MPP is ACCEPTED" while MPP_ENABLED was False. Two surfaces disagreeing is
+    worse than either being wrong alone: an agent that reads both is told
+    contradictory things about how to pay, and one of them is a lie.
+
+    Guards the CLASS, not the sentence: it renders with MPP off and asserts no
+    served payment surface advertises MPP as available.
+    """
+    monkeypatch.delenv("MPP_SECRET_KEY", raising=False)
+    monkeypatch.setenv("X402_PAY_TO", PAY_TO)
+    monkeypatch.setenv("X402_NETWORK", "eip155:8453")
+    for mod in ("mpp_verify", "x402_verify", "api_server"):
+        sys.modules.pop(mod, None)
+
+    import mpp_verify
+    import api_server
+
+    assert mpp_verify.MPP_ENABLED is False
+    surfaces = {
+        "/agents.txt": api_server.agents_txt(),
+        "/llms.txt": api_server.llms_txt(),
+    }
+    offenders = []
+    for name, body in surfaces.items():
+        for line in body.splitlines():
+            if "MPP" not in line:
+                continue
+            low = line.lower()
+            # Any claim that MPP can be used, when it cannot.
+            if "not enabled" in low or "not accepted" in low:
+                continue
+            if any(w in low for w in ("is accepted", "is offered", "is live",
+                                      "accepts mpp", "accepts both")):
+                offenders.append(f"{name}: {line.strip()[:110]}")
+    assert not offenders, (
+        "a served surface advertises MPP while MPP_ENABLED is False — the "
+        "document lies about how to pay:\n  " + "\n  ".join(offenders))
+
+    # And the honest statement must actually be present, not merely unclaimed:
+    # silence would leave an agent unable to tell whether MPP exists.
+    assert "MPP is NOT enabled" in surfaces["/agents.txt"], (
+        "/agents.txt says nothing truthful about MPP being off")

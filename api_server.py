@@ -820,6 +820,30 @@ def _mpp_acceptance_words() -> str:
             "but no MPP payment has settled funds end-to-end.")
 
 
+def _agents_mpp_status() -> str:
+    """The /agents.txt MPP status line, derived PER REQUEST.
+
+    Same defect as the llms.txt claim, in a second surface: this line was a
+    frozen import-time string reading "MPP is ACCEPTED", so it was served even
+    when MPP_SECRET_KEY is unset and no WWW-Authenticate challenge is emitted.
+    A served surface must never advertise a payment method the running
+    deployment cannot accept — verified by rendering /agents.txt in a
+    production-shaped env (mainnet + CDP creds + no MPP secret): llms.txt
+    correctly said "MPP is NOT enabled" while /agents.txt still said "ACCEPTED".
+    """
+    try:
+        import mpp_verify
+        if not mpp_verify.MPP_ENABLED:
+            return ("MPP is NOT enabled on this deployment (only x402 payment is "
+                    "accepted here).")
+        return ("MPP is offered via the custom `x402-base` method (same Base USDC "
+                "rail); the challenge is validated but the rail has not yet "
+                "settled a payment end-to-end. Not Stripe/Tempo directly (no "
+                "settlement credentials for those rails).")
+    except Exception:  # noqa: BLE001 — never let prose break a served doc
+        return "MPP status unavailable."
+
+
 def _mpp_or_words() -> str:
     """' or MPP' only where MPP is really enabled (else the sentence over-promises)."""
     try:
@@ -1225,10 +1249,7 @@ def agents_txt():
         # SETTLED funds end-to-end (needs a funded payer wallet), and the rail is
         # not deployed. "MPP is LIVE" was an over-promise on a served discovery
         # surface — the exact defect class this project has shipped repeatedly.
-        f"  MPP is ACCEPTED via the custom `x402-base` method (same Base USDC rail); "
-        "the challenge is validated but the rail has not yet settled a payment "
-        "end-to-end. Not Stripe/Tempo directly (no settlement credentials for "
-        "those rails).\n"
+        f"  {_agents_mpp_status()}\n"
         "\n"
         "CONTACT\n"
         "  entradox@icloud.com\n"
