@@ -137,6 +137,10 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 <div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p></div>
 <div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy</p></div>
 <div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust</p></div>
+
+<h2>Start here</h2>
+<p class="mut">A workspace needs no signup and no card, and the key is shown once.</p>
+<p><a href="/start">Get a workspace &rarr;</a> &middot; <a href="/quickstart">Start in 5 minutes</a></p>
 """
 
 PERIMETER_WATCH_PAGE = """

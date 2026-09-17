@@ -183,9 +183,35 @@ DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent
 COUNTS_FILE = DATA_DIR / "counts.jsonl"
 
 # reach paths tracked for unique-ip-hash "reach" telemetry
+# Paths whose distinct-visitor count is tracked (ip_bucket). D-1321: the old 9-path list
+# omitted the product landing pages, so AgentLedger's REAL landing page (/agent-ledger,
+# 21 KB, carries the pitch and the pricing, links to /start) was invisible to metrics, while
+# the numerator (/start) was counted against a denominator (/ = the AI Agent City umbrella
+# hub, which cannot convert — it lists five products and has no price and no /start link).
+# The "92% never reach the mint" figure was arithmetic over two different populations, not
+# user behaviour. Guarded by test_reach_instrumentation.py, which fails if any registered
+# HTML GET route is neither listed here nor explicitly exempted with a reason.
 REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
                           "/.well-known/glama.json", "/.well-known/mcp/server-card.json",
-                          "/stats", "/mcp/"})
+                          "/stats", "/mcp/",
+                          # Product landing pages (D-1321)
+                          "/agent-ledger", "/quickstart"})
+
+# HTML routes deliberately NOT in REACH_PATHS, each with a reason. A route may only be
+# absent from REACH_PATHS if it appears here; otherwise the guard test goes RED. This exists
+# because the previous list was hand-maintained with nothing noticing what was missing.
+REACH_EXEMPT = {
+    "/privacy": "legal boilerplate, not a product surface with a CTA",
+    "/terms": "legal boilerplate, not a product surface with a CTA",
+    "/security": "informational, reached from footers, not a funnel entry",
+    "/reliability": "informational, reached from footers, not a funnel entry",
+    "/compare": "comparison page reached mid-funnel, not a funnel entry",
+    "/v1/dashboard": "authenticated workspace UI, not a public funnel entry",
+    "/perimeter-watch": "different product's landing page — instrument when it gets a funnel",
+    "/cited": "different product's landing page — instrument when it gets a funnel",
+    "/agent-watch": "different product's landing page — instrument when it gets a funnel",
+    "/trust-scan": "different product's landing page — instrument when it gets a funnel",
+}
 
 
 def _ip_hash(request: "Request") -> Optional[str]:
