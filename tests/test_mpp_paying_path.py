@@ -71,11 +71,28 @@ class _FakeMppServer:
         raise AssertionError("each test must monkeypatch charge")
 
 
+PAY_TO = "0x363c520492EDbA89057bCe696B74263B3295a72A"
+
+
 def _enable_mpp(monkeypatch):
-    """Force MPP on for the module without needing real credentials."""
+    """Force MPP on for the module without needing real credentials.
+
+    A receiving address is REQUIRED: the route fails closed (503) when it cannot
+    determine its own pay_to — an endpoint that does not know who it is cannot
+    verify who was paid. `_load_x402_config` is patched rather than setenv'd
+    because X402_PAY_TO is read at module import time.
+    """
     monkeypatch.setattr(mpp_verify, "MPP_ENABLED", True)
     monkeypatch.setattr(mpp_verify, "mpp_server", _FakeMppServer())
     monkeypatch.setenv("MPP_SECRET_KEY", "test-secret")
+    real = mpp_verify._load_x402_config()
+
+    def _cfg():
+        c = dict(real)
+        c["pay_to"] = PAY_TO
+        return c
+
+    monkeypatch.setattr(mpp_verify, "_load_x402_config", _cfg)
 
 
 def _settled_result(wallet=None):
@@ -89,7 +106,7 @@ def _settled_result(wallet=None):
     r = dict(SETTLED)
     r["payer_wallet"] = wallet or f"0xMPP{uuid.uuid4().hex[:38]}"
     cfg = mpp_verify._load_x402_config()
-    r["recipient"] = x402_verify.X402_PAY_TO
+    r["recipient"] = PAY_TO
     r["amount"] = str(x402_verify.x402_mint_price_atomic())
     r["asset"] = cfg["asset"]
     r["network"] = x402_verify.X402_NETWORK

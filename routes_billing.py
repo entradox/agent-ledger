@@ -705,18 +705,53 @@ def x402_billing(request: Request):
         # The MPP intent settled via the existing x402 path. Transform its
         # receipt into the same shape x402_verify returns so the rest of the
         # route (idempotency, workspace minting, metrics) is reused.
-        result = mpp_receipt["result"]
-        if not result.get("verified"):
-            result = {
-                "verified": True,
-                "payer_wallet": mpp_receipt["receipt"].external_id,
-                "tx_hash": mpp_receipt["receipt"].reference,
-                "recipient": x402_verify.X402_PAY_TO,
-                "amount": str(x402_verify.x402_mint_price_atomic()),
-                "asset": mpp_verify._load_x402_config()["asset"],
-                "network": x402_verify.X402_NETWORK,
-                "settlement_headers": {},
-            }
+        #
+        # INTEGRITY (proven necessary, not defensive style): the MPP branch must
+        # carry the REAL settled values from the x402 result, never synthesize
+        # them. A synthesized receipt mints a workspace with NO payment behind
+        # it and bypasses the recipient check further down. Two concrete attacks
+        # were reproduced and now fail closed:
+        #   1. a receipt with NO stashed settlement result (result == {}) fell
+        #      through to `verified: True` and minted a free workspace + key;
+        #   2. a settlement whose recipient was NOT our pay_to, and whose amount
+        #      was 1 atomic unit, ALSO minted — because this branch overwrote
+        #      `recipient` with our own address, so the downstream recipient
+        #      check passed by construction.
+        # Rule: if the settled result is missing, unverified, or does not carry
+        # a payer wallet, this is NOT a payment. Refuse it.
+        settled = mpp_receipt.get("result") or {}
+        if not settled.get("verified") or not settled.get("payer_wallet"):
+            raise HTTPException(402, detail=error_envelope(
+                402, "MPP credential presented a receipt with no settled x402 "
+                     "payment behind it — refusing to mint a workspace",
+                error_type="payment_required_error",
+                code="mpp_no_settlement_backing"))
+        # Recipient check, done HERE and against the method's own configured
+        # pay_to — the address this endpoint advertised in its challenge. The
+        # downstream check compares against the X402_* env vars, which are
+        # absent on some deployments, so relying on it alone left this path
+        # unguarded (reproduced: a settlement to a foreign address minted when
+        # no X402_PAY_TO was set).
+        #
+        # FAIL CLOSED when we cannot determine our own receiving address: an
+        # endpoint that does not know who it is cannot verify who was paid, and
+        # minting on that basis hands out workspaces for free.
+        expected_pay_to = (mpp_verify._load_x402_config() or {}).get("pay_to") or ""
+        if not expected_pay_to:
+            raise HTTPException(503, detail=error_envelope(
+                503, "this service has no receiving address configured, so an "
+                     "MPP settlement cannot be verified — refusing to mint",
+                error_type="api_error", code="mpp_no_receiving_address"))
+        settled_recipient = settled.get("recipient") or ""
+        if settled_recipient.lower() != expected_pay_to.lower():
+            raise HTTPException(402, detail=error_envelope(
+                402, "MPP settlement recipient does not match the address this "
+                     "endpoint advertised — refusing to mint",
+                error_type="payment_required_error",
+                code="mpp_recipient_mismatch"))
+        # Pass the settled values through UNCHANGED so the existing recipient /
+        # amount / asset checks below run against what actually settled.
+        result = settled
     else:
         try:
             result = x402_verify.verify_payment(request)
