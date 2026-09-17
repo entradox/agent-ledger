@@ -271,18 +271,44 @@ def verify_credential(authorization: str | None) -> dict[str, Any]:
 
     Returns {"receipt": Receipt, "result": x402_verify result} on success,
     or raises mpp.errors.PaymentError / VerificationFailedError on failure.
+
+    NOTE: `broadcast_credential` is a COROUTINE. It must be awaited — calling it
+    bare returns a coroutine object, and the very next attribute access raises
+    "coroutine has no attribute 'reference'". Because the route wraps this call
+    in a fall-through handler, the original bug degraded a real payment attempt
+    into a silent 402 instead of minting a workspace, and the only trace was a
+    RuntimeWarning. `build_challenge` handles the same async problem the same
+    way; keep the two in step.
     """
     if not MPP_ENABLED or mpp_server is None:
         from mpp.errors import PaymentMethodUnsupportedError
         raise PaymentMethodUnsupportedError("x402-base MPP is not enabled")
+    import asyncio
     import x402_verify
     amount = str(float(str(x402_verify.X402_MINT_PRICE).lstrip("$")))
-    # broadcast_credential returns Receipt; it raises PaymentError on failure.
-    receipt = mpp_server.broadcast_credential(
+    coro = mpp_server.broadcast_credential(
         authorization or "",
         intent="charge",
         request={"amount": amount},
     )
+    # Await it. Outside a loop, asyncio.run owns the coroutine directly. Inside
+    # one (FastAPI may run this sync handler in a worker thread that still has a
+    # loop), hand asyncio.run to a worker thread so we can block for the result.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        receipt = asyncio.run(coro)
+    else:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            receipt = pool.submit(asyncio.run, coro).result()
+    # A Receipt is the only acceptable success value. If the SDK ever returns a
+    # Challenge here, the credential was NOT paid — refuse rather than pretend.
+    if receipt is None or not hasattr(receipt, "reference"):
+        from mpp.errors import PaymentError
+        raise PaymentError(
+            f"MPP broadcast returned {type(receipt).__name__}, not a Receipt — "
+            "the credential was not settled")
     # The receipt.reference is the tx hash; the intent stored the full x402
     # result in a module-level stash so the route can access it.
     return {"receipt": receipt, "result": _last_settlement_result.get(receipt.reference) or {}}
