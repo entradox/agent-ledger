@@ -1,0 +1,41 @@
+{
+  "_comment": "Public-surface removals approved with a reason (rules/code-structure.md public-surface corollary). Each entry was checked against external importers, declared entry points, documented surfaces and test-collection targets before being allowlisted. An entry without a reason is ignored by scripts/public_surface.py.",
+  "symbols": {
+    "tests/test_x402_discovery_network.py::test_agents_txt_payment_status_follows_the_network": {
+      "reason": "D-1314 superseded this test. It asserted /agents.txt contains the literal string 'MAINNET'/'TESTNET' plus the absence of 'pending onboarding' - a PHRASE assertion, which is the defect the card removes. Its coverage is strictly widened by test_required_surfaces_disclose_the_configured_network_in_both_modes, which asserts the same surface names the CONFIGURED network id in BOTH modes and is driven by config rather than by two literals. No external importer: `grep -rn` across the repo and ~/AI-Workbench returned no references outside this file."
+    },
+    "tests/test_x402_discovery_network.py::test_every_guarded_surface_is_actually_fetched": {
+      "reason": "D-1314 superseded this test. It asserted that a hand-written surface key list was present in the fetched dict. Coverage is widened by test_every_served_route_is_swept_or_recorded_as_skipped, which enumerates the app's own route table so a new route is covered automatically and no route can leave the sweep silently. No external importer (verified by grep across repo and Workbench)."
+    },
+    "tests/test_x402_discovery_network.py::test_mainnet_landing_page_advertises_a_working_payment_path": {
+      "reason": "D-1314 superseded this test. It asserted the literal word 'MAINNET' appears in /agent-ledger and that 'pending onboarding' does not - both phrase assertions, and the first is exactly the check that passed while /agents.txt leaked in new wording. Replaced by test_required_surfaces_disclose_the_configured_network_in_both_modes (/agent-ledger is in that required set). No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_mainnet_never_claims_testnet_only": {
+      "reason": "D-1314 removed this test deliberately: it WAS the literal phrase list ('TESTNET ONLY'/'84532'/'Sepolia'/'cannot complete it') the card exists to delete, and it made no assertion at all in testnet mode. Replaced by test_no_surface_violates_the_network_invariants + test_every_swept_surface_is_invariant_clean, which assert configured-network consistency and foreign-network fingerprints across every swept surface in BOTH modes. The probe file (tests/test_x402_guard_catches_novel_leak.py) reproduces this test's phrases to prove what it missed. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_mainnet_start_page_advertises_a_working_payment_path": {
+      "reason": "D-1314 superseded this test. Phrase assertions again ('MAINNET' in /start, 'arrives when' absent). /start is in REQUIRED_DISCLOSURE, so test_required_surfaces_disclose_the_configured_network_in_both_modes now covers it with a config-derived expected value in both modes. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_mainnet_without_cdp_creds_is_refused_not_advertised": {
+      "reason": "Renamed in D-1314 to test_mainnet_without_settlement_credentials_is_refused_not_advertised. The old name said 'cdp creds'; the harness now uses the config-derived mainnet network instead of a literal and passes facilitator=None, so the name was corrected to match. The assertion is preserved and widened (it now also requires a non-empty disabled_reason and that facts.network equals the booted network). No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_never_advertises_the_wrong_networks_token": {
+      "reason": "D-1314 folded this into INV-2 of test_no_surface_violates_the_network_invariants, which checks the other network's USDC contract in every spelling across every swept surface (not just the x402 document), and derives the wrong-network address from config's X402_USDC_BY_NETWORK rather than from a USDC_MAINNET/USDC_TESTNET literal. Coverage strictly widened. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_no_surface_leaks_an_unsubstituted_placeholder": {
+      "reason": "D-1314 generalised this into INV-5 of test_no_surface_violates_the_network_invariants. The old check looked only for the single token prefix '{X402_SETTLEMENT'; INV-5 matches the whole template-token PATTERN, so it catches placeholders the author never named. It also now runs over every swept surface in both modes. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_quickstart_docs_disclose_testnet_in_testnet_mode": {
+      "reason": "D-1314 superseded this test. It asserted the literal 'TESTNET' appears in the mcp_all_docs bundle on testnet. mcp::ledger_api_docs() is in REQUIRED_DISCLOSURE, so test_required_surfaces_disclose_the_configured_network_in_both_modes asserts the configured network id there - a derived value, in both modes, not one direction only. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_testnet_mode_still_discloses_testnet": {
+      "reason": "D-1314 superseded this test. It asserted the literal 'TESTNET' in llms.txt plus the absence of the USDC_MAINNET literal. llms.txt is in REQUIRED_DISCLOSURE (asserting the configured network id in both modes) and INV-2 covers the mainnet USDC contract across every surface. The negative control the old test provided is preserved and generalised - see test_required_surfaces_disclose_the_configured_network_in_both_modes and test_the_disclosure_requirement_is_not_satisfied_by_the_other_mode. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_testnet_still_discloses_testnet": {
+      "reason": "D-1314 superseded this test. It asserted 'TESTNET' in the text plus '84532' in the text on the two D-1312 surfaces - three phrase literals, one of them a chain id written into the test. Both surfaces are in REQUIRED_DISCLOSURE, and INV-1/INV-2 assert the configured id and the absence of every other network's fingerprints, in both modes. No external importer (verified by grep)."
+    },
+    "tests/test_x402_discovery_network.py::test_x402_document_matches_configured_network": {
+      "reason": "D-1314 folded this into test_x_payment_info_is_derived_from_the_configured_network and test_both_well_known_spellings_serve_the_fan_out, both of which read expected values from the running app's own facts dict instead of the parametrized literals (TESTNET/MAINNET, USDC_TESTNET/USDC_MAINNET) this test required. The network/mainnet-flag/asset assertions are preserved; the literals are gone, which is the point of the card. No external importer (verified by grep)."
+    }
+  }
+}

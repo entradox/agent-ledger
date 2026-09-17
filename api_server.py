@@ -1140,6 +1140,7 @@ def agents_txt():
         "  /.well-known/mcp/server-card.json MCP registry card\n"
         "  /openapi.json                     OpenAPI 3 spec\n"
         "  /llms.txt                         dense API reference\n"
+        "  /skill.md                         buyer skill (x402, markdown)\n"
         "\n"
         "PAYMENT STATUS\n"
         f"  x402 is LIVE and {X402_SETTLEMENT}\n"
@@ -1171,10 +1172,29 @@ def _status_html_template() -> str:
 def sitemap_xml():
     """Sitemap for crawlers (69 live 404s on 2026-09-14).
 
-    Built from the real route set, not a hand-written list, so it cannot
-    advertise a page that does not exist. Only public, human-readable pages are
-    listed; API and discovery paths are intentionally excluded because they are
-    not indexable content.
+    Lists the public documents a crawler should index: the product and marketing
+    pages, the two counter pages, and the prose documents an agent can read.
+
+    D-1314 — the exclusion rule, stated accurately. The previous docstring said
+    "API and discovery paths are intentionally excluded because they are not
+    indexable content", which was both over-broad and not what the list below
+    does (it already lists /docs and /stats). The rule actually applied is about
+    CONTENT, not about path shape:
+
+      excluded — transport and descriptor surfaces a crawler gains nothing from:
+                 /llms.txt, /agents.txt, /openapi.json, /robots.txt and the
+                 /.well-known/* documents.
+      included — anything a reader (human or agent) can read as a document.
+
+    /skill.md is included on that rule. It is the x402 buyer skill served as
+    text/markdown: prose, not a transport descriptor — the same class of
+    indexable content as /docs. Leaving it out would have made the product's
+    single most useful document invisible to the crawlers this route exists for.
+
+    The list is hand-maintained. The old docstring claimed it was "built from the
+    real route set, not a hand-written list" — that was never true, and it is the
+    kind of claim that stops a reader from checking. Adding a path here is a
+    deliberate act; the entry must correspond to a route that actually exists.
 
     Served with the XML media type: a sitemap declared text/plain is ignored by
     some crawlers, which would make the whole route pointless.
@@ -1184,6 +1204,7 @@ def sitemap_xml():
         ("/",             "1.0", "daily"),
         ("/agent-ledger", "0.9", "weekly"),
         ("/start",        "0.8", "weekly"),
+        ("/skill.md",     "0.7", "weekly"),
         ("/status",       "0.6", "daily"),
         ("/stats",        "0.5", "daily"),
         ("/docs",         "0.5", "weekly"),
