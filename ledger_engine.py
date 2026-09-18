@@ -22,12 +22,25 @@ import metrics
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 
-# beta: free tier caps total claimed agents site-wide; Pro ($19/mo) unlimited
+# DISPLAY ONLY — this is NOT the enforcement cap. The free-tier limit actually
+# in force is per WORKSPACE and lives in workspace_engine.WORKSPACE_FREE_AGENT_CAP;
+# workspace_engine.effective_agent_cap is its only reader. The "site-wide total
+# claimed agents" cap this comment used to name was retired 2026-09-10 when
+# identity moved to per-workspace (see ensure_agent_secret below).
+# Two PRESENTATION surfaces still read this constant — /stats `agents.cap` and
+# the {FREE_AGENT_CAP} token in the skill.md text — so it must keep agreeing
+# with WORKSPACE_FREE_AGENT_CAP. tests/test_free_cap_agreement.py pins that, so
+# the number an arriving agent is shown cannot drift from the cap it hits.
 BETA_AGENT_CAP = 3
 
-# scarcity window (v0.3.1): the first N agent_ids ever claimed get Pro free
-# for a year — a one-time launch incentive, distinct from the paid Stripe
-# Pro flag (pro_active()) which is site-wide.
+# scarcity window: the first N WORKSPACES ever created get Pro free for a year
+# — a one-time launch incentive, distinct from the paid Stripe Pro flag
+# (pro_active()) which is site-wide. The gate is workspace_engine's
+# WORKSPACE_SCARCITY_CAP measured against workspace_count(), and the
+# population is WORKSPACES, not agents. SCARCITY_PRO_CAP below is the retired
+# per-AGENT forerunner (v0.3.1 / D-818) and no longer gates anything; only
+# SCARCITY_PRO_DURATION_SECONDS still crosses module lines (workspace_engine
+# imports it for the grant's one-year pro_until).
 SCARCITY_PRO_CAP = 50
 SCARCITY_PRO_DURATION_SECONDS = 365 * 24 * 3600
 # sanity ceiling on a single entry — blocks fat-finger / abuse-sized amounts
