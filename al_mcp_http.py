@@ -320,6 +320,98 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
     return {"agents": list_agents()}
 
 
+@mcp.tool(annotations={"title": "Start a Workspace", "readOnlyHint": False,
+                        "destructiveHint": False, "idempotentHint": False,
+                        "openWorldHint": False})
+def ledger_start() -> dict:
+    """Get a FREE AgentLedger workspace with no credential and no arguments —
+    the MCP equivalent of opening POST /start in a browser.
+
+    Call this FIRST if you have no credentials yet. Every other tool here
+    (ledger_track, ledger_set_budget, ledger_report, ledger_alerts) needs a
+    workspace_key or an agent_secret, so a caller arriving with neither must
+    start here or it has nowhere to go.
+
+    Takes NO arguments on purpose: the goal is zero friction. It returns a
+    `workspace_key` (shown exactly once — it cannot be re-revealed, so store it
+    before continuing) which you then send as `workspace_key` on your first
+    ledger_track for a NEW agent_id. That first write returns the agent's own
+    `agent_secret`, which authenticates every write after it.
+
+    The free tier includes every rail, enforced budget caps, alerts, reports and
+    the MCP server, capped at 3 agents per workspace. Minting is rate-limited
+    per caller IP, the same limit the human door uses.
+
+    Prefer to pay? POST /v1/billing/x402 with a wallet-signed payment needs no
+    human and buys 24h of Pro (unlimited agents).
+    """
+    from fastmcp.server.dependencies import get_http_request
+    import api_server
+
+    # Reuse the human door's limiter rather than bypassing it: an
+    # unauthenticated mint costs disk, and unmetered it is an abuse vector
+    # (the reason _START_MAX_PER_IP exists at all).
+    try:
+        request = get_http_request()
+    except Exception:
+        request = None
+
+    if request is not None:
+        allowed = api_server._start_mint_allowed(request)
+    else:  # pragma: no cover — no HTTP context (stdio/in-process call)
+        allowed = True
+
+    if not allowed:
+        _record_mcp_call()
+        return {
+            "error": ("Mint rate limit reached for this caller — the free door "
+                      "allows 3 workspaces per day per IP. Pay via "
+                      "POST /v1/billing/x402 for an immediate workspace, or "
+                      "retry tomorrow."),
+            "error_code": "mint_rate_limited",
+        }
+
+    import workspace_engine
+    workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False)
+
+    try:
+        metrics.record_onboarding("workspace_minted", workspace_id,
+                                  plan="free", grant_scarcity=False, via="mcp")
+        if raw_key:
+            metrics.record_onboarding("key_revealed", workspace_id)
+    except Exception:
+        pass
+
+    _record_mcp_call()
+    if not raw_key:
+        # create_workspace is idempotent per identity; with no identity passed
+        # it always mints fresh, so this should not happen. Fail loudly rather
+        # than hand back a keyless "success".
+        return {
+            "workspace_id": workspace_id,
+            "error": ("No key was issued for this workspace. Request a new one "
+                      "by calling ledger_start again."),
+            "error_code": "no_key_issued",
+        }
+
+    return {
+        "workspace_id": workspace_id,
+        "workspace_key": raw_key,
+        "key_shown_once": True,
+        "plan": "free",
+        "agents_included": 3,
+        "next_steps": [
+            "Store workspace_key now — it cannot be shown again.",
+            "Call ledger_track with a NEW agent_id and this workspace_key; the "
+            "response carries that agent's agent_secret, used for every write "
+            "after the first.",
+            "Call ledger_set_budget to set caps that are ENFORCED (a call over "
+            "budget is refused before the provider is contacted).",
+        ],
+        "docs": "Call ledger_api_docs with topic='quickstart' for the full walkthrough.",
+    }
+
+
 @mcp.tool(annotations={"title": "AgentLedger API Docs", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
 def ledger_api_docs(topic: str = "") -> dict:

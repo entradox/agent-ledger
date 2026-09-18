@@ -137,8 +137,9 @@ def _augmented_openapi():
         info["x-guidance"] = (
             "AgentLedger is per-agent AI spend tracking with ENFORCED budget "
             "caps. Two ways in, both machine-only. (1) FREE, no wallet: "
-            "GET /start returns a workspace_key (shown once); claim an agent "
-            "with it in the body of POST /v1/track, set a cap with "
+            "POST /start mints a workspace_key (shown once) with no signup and no "
+            "card — GET /start only renders the form and does NOT mint. Claim an agent "
+            "with the key in the body of POST /v1/track, set a cap with "
             "POST /v1/budget, then route traffic through /proxy/{provider}/... "
             "so an over-budget call is refused with 402 BEFORE the provider is "
             "contacted. (2) PAID, no human: POST /v1/billing/x402 with a "
@@ -474,7 +475,8 @@ Claiming a NEW agent_id requires a workspace_key in the body of the first
 write (POST /v1/track or /v1/budget). Get one self-serve with no human at
 all by paying via POST /v1/billing/x402 (the paying wallet becomes the
 workspace identity — {X402_PASS_OFFER}), or by
-opening GET /start — no signup, no login, no card, but capped at 3 agents.
+POST /start — no signup, no login, no card, but capped at 3 agents. (GET /start
+renders the form only; it does not mint.)
 {X402_SETTLEMENT} {MPP_ACCEPTANCE} Missing or invalid key on a new claim gets 401
 workspace_key_required.
 That first write mints an `agent_secret` and returns it once, e.g.
@@ -559,9 +561,11 @@ GET  /stats                        — usage counters
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
                                       {X402_SETTLEMENT}
-                                      Use GET /start instead if you have no wallet.
-GET  /start                        — get a workspace (no signup, no login);
-                                      POST /start mints one and shows the key once
+                                      Use POST /start instead if you have no wallet
+                                      (GET /start only renders the form).
+GET  /start                        — renders the start form (no signup, no login);
+                                      does NOT mint. POST /start mints one and
+                                      shows the workspace_key once.
 
 ## Getting started (the shortest path)
 
@@ -733,8 +737,8 @@ def _x402_settlement_words() -> str:
         return (f"settles on Base MAINNET ({net}) in real USDC. The paying "
                 "wallet pays real money; the workspace is live immediately.")
     return (f"settles on Base Sepolia TESTNET ({net}) with testnet USDC, so a "
-            "mainnet wallet cannot complete it — use GET /start if you hold no "
-            "testnet wallet.")
+            "mainnet wallet cannot complete it — use POST /start if you hold no "
+            "testnet wallet (GET /start only renders the form).")
 
 
 def _x402_settlement_class() -> str:
@@ -973,7 +977,8 @@ AGENT_JSON = {
         "field": "workspace_key",
         "description": "Get a workspace_key with no human at all by paying via "
                         "POST /v1/billing/x402 (the paying wallet becomes the workspace "
-                        "identity), or at GET /start — no signup, no login, no card. "
+                        "identity), or by POST /start — no signup, no login, no card "
+                        "(GET /start renders the form only; it does not mint). "
                         f"NOTE: /v1/billing/x402 {X402_SETTLEMENT} "
                         "Claiming a NEW agent_id "
                         "requires that workspace_key in the first POST /v1/track or "
@@ -1002,8 +1007,9 @@ AGENT_JSON = {
                         "X-PAYMENT header; the paying wallet becomes the workspace "
                         f"identity. {X402_PASS_OFFER} Do this first: a workspace_key "
                         f"is required to claim a new agent_id. {X402_SETTLEMENT} "
-                        "If you hold no wallet, mint at GET /start instead (no wallet, "
-                        "no card, but capped at 3 agents).",
+                        "If you hold no wallet, mint at POST /start instead (no "
+                        "signup, no card, but capped at 3 agents; GET /start only "
+                        "renders the form and does not mint).",
          "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
@@ -1207,7 +1213,8 @@ def x402_wellknown_json():
                     "bound to the paying wallet, with no human, no email and no card.",
         "returns": ["workspace_id", "workspace_key"],
         "note": (f"{X402_SETTLEMENT} To get a workspace with no wallet at "
-                 "all, use GET /start."),
+                 "all, use POST /start (GET /start only renders the form and "
+                 "does not mint)."),
     }
     if not enabled:
         content["disabledReason"] = getattr(x402_verify, "X402_DISABLED_REASON", "unknown")
@@ -1250,7 +1257,9 @@ def agents_txt():
         "  Both /mcp and /mcp/ work. No login required to connect.\n"
         "\n"
         "GET A WORKSPACE (no human needed)\n"
-        "  GET  /start                 free workspace, no wallet, no card\n"
+        "  POST /start                 free workspace, no signup, no card\n"
+        "                              (GET /start only renders the form; it does\n"
+        "                               not mint)\n"
         f"  POST /v1/billing/x402       pay {x402_verify.X402_MINT_PRICE} in USDC; "
         "wallet IS the identity\n"
         f"                              ({X402_SETTLEMENT})\n"
