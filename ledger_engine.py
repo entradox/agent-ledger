@@ -240,9 +240,10 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     if workspace is None:
         import api_server
         raise WorkspaceKeyRequiredError(
-            "a new agent_id requires a valid workspace_key — get one "
-            "self-serve at https://aiagentscity.com/start (no signup, no login, "
-            "no card), or by paying at POST /v1/billing/x402 if you hold a "
+            "a new agent_id requires a valid workspace_key — mint one with "
+            "POST https://aiagentscity.com/start (no signup, no login, no card; "
+            "GET on that URL only renders the form and does NOT issue a key), or "
+            "by paying at POST /v1/billing/x402 if you hold a "
             f"wallet ({api_server._x402_settlement_words()})")
 
     # effective_agent_cap, not the raw field: an EXPIRED scarcity grant still

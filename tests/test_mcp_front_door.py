@@ -307,3 +307,48 @@ def test_live_mcp_surface_serves_the_mint(tmp_path, monkeypatch):
         text = payload["result"]["content"][0]["text"]
         assert "wk_live_" in text, (
             f"ledger_start via /mcp/ returned no workspace_key: {text[:300]}")
+
+
+# ── 5. The REST error message is a channel too ──────────────────────────────
+
+def test_rest_401_names_a_mint_path_that_works(tmp_path, monkeypatch):
+    """The 401 an agent gets is documentation, and it was wrong.
+
+    Probed live 2026-09-18: POST /v1/track with a new agent_id and no key
+    returned 401 workspace_key_required whose message said to get a key
+    "self-serve at https://aiagentscity.com/start". That URL is GET /start,
+    which returns a FORM. An agent that follows the instruction exactly still
+    has no credential — the same lie as the other five sites, in the one place
+    an agent is guaranteed to read it (its own error).
+    """
+    monkeypatch.setenv("AGENT_LEDGER_DATA", str(tmp_path))
+    from ledger_engine import ensure_agent_secret, WorkspaceKeyRequiredError
+
+    with pytest.raises(WorkspaceKeyRequiredError) as exc:
+        ensure_agent_secret("d1375-rest-probe", None, workspace_key=None)
+    msg = str(exc.value)
+
+    assert "POST" in msg, (
+        f"the workspace_key_required message does not name the POST method, so "
+        f"an agent cannot tell that GET returns a form: {msg}")
+    assert "GET on that URL only renders the form" in msg or "does NOT issue" in msg, (
+        f"the message points at /start without saying GET does not mint there, "
+        f"which is how the original misdirection read: {msg}")
+
+
+def test_cli_init_mints_via_post_not_get():
+    """The CLI is a real channel: `agent-ledger init` is in our own docs.
+
+    It must POST, because GET /start does not mint. A regression here would
+    break the one-command onboarding path advertised in llms.txt.
+    """
+    src = (REPO / "cli.py").read_text()
+    # Match the actual call, not the comment above it that also names /start.
+    call = re.search(r'_remote_request\(\s*base\s*,\s*[\'"]([A-Z]+)[\'"]\s*,\s*[\'"]/start[\'"]',
+                     src)
+    assert call is not None, (
+        "cli.py no longer calls /start — the mint path changed shape; update "
+        "this check rather than deleting it")
+    assert call.group(1) == "POST", (
+        f"cli.py mints via {call.group(1)} /start, but GET /start returns a form "
+        f"and does NOT mint — one-command onboarding would be broken (D-1375)")
