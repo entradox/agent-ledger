@@ -23,11 +23,14 @@ import metrics
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 
 # DISPLAY ONLY — this is NOT the enforcement cap. The free-tier limit actually
-# in force is per WORKSPACE and lives in workspace_engine.WORKSPACE_FREE_AGENT_CAP;
-# workspace_engine.effective_agent_cap is its only reader. The "site-wide total
-# claimed agents" cap this comment used to name was retired 2026-09-10 when
-# identity moved to per-workspace (see ensure_agent_secret below).
-# Two PRESENTATION surfaces still read this constant — /stats `agents.cap` and
+# in force is per WORKSPACE: workspace_engine.WORKSPACE_FREE_AGENT_CAP. That
+# constant reaches enforcement by three routes — create_workspace and revoke_pro
+# write it into the record's `agent_cap` field, and effective_agent_cap returns
+# it for an EXPIRED scarcity grant — after which ensure_agent_secret (~line 265)
+# enforces whatever effective_agent_cap returns. The "site-wide total claimed
+# agents" cap this comment used to name was retired 2026-09-10 when identity
+# moved to per-workspace (see ensure_agent_secret).
+# Two PRESENTATION surfaces still read THIS constant — /stats `agents.cap` and
 # the {FREE_AGENT_CAP} token in the skill.md text — so it must keep agreeing
 # with WORKSPACE_FREE_AGENT_CAP. tests/test_free_cap_agreement.py pins that, so
 # the number an arriving agent is shown cannot drift from the cap it hits.
