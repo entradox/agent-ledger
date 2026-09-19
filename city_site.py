@@ -320,7 +320,7 @@ PAGE_PRODUCTS = """<div class="human-surface">
     <h3>Agent Watch — monitoring for the agent economy</h3>
     <p><b>Non-human traffic is hitting your APIs and you can't see it.</b> What changed this week, alerts the moment a new agent calls your endpoints, anomaly summaries — before they become incidents or invoices.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Alert me when a new agent calls our API, with a weekly activity summary."</span></pre>
-    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026).</p>
+    <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026).</p>
     <div class="cta-row"><a class="btn btn-human" href="/agent-watch">Start monitoring</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-watch →</a></div>
   </div>
 
@@ -329,7 +329,7 @@ PAGE_PRODUCTS = """<div class="human-surface">
     <h3>Perimeter Watch — passive external-perimeter monitoring for web agencies</h3>
     <p><b>Attackers view your clients' domains from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan example.com for dangling DNS and cert expiry, then check lookalikes."</span></pre>
-    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026). The free browser snapshot works today.</p>
+    <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026). The free browser snapshot works today.</p>
     <div class="cta-row"><a class="btn btn-human" href="/perimeter-watch">Scan a domain</a><a class="btn btn-agentb" href="/developers">$ mcp add perimeter-watch →</a></div>
   </div>
 
@@ -345,7 +345,7 @@ PAGE_PRODUCTS = """<div class="human-surface">
     <h3>Cited — does AI recommend your practice?</h3>
     <p><b>Your customers stopped Googling. They ask AI.</b> Instant scan of what the AI engines say about your business — with verbatim evidence. Free.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan Gentry Dentistry of Suwanee for AI visibility — verbatim quotes."</span></pre>
-    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026). The free browser scan works today.</p>
+    <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026). The free browser scan works today.</p>
     <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
   </div>
 
@@ -359,10 +359,10 @@ PAGE_PRODUCTS = """<div class="human-surface">
 <span class="k">products:</span>
   - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
     pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
-  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: degraded (tool execution being repaired)
-  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: degraded (tool execution being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
+  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired)
+  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
   - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
-  - id: cited · mcp: /mcp/cited (9 tools) · status: degraded (tool execution being repaired) · free_scan: https://entradox.github.io/cited-site/
+  - id: cited · mcp: /mcp/cited (9 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_scan: https://entradox.github.io/cited-site/
 <span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility]
 <span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
 </pre></div>
@@ -418,9 +418,9 @@ client = agentledger.<span class="k">wrap</span>(OpenAI(), agent_id=<span class=
 <span class="k">discovery:</span> /.well-known/x402.json · /llms.txt · /skill.md
 <span class="k">mcp:</span>
   agent-ledger: https://aiagentscity.com/mcp/  <span class="c"># 12 tools</span>
-  agent-watch: .../mcp/agent-watch            <span class="c"># 8 tools · degraded: tool calls timing out upstream</span>
-  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · degraded: tool calls timing out upstream</span>
-  cited: .../mcp/cited                        <span class="c"># 9 tools · degraded: tool calls timing out upstream</span>
+  agent-watch: .../mcp/agent-watch            <span class="c"># 8 tools · live: tool calls translated to REST by the city gateway</span>
+  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · live: tool calls translated to REST by the city gateway</span>
+  cited: .../mcp/cited                        <span class="c"># 9 tools · live: tool calls translated to REST by the city gateway</span>
   trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
 <span class="k">purchase:</span>
   POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
@@ -474,6 +474,7 @@ PAGE_CHANGELOG = """<div class="human-surface">
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Four fixes from live testing.</b> Real <span class="ver">agent_secret="as_…"</span> format in the docs, SDK model IDs auto-priced as aliases, webhooks section on the dashboard, typed <span class="ver">payment_required</span> errors on the x402 endpoint. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (12 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (8) · Perimeter Watch <span class="ver">v1.30.0</span> (6) · Cited <span class="ver">v1.30.0</span> (9) · TrustScan <span class="ver">v4.0.3</span> (4). 39 MCP tools across five products. <span class="ver">platform</span></div></div>
@@ -486,10 +487,10 @@ PAGE_CHANGELOG = """<div class="human-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
-  - 2026-09-19: satellite MCP routes mounted on aiagentscity.com (/mcp/agent-watch,
-    /mcp/perimeter-watch, /mcp/cited, /mcp/trustscan resolve to owning backends);
-    TrustScan live (4 tools); watch/perimeter/cited list tools while their
-    backend tool execution is being repaired
+  - 2026-09-19: satellite tool calls execute via the city gateway (MCP tools/call
+    translated to each product's documented REST API); watch (8 tools),
+    perimeter (6), cited (9) all callable; native MCP dispatch on the v1.30.0
+    backends still being repaired by their owner
   - 2026-09-16: x402 live on eip155:8453 ($0.01 USDC = 24h Pro, zero-click)
   - 2026-09-16: agent-ledger fixes (agent_secret format, model alias pricing,
     dashboard webhooks, typed payment_required errors)

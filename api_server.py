@@ -26,6 +26,7 @@ from ledger_engine import (
     idempotency_release, scarcity_claims_left,
 )
 import metrics
+import sat_translate
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
@@ -645,21 +646,22 @@ Tool lists below are each server's live tools/list (2026-09-19).
 - agent-watch:        /mcp/agent-watch        (v1.30.0, 8 tools)
   aw_health, aw_check_endpoint, aw_census, aw_list_monitored,
   aw_alerts, aw_watch, skills_list_tool, read_skill
-  STATUS degraded: initialize + tools/list work; every tools/call times
-  out on the satellite backend ("read operation timed out"). Fix in
-  progress on the satellite service.
+  STATUS live: tool calls execute via the city gateway, which translates
+  them to the documented REST API. The satellite backend's native MCP
+  tool dispatch times out server-side ("read operation timed out") — fix
+  in progress on the satellite service.
 
 - perimeter-watch:    /mcp/perimeter-watch    (v1.30.0, 6 tools)
   pw_health, pw_snapshot, pw_watch_status, pw_stats,
   skills_list_tool, read_skill
-  STATUS degraded: same backend fault as agent-watch. The free browser
+  STATUS live: same gateway translation as agent-watch. The free browser
   snapshot form works today:
   https://entradox.github.io/perimeter-watch-site/
 
 - cited:              /mcp/cited              (v1.30.0, 9 tools)
   cited_health, cited_scan, cited_report, cited_watch_status,
   cited_stats, cited_api_docs, cited_examples, skills_list_tool, read_skill
-  STATUS degraded: same backend fault as agent-watch. The free browser
+  STATUS live: same gateway translation as agent-watch. The free browser
   scan form works today: https://entradox.github.io/cited-site/
 
 - trustscan:          /mcp/trustscan          (v4.0.3, 4 tools, LIVE)
@@ -1131,8 +1133,10 @@ def mcp_wellknown_json():
     Distinct from /.well-known/mcp/server-card.json (which is the richer
     registry card for AgentLedger alone). Tool names and counts below were
     read from each server's live tools/list on 2026-09-19. The three
-    v1.30.0 satellite servers currently execute tool calls with an upstream
-    "read operation timed out" fault — listed honestly rather than hidden.
+    v1.30.0 satellite servers' native MCP tool dispatch times out
+    server-side ("read operation timed out"); the city gateway translates
+    their tool calls to the documented REST APIs, so they are listed as
+    live with an honest status note rather than hidden.
     """
     return JSONResponse(content={
         "name": "io.aiagentscity/catalog",
@@ -1150,30 +1154,34 @@ def mcp_wellknown_json():
                        "skills_list_tool", "read_skill"]},
             {"id": "agent-watch",
              "url": "https://aiagentscity.com/mcp/agent-watch",
-             "version": "v1.30.0", "status": "degraded",
-             "status_note": "initialize + tools/list work; tool execution "
-                            "times out on the satellite backend — fix in "
-                            "progress on the satellite service.",
+             "version": "v1.30.0", "status": "live",
+             "status_note": "Tool calls execute via the city gateway, which "
+                            "translates them to the documented REST API. The "
+                            "satellite backend's native MCP tool dispatch "
+                            "times out server-side — fix in progress on the "
+                            "satellite service.",
              "tools": ["aw_health", "aw_check_endpoint", "aw_census",
                        "aw_list_monitored", "aw_alerts", "aw_watch",
                        "skills_list_tool", "read_skill"]},
             {"id": "perimeter-watch",
              "url": "https://aiagentscity.com/mcp/perimeter-watch",
-             "version": "v1.30.0", "status": "degraded",
-             "status_note": "initialize + tools/list work; tool execution "
-                            "times out on the satellite backend — fix in "
-                            "progress on the satellite service. The free "
-                            "snapshot form works: "
+             "version": "v1.30.0", "status": "live",
+             "status_note": "Tool calls execute via the city gateway, which "
+                            "translates them to the documented REST API. The "
+                            "satellite backend's native MCP tool dispatch "
+                            "times out server-side — fix in progress on the "
+                            "satellite service. The free snapshot form works: "
                             "https://entradox.github.io/perimeter-watch-site/",
              "tools": ["pw_health", "pw_snapshot", "pw_watch_status",
                        "pw_stats", "skills_list_tool", "read_skill"]},
             {"id": "cited",
              "url": "https://aiagentscity.com/mcp/cited",
-             "version": "v1.30.0", "status": "degraded",
-             "status_note": "initialize + tools/list work; tool execution "
-                            "times out on the satellite backend — fix in "
-                            "progress on the satellite service. The free "
-                            "scan form works: "
+             "version": "v1.30.0", "status": "live",
+             "status_note": "Tool calls execute via the city gateway, which "
+                            "translates them to the documented REST API. The "
+                            "satellite backend's native MCP tool dispatch "
+                            "times out server-side — fix in progress on the "
+                            "satellite service. The free scan form works: "
                             "https://entradox.github.io/cited-site/",
              "tools": ["cited_health", "cited_scan", "cited_report",
                        "cited_watch_status", "cited_stats", "cited_api_docs",
@@ -2165,6 +2173,72 @@ class _SatelliteMcpProxy:
                 return base + path[len(prefix):].lstrip("/")
         return None
 
+    def _match_prefix(self, path):
+        for prefix in _SATELLITE_MCP_UPSTREAMS:
+            if path == prefix or path.startswith(prefix + "/"):
+                return prefix
+        return None
+
+    @staticmethod
+    async def _read_body_capped(receive, limit):
+        """Buffer a POST body up to `limit` bytes. None when over the cap."""
+        chunks = []
+        total = 0
+        while True:
+            msg = await receive()
+            if msg["type"] == "http.request":
+                chunk = msg.get("body", b"")
+                if chunk:
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > limit:
+                        return None
+                if not msg.get("more_body"):
+                    break
+            elif msg["type"] == "http.disconnect":
+                break
+        return b"".join(chunks)
+
+    @staticmethod
+    def _replay_receive(receive, data):
+        """Wrap `receive` so the already-read body is delivered once more."""
+        state = {"sent": False}
+
+        async def _recv():
+            if not state["sent"]:
+                state["sent"] = True
+                return {"type": "http.request", "body": data,
+                        "more_body": False}
+            return await receive()
+
+        return _recv
+
+    async def _try_translate(self, prefix, body_bytes, scope, client,
+                             send):
+        """Attempt MCP tools/call -> REST translation.
+
+        Returns True when the request was answered here; False means the
+        caller must pass it through to the native upstream.
+        """
+        try:
+            rpc = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            return False
+        if not isinstance(rpc, dict):
+            return False
+        client_ip = (scope.get("client") or [None])[0]
+        translated = await sat_translate.translate(prefix, rpc, client,
+                                                    client_ip)
+        if translated is None:
+            return False
+        body_b = json.dumps(translated).encode("utf-8")
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length",
+                                 str(len(body_b)).encode())]})
+        await send({"type": "http.response.body", "body": body_b})
+        return True
+
     def _client_or_none(self):
         if self._client is None:
             try:
@@ -2200,6 +2274,20 @@ class _SatelliteMcpProxy:
                                      str(len(body)).encode())]})
             await send({"type": "http.response.body", "body": body})
             return
+
+        # v1.30.0 satellite backends time out every native MCP tools/call
+        # server-side; translate known tools to their documented REST
+        # equivalents. Anything untranslatable falls through to the native
+        # byte-proxy below (with the buffered body replayed).
+        prefix = self._match_prefix(scope.get("path", ""))
+        if (scope.get("method") == "POST" and prefix is not None
+                and sat_translate.translatable(prefix)):
+            body_bytes = await self._read_body_capped(receive, 512 * 1024)
+            if body_bytes is not None:
+                if await self._try_translate(prefix, body_bytes, scope,
+                                             client, send):
+                    return
+                receive = self._replay_receive(receive, body_bytes)
 
         headers = [(k, v) for k, v in (scope.get("headers") or [])
                    if k.lower() not in _SAT_HOP_BY_HOP]
