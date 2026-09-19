@@ -359,7 +359,7 @@ PAGE_PRODUCTS = """<div class="human-surface">
 <span class="k">products:</span>
   - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
     pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
-  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired)
+  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch intermittent, being repaired)
   - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
   - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
   - id: cited · mcp: /mcp/cited (9 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_scan: https://entradox.github.io/cited-site/

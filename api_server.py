@@ -1157,9 +1157,10 @@ def mcp_wellknown_json():
              "version": "v1.30.0", "status": "live",
              "status_note": "Tool calls execute via the city gateway, which "
                             "translates them to the documented REST API. The "
-                            "satellite backend's native MCP tool dispatch "
-                            "times out server-side — fix in progress on the "
-                            "satellite service.",
+                            "satellite backend's native MCP tool dispatch is "
+                            "intermittent (server-side read timeouts observed "
+                            "2026-09-19) — fix in progress on the satellite "
+                            "service.",
              "tools": ["aw_health", "aw_check_endpoint", "aw_census",
                        "aw_list_monitored", "aw_alerts", "aw_watch",
                        "skills_list_tool", "read_skill"]},
