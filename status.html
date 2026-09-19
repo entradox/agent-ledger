@@ -80,7 +80,7 @@ not just reported.</div>
     -H "Authorization: Bearer sk-your-own-provider-key" -d @payload.json
 
 <span class="st">HTTP/1.1 402 Payment Required</span>
-{"error":{"type":"<span class="k">budget_exceeded</span>","message":"blocked before the provider:
+{"error":{"type":"<span class="k">budget_error</span>","message":"blocked before the provider:
  this call's estimated maximum cost (4160 cents) would put support-triage over
  its monthly budget (99720 of 100000 cents). <span class="k">Nothing was sent upstream.</span>"}}</pre>
 <p style="font-size:12px;color:var(--m);margin-bottom:4px">The provider never saw the request,
