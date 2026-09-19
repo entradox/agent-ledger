@@ -166,7 +166,12 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
         return {"received": True, "granted": False, "reason": "no email on session"}
 
     amount = sess.get("amount_total") or 0
-    plan = "pro" if amount == 1900 else "unknown"
+    # Tier by settled amount (cents). The Stripe dashboard is the price book —
+    # this table must match the Payment Links it holds. Unknown amounts are
+    # recorded, never granted.
+    tier = {1900: "starter", 19000: "starter",      # $19/mo, $190/yr
+            7900: "team", 79000: "team"}.get(amount)  # $79/mo, $790/yr
+    plan = tier or "unknown"
 
     _append_customer({"ts": time.time(), "email": email, "plan": plan,
                       "amount_total": amount,
@@ -184,7 +189,7 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
         pass
 
     granted = False
-    if plan == "pro":
+    if tier:
         workspace_id = resolve_paying_workspace(sess, email)
         if workspace_id:
             import workspace_engine
@@ -207,7 +212,8 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
                     workspace_id, sess.get("customer", ""),
                     stripe_subscription_id=subscription_id,
                     pro_until=float(period_end),
-                    period_source="checkout.session.completed")
+                    period_source="checkout.session.completed",
+                    tier=tier)
                 granted = True
             except Exception as exc:
                 # An unresolvable workspace_id used to be swallowed with `pass`,
@@ -403,7 +409,7 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
                 # A successful payment clears any grace deadline and moves the
                 # clock to the new period.
                 rec = workspace_engine.get_workspace(wid)
-                if rec and rec.get("plan") == "pro":
+                if rec and rec.get("plan") in workspace_engine.PAID_TIERS:
                     workspace_engine.set_pro_period(
                         wid, float(period_end) if period_end else None,
                         source=event_type, reason=f"billing_reason={reason}")
@@ -572,7 +578,11 @@ async def stripe_webhook(request: Request):
     if not email:
         return {"registered": False, "reason": "no email on session"}
     amount = sess.get("amount_total") or 0
-    plan = "pro" if amount == 1900 else "unknown"
+    # Same amount→tier table as the completed-session path above: the Stripe
+    # dashboard is the price book, unknown amounts are recorded, never granted.
+    tier = {1900: "starter", 19000: "starter",
+            7900: "team", 79000: "team"}.get(amount)
+    plan = tier or "unknown"
 
     # `completed` is NOT the same as `paid`. Stripe: "A completed checkout
     # session does not mean that there was a successful payment" - the event
@@ -641,6 +651,10 @@ def create_checkout(request: Request):
     checkout.session.completed (docs.stripe.com/payment-links/url-parameters),
     which is exactly the field this module's webhook reads to call
     workspace_engine.mark_pro(). No API key, no session, no Google.
+
+    `?plan=team` selects the Team payment link (AL_STRIPE_TEAM_LINK); anything
+    else uses the Starter link. The webhook grants the tier by settled amount,
+    so the link and the amount table must agree.
     """
     import identity
     workspace_id = (request.headers.get("x-workspace-id") or "").strip()
@@ -655,10 +669,17 @@ def create_checkout(request: Request):
         raise HTTPException(401, detail=error_envelope(
             401, "workspace_key does not match that workspace_id",
             code="agent_secret_mismatch"))
-    link = os.environ.get("AL_STRIPE_PAYMENT_LINK",
-                          "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+    starter = os.environ.get("AL_STRIPE_PAYMENT_LINK",
+                             "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+    plan = (request.query_params.get("plan") or "").strip().lower()
+    link = starter
+    if plan == "team":
+        link = os.environ.get("AL_STRIPE_TEAM_LINK", "") or starter
+        plan = "team" if os.environ.get("AL_STRIPE_TEAM_LINK", "") else "starter"
+    else:
+        plan = "starter"
     return {"checkout_url": f"{link}?client_reference_id={workspace_id}",
-            "workspace_id": workspace_id}
+            "workspace_id": workspace_id, "plan": plan}
 
 
 

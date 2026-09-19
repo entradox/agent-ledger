@@ -422,7 +422,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   <div class="term"><div class="thead">$ agent-view /products</div><pre>
 <span class="k">products:</span>
   - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
-    pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
+    pricing: {free: "≤3 agents", starter: "$19/mo", team: "$79/mo", enterprise: "custom"} · x402: "$0.01 = 24h Pro"
   - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch intermittent, being repaired)
   - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
   - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
@@ -449,9 +449,9 @@ PAGE_PRODUCTS = """<div class="agent-surface">
       <li><b>Push alerts + shareable reports</b> — webhooks with retries; signed, expiring report links.</li>
     </ul>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>HTTP/1.1 <span class="k">402</span> Payment Required
-{<span class="s">"error"</span>:{<span class="s">"type"</span>:<span class="s">"budget_exceeded"</span>, <span class="s">"message"</span>:<span class="s">"blocked before the provider"</span>}}</pre>
-    <p style="font-size:14px"><b style="color:var(--txt)">Free:</b> 3 agents, every rail, enforced caps. <b style="color:var(--txt)">Pro: $19/mo flat</b> — unlimited agents, never per seat.</p>
-    <div class="cta-row"><a class="btn btn-human" href="/start">Get a workspace — no signup, no card</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-ledger →</a></div>
+{<span class="s">"error"</span>:{<span class="s">"type"</span>:<span class="s">"budget_error"</span>, <span class="s">"message"</span>:<span class="s">"blocked before the provider"</span>}}</pre>
+    <p style="font-size:14px"><b style="color:var(--txt)">Free:</b> 3 agents, every rail, enforced caps. <b style="color:var(--txt)">Paid: from $19/mo</b> — Starter (10 agents), Team (50), Enterprise custom.</p>
+    <div class="cta-row"><a class="btn btn-human" href="/start">Get a workspace — no signup, no card</a><a class="btn btn-ghost" href="/agent-ledger#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-ledger →</a></div>
   </div>
 
   <div class="card">
@@ -460,7 +460,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <p><b>Non-human traffic is hitting your APIs and you can't see it.</b> What changed this week, alerts the moment a new agent calls your endpoints, anomaly summaries — before they become incidents or invoices.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Alert me when a new agent calls our API, with a weekly activity summary."</span></pre>
     <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026).</p>
-    <div class="cta-row"><a class="btn btn-human" href="/agent-watch">Start monitoring</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-watch →</a></div>
+    <div class="cta-row"><a class="btn btn-human" href="/agent-watch">Start monitoring</a><a class="btn btn-ghost" href="/agent-watch#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-watch →</a></div>
   </div>
 
   <div class="card">
@@ -469,14 +469,14 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <p><b>Attackers view your clients' domains from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan example.com for dangling DNS and cert expiry, then check lookalikes."</span></pre>
     <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026). The free browser snapshot works today.</p>
-    <div class="cta-row"><a class="btn btn-human" href="/perimeter-watch">Scan a domain</a><a class="btn btn-agentb" href="/developers">$ mcp add perimeter-watch →</a></div>
+    <div class="cta-row"><a class="btn btn-human" href="/perimeter-watch">Scan a domain</a><a class="btn btn-ghost" href="/perimeter-watch#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add perimeter-watch →</a></div>
   </div>
 
   <div class="card">
     <div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 4 MCP tools · live</span></div>
     <h3>TrustScan — scan before you trust</h3>
     <p><b>Your agent is about to install a stranger's MCP server.</b> TrustScan answers the question every agent should ask first: <i>is this safe to wire in?</i> Invisible-Unicode prompt-injection, dangerous code patterns (MCP001&ndash;MCP006), hardcoded secrets, typosquat names — a 0&ndash;100 score, a letter grade, and evidence. Live over MCP today, read-only, no signup.</p>
-    <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Scan a server</a><a class="btn btn-agentb" href="/developers">$ mcp add trustscan →</a></div>
+    <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Scan a server</a><a class="btn btn-ghost" href="/trust-scan#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add trustscan →</a></div>
   </div>
 
   <div class="card">
@@ -485,7 +485,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <p><b>Your customers stopped Googling. They ask AI.</b> Instant scan of what the AI engines say about your business — with verbatim evidence. Free.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan Gentry Dentistry of Suwanee for AI visibility — verbatim quotes."</span></pre>
     <p class="mut" style="font-size:13px">Status: tools execute through the city gateway, which translates MCP tool calls to the documented REST API. The satellite backend's native MCP tool dispatch is being repaired (Sept 2026). The free browser scan works today.</p>
-    <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
+    <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-ghost" href="/cited#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
   </div>
 
   <div class="pull">Five products, one thesis: the agent economy needs operations. We're building the boring infrastructure that makes the exciting future possible.</div>
@@ -566,7 +566,7 @@ PAGE_COMPARE = """<div class="agent-surface">
                    langdb: "gateway spend controls", revenium: "api metering",
                    langfuse: "trace observability"}
   agent_purchase:  {agentledger: "$0.01 x402", others: "none"}
-  price:           {agentledger: "$19/mo flat", langsmith: "$39/seat",
+  price:           {agentledger: "from $19/mo", langsmith: "$39/seat",
                     helicone: "$79/mo", braintrust: "$249/mo", openrouter: "usage"}
   prices_verified: "2026-09-19"
 </pre></div>
@@ -583,7 +583,7 @@ PAGE_COMPARE = """<div class="agent-surface">
     <tr><td><b>Budgets belong to the agent</b></td><td class="y"><b>Yes — keyed to agent_id</b></td><td class="n">Org / key / user</td><td class="n">No</td><td class="n">No</td><td class="n">API keys</td></tr>
     <tr><td><b>Agent buys itself</b></td><td class="y"><b>$0.01 x402, no human</b></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
     <tr><td><b>Trace debugging</b></td><td class="n">No — by design</td><td class="y">Best in class</td><td class="y">Yes</td><td class="y">Eval-first</td><td class="n">No</td></tr>
-    <tr><td><b>Price</b></td><td class="y"><b>$19/mo flat</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
+    <tr><td><b>Price</b></td><td class="y"><b>from $19/mo</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
   </table>
   <div class="pull" style="font-size:19px">If you want to <i>understand</i> your spend, buy a trace viewer — LangSmith's is superb. If you want to <i>control</i> it, per agent, with the agent itself as the customer — that's us.</div>
   <div class="card"><h3>Also in the space</h3><p class="mut"><b>LiteLLM</b>, <b>Portkey</b>, <b>LangDB</b> — gateway proxies with per-key spend controls, scoped to the traffic routed through them. <b>Revenium</b> — API metering for monetization. <b>Langfuse</b> — open-source trace observability. Gateway- and trace-layer tools see their own layer; AgentLedger enforces per-agent budgets with a 402 before any provider is contacted, and the agent itself can buy Pro.</p></div>
@@ -595,6 +595,9 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
+  - 2026-09-19: pricing published for all five products (monthly/annual,
+    self-serve checkout); AgentLedger adds Starter ($19/mo, 10 agents) and
+    Team ($79/mo, 50 agents) tiers
   - 2026-09-19: satellite tool calls execute via the city gateway (MCP tools/call
     translated to each product's documented REST API); watch (8 tools),
     perimeter (6), cited (9) all callable; native MCP dispatch on the v1.30.0
@@ -613,6 +616,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
+    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Pricing published for all five products.</b> Every product page now shows its tiers with monthly/annual billing: AgentLedger adds Starter ($19/mo, 10 agents) and Team ($79/mo, 50 agents) alongside Free and Enterprise; Agent Watch ($29/$79), Perimeter Watch ($29/$99), TrustScan Team ($49), Cited ($49 report, $149/mo monitoring). Paid checkout is self-serve. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>

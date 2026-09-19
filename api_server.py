@@ -1779,6 +1779,11 @@ def terms_page():
 
 PAYMENT_LINK = os.environ.get(
     "AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
+# Team tier link (2026-09-19 pricing). Unset until the operator creates the
+# $79/mo Payment Link in Stripe — the Team checkout then falls back to the
+# Starter link and the minted page says Starter, never a dead button.
+PAYMENT_LINK_STARTER = PAYMENT_LINK
+PAYMENT_LINK_TEAM = os.environ.get("AL_STRIPE_TEAM_LINK", "").strip()
 
 
 def _page(title: str, body: str) -> str:
@@ -1802,21 +1807,24 @@ pre{{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px
 </style></head><body><div class="w">{body}</div></body></html>"""
 
 
-def _start_form_html() -> str:
-    return _page("AgentLedger — start", """
+def _start_form_html(plan: str = "") -> str:
+    # Plan travels on the form action's query string (not a hidden input) so
+    # the sync POST handler can read it from request.query_params.
+    action = "/start?plan=" + plan if plan in ("starter", "team") else "/start"
+    body = """
 <h1>Start your <span>ledger</span></h1>
 <div class="sub">Get a workspace, claim your first agent, set a cap.</div>
 <div class="card">
 <p><b>No signup. No login. No card.</b> One press and you get a workspace_key you can
 use immediately. Free tier is 3 agents per workspace — every rail, budget caps with real
 enforcement, alerts, reports, token burn, and the MCP server are included.</p>
-<form method="post" action="/start"><button class="btn" type="submit">Create my workspace</button></form>
+<form method="post" action="ACTION"><button class="btn" type="submit">Create my workspace</button></form>
 <div class="warn">The key is shown once, on the next screen. Save it before you leave — it is not emailed.</div>
 </div>
 <div class="card">
 <p><b>Running this from an agent?</b> Skip the form — pay with your own wallet and get more
 than the free tier gives, with no human in the loop:</p>
-<pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \
+<pre>curl -X POST https://aiagentscity.com/v1/billing/x402 \\
   -H "X-PAYMENT: &lt;your x402 payment header&gt;"</pre>
 <p class="mut">{X402_PASS_OFFER_HTML}</p>
 <p class="warn">{X402_SETTLEMENT_HTML}</p>
@@ -1824,10 +1832,12 @@ than the free tier gives, with no human in the loop:</p>
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
-""")
+""".replace("ACTION", action)
+    return _page("AgentLedger — start", body)
 
 
-def _start_key_html(workspace_id: str, raw_key: str, checkout: str) -> str:
+def _start_key_html(workspace_id: str, raw_key: str, checkout: str,
+                    plan_name: str = "Starter") -> str:
     """The post-mint page.
 
     The layout here is a conversion decision, not decoration (D-1163). This
@@ -1841,6 +1851,8 @@ def _start_key_html(workspace_id: str, raw_key: str, checkout: str) -> str:
     key_block = (f'<div class="key">{html.escape(raw_key)}</div>' if raw_key else
                  '<div class="key">a key was already issued for this workspace and is '
                  'shown only once, at mint time</div>')
+    plan_price = "$79/mo" if plan_name == "Team" else "$19/mo"
+    plan_agents = "up to 50 agents" if plan_name == "Team" else "up to 10 agents"
     # Fire-and-forget, and deliberately not required for navigation: the link
     # must work with JS disabled and with the beacon failing.
     beacon = ("if(navigator.sendBeacon){navigator.sendBeacon("
@@ -1870,10 +1882,10 @@ https://aiagentscity.com/mcp/</code> — and let the agent do it.</p>
 <p><b>Optional, and not needed today.</b> Only matters past 3 agents — two ways to lift
 that, for different situations:</p>
 <p class="mut"><b>If an agent hits the wall itself:</b> {_x402_pass_offer_words()}</p>
-<p class="mut"><b>If you'd rather not think about it again:</b> Pro at $19/mo, unlimited
-agents, no expiry, same workspace, same key, nothing to migrate.</p>
+<p class="mut"><b>If you'd rather not think about it again:</b> {plan_name} at
+{plan_price}, {plan_agents}, same workspace, same key, nothing to migrate.</p>
 <a class="plain" href="{html.escape(checkout, quote=True)}" rel="noopener"
-   onclick="{beacon}">Upgrade to Pro →</a>
+   onclick="{beacon}">Upgrade to {plan_name} →</a>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
 """)
@@ -1898,12 +1910,18 @@ than the free tier anyway: {X402_PASS_OFFER_HTML} It
 """)
 
 @app.get("/start", response_class=HTMLResponse)
-def start_page():
+def start_page(request: Request):
     """Step one of the buy path. Deliberately does NOT mint: a mint on GET
     would let any crawler, link-preview bot or accidental reload burn one of
     the 50 launch-window workspaces and orphan a key nobody ever saw. The
-    form POSTs to this same path, which does the minting."""
-    return (_start_form_html()
+    form POSTs to this same path, which does the minting. `?plan=starter|team`
+    (from the pricing page) carries through as a hidden form field so the
+    post-mint page shows the right checkout link.
+    """
+    plan = (request.query_params.get("plan") or "").strip().lower()
+    if plan not in ("starter", "team"):
+        plan = ""
+    return (_start_form_html(plan)
             .replace("{X402_SETTLEMENT_HTML}", _x402_settlement_words())
             .replace("{X402_PASS_OFFER_HTML}", _x402_pass_offer_words()))
 
@@ -1965,6 +1983,15 @@ def start_mint(request: Request):
     except Exception:
         pass
     checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
+    # Pricing-page plan (?plan=starter|team on the form action). The Team link
+    # is operator-configured; until AL_STRIPE_TEAM_LINK exists the Team button
+    # falls back to the Starter link and the page says Starter — never a dead
+    # checkout.
+    want = (request.query_params.get("plan") or "").strip().lower()
+    plan_link, plan_name = PAYMENT_LINK_STARTER, "Starter"
+    if want == "team" and PAYMENT_LINK_TEAM:
+        plan_link, plan_name = PAYMENT_LINK_TEAM, "Team"
+    checkout = f"{plan_link}?client_reference_id={workspace_id}"
     # Machine clients (agents following /skill.md) ask for JSON with
     # Accept: application/json and get the key as data instead of HTML.
     # Without it, humans get the one-time-reveal page as before.
@@ -1981,7 +2008,7 @@ def start_mint(request: Request):
     # strand a credential we cannot reissue. no-referrer keeps the key out of
     # any Referer header on the outbound click to Stripe.
     return HTMLResponse(
-        _start_key_html(workspace_id, raw_key, checkout).replace(
+        _start_key_html(workspace_id, raw_key, checkout, plan_name).replace(
             "{X402_SETTLEMENT_HTML}", _x402_settlement_words()),
                         headers={"Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})

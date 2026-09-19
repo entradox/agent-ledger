@@ -221,6 +221,9 @@ PERIMETER_WATCH_PAGE = """
 <p class="mut">Status: MCP tools execute through the city gateway, which translates tool calls
 to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
 is being repaired (Sept 2026). The free browser snapshot works today.</p>
+
+<h2>Pricing</h2>
+{PRICING_PERIMETER_WATCH}
 """
 
 CITED_PAGE = """
@@ -243,6 +246,9 @@ CITED_PAGE = """
 <p class="mut">Status: MCP tools execute through the city gateway, which translates tool calls
 to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
 is being repaired (Sept 2026). The free browser scan works today.</p>
+
+<h2>Pricing</h2>
+{PRICING_CITED}
 """
 
 AGENT_WATCH_PAGE = """
@@ -253,7 +259,7 @@ Agent Watch monitors the agent economy's endpoints &mdash; liveness, latency, sc
 drift, auth posture, price integrity. Probe any endpoint below, free, no signup.</p>
 <p><span class="ver">v1.30.0</span> <span class="ver">8 MCP tools</span> <span class="ver">live</span></p>
 
-<div class="card">
+<div class="card" id="probe">
 <h3>Probe an endpoint now</h3>
 <p class="mut">We check liveness, latency, and whether the endpoint advertises a
 price challenge &mdash; the handshake your agent would do, without your agent.</p>
@@ -279,10 +285,13 @@ price challenge &mdash; the handshake your agent would do, without your agent.</
 <button class="go" onclick="checkWatch()">Check status</button>
 </div>
 <div class="res" id="watch-res"></div>
-<p class="mut" style="margin-top:10px">Monitoring subscriptions with email alerts are
-issued per customer. Every MCP tool &mdash; including <span class="ver">aw_watch</span> &mdash;
-works today for token holders; self-serve signup is being finished on the backend.</p>
+<p class="mut" style="margin-top:10px">Monitoring subscriptions with email alerts
+are <b>$29/mo</b> — pick a plan below and checkout is self-serve. Every MCP tool
+&mdash; including <span class="ver">aw_watch</span> &mdash; works today for subscribers.</p>
 </div>
+
+<h2>Pricing</h2>
+{PRICING_AGENT_WATCH}
 
 <h2>For agents</h2>
 <div class="card">
@@ -359,7 +368,7 @@ TRUST_SCAN_PAGE = """
 below &mdash; free, no signup &mdash; then run the deep code scan over MCP.</p>
 <p><span class="ver">v4.0.3</span> <span class="ver">4 MCP tools</span> <span class="ver">live</span></p>
 
-<div class="card">
+<div class="card" id="npmcheck">
 <h3>Check an npm package</h3>
 <p class="mut">Registry facts plus a typosquat screen against widely-used packages.
 This is the metadata half of the scan &mdash; the deep code scan runs over MCP, below.</p>
@@ -390,9 +399,12 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 <li><b>trust_scan_server</b>(path, package_name) &mdash; full security scan of an MCP server or skill package</li>
 <li><b>trust_scan_file</b>(filepath) &mdash; scan a single file</li>
 </ul>
-<p class="mut">Pasting raw code for a full in-browser scan is coming &mdash; today the deep
-scan runs over MCP, where the scanner has the code in front of it.</p>
+<p class="mut">The deep scan runs over MCP, where the scanner has the code in front of it
+&mdash; teams wire it into CI on the <b>Team plan</b> below.</p>
 </div>
+
+<h2>Pricing</h2>
+{PRICING_TRUST_SCAN}
 
 <script>
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,
@@ -757,3 +769,23 @@ DEMO_NOTE = """
 no real workspace, no key, nothing written. It is the same dashboard you get
 with your own data. <a href="/quickstart">Connect a real agent →</a></p>
 """
+
+
+# ── Pricing sections (rendered from pricing.py; env-driven Stripe links) ─────
+try:
+    import pricing as _pricing
+
+    AGENT_WATCH_PAGE = AGENT_WATCH_PAGE.replace(
+        "{PRICING_AGENT_WATCH}", _pricing.pricing_section("agent-watch"))
+    TRUST_SCAN_PAGE = TRUST_SCAN_PAGE.replace(
+        "{PRICING_TRUST_SCAN}", _pricing.pricing_section("trust-scan"))
+    PERIMETER_WATCH_PAGE = PERIMETER_WATCH_PAGE.replace(
+        "{PRICING_PERIMETER_WATCH}", _pricing.pricing_section("perimeter-watch"))
+    CITED_PAGE = CITED_PAGE.replace(
+        "{PRICING_CITED}", _pricing.pricing_section("cited"))
+
+    CITY_SHELL = CITY_SHELL.replace("</style>",
+                                    _pricing.PRICING_CSS + "\n</style>", 1)
+except Exception:
+    # Pricing is decorative; a failure here must never break the pages.
+    pass

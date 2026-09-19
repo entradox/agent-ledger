@@ -16,6 +16,13 @@ from typing import Optional
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 WORKSPACE_SCARCITY_CAP = 50
 WORKSPACE_FREE_AGENT_CAP = 3
+# Paid tiers (2026-09-19 pricing). The Stripe dashboard is the price book;
+# routes_billing maps settled amounts to these tier names, and mark_pro()
+# writes the matching agent cap. "pro" is the legacy unlimited tier kept for
+# workspaces granted before tiers existed.
+STARTER_AGENT_CAP = 10
+TEAM_AGENT_CAP = 50
+PAID_TIERS = ("starter", "team", "pro")
 # Reused from ledger_engine, where the retired per-agent scarcity grant used
 # the same one-year duration — imported rather than re-literal'd so the two
 # can never drift apart.
@@ -204,8 +211,9 @@ def reissue_key(workspace_id: str) -> str:
 def mark_pro(workspace_id: str, stripe_customer_id: str,
              stripe_subscription_id: str = "",
              pro_until: Optional[float] = None,
-             period_source: str = "") -> None:
-    """Grant Pro, optionally with the paid period's end.
+             period_source: str = "",
+             tier: str = "pro") -> None:
+    """Grant a paid tier, optionally with the paid period's end.
 
     `pro_until` is the load-bearing argument for D-1269. Originally mark_pro
     set it to None unconditionally, and is_workspace_pro() reads None as
@@ -221,8 +229,14 @@ def mark_pro(workspace_id: str, stripe_customer_id: str,
     record = get_workspace(workspace_id)
     if record is None:
         raise WorkspaceError(f"workspace not found: {workspace_id}")
-    record["plan"] = "pro"
-    record["agent_cap"] = None
+    # Fail open on an unrecognized tier name: a paying customer must never be
+    # downgraded by a typo in the amount→tier table. Unknown tiers keep the
+    # legacy unlimited Pro behavior.
+    if tier not in PAID_TIERS:
+        tier = "pro"
+    record["plan"] = tier
+    record["agent_cap"] = {"starter": STARTER_AGENT_CAP,
+                           "team": TEAM_AGENT_CAP}.get(tier)
     # A paid subscription supersedes any scarcity grant: write the paid period
     # (or None = no expiry) so a first-50 workspace that later subscribes does
     # not inherit the grant's one-year clock.
@@ -356,9 +370,10 @@ def mark_write_and_check_returning(workspace_id: str, *,
 def is_workspace_pro(workspace_id: str) -> bool:
     """Pro via one of two routes, checked in this order:
 
-    1. A Stripe subscription (mark_pro) — plan == "pro". If a pro_until is
-       present it is the end of the paid period (or, after a failed renewal,
-       the end of the grace window); past it the workspace is free.
+    1. A Stripe subscription (mark_pro) — plan in ("pro", "starter", "team").
+       If a pro_until is present it is the end of the paid period (or, after a
+       failed renewal, the end of the grace window); past it the workspace is
+       free.
     2. A scarcity grant — plan == "pro" WITH a pro_until, which expires one
        year after the workspace was created. Without this check a first-50
        workspace would be Pro forever, which is not what was offered.
@@ -370,7 +385,7 @@ def is_workspace_pro(workspace_id: str) -> bool:
     covers legacy records and grants only.
     """
     record = get_workspace(workspace_id)
-    if not record or record.get("plan") != "pro":
+    if not record or record.get("plan") not in PAID_TIERS:
         return False
     pro_until = record.get("pro_until")
     if pro_until is None:
@@ -386,10 +401,14 @@ def effective_agent_cap(record: dict) -> Optional[int]:
     one-year expiry has to be applied here, or the expiry would be purely
     cosmetic and a first-50 workspace would keep unlimited agents for life.
     An expired scarcity grant falls back to the free-tier cap.
+
+    The expiry check runs FIRST: a paid tier (starter/team) stores its cap in
+    agent_cap, so checking the cap first would let an expired subscription
+    keep its paid cap forever.
     """
-    if record.get("agent_cap") is not None:
-        return record["agent_cap"]
     pro_until = record.get("pro_until")
     if pro_until is not None and time.time() >= pro_until:
         return WORKSPACE_FREE_AGENT_CAP
+    if record.get("agent_cap") is not None:
+        return record["agent_cap"]
     return None
