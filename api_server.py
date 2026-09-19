@@ -1721,10 +1721,17 @@ def _fresh_agent_id(workspace_id: str) -> str:
 
     Shaped to satisfy the API's own `agent_id` validator: lowercase [a-z0-9-], <=64 chars
     (probed live: "a"*80 -> 422 invalid_agent_id; "agent with space" -> 422; "first-agent" -> ok).
-    Derived from the workspace id so it is stable-ish, plus a short time suffix for uniqueness.
+
+    Uniqueness comes from the workspace id, NOT from a timestamp. That distinction
+    is load-bearing: a time suffix is only as unique as its resolution, so two
+    workspaces minted inside the same window would derive the same id, and the
+    second would be handed a string the first had already claimed — the original
+    bug, restored, just harder to see. A uuid4 does not have a resolution.
+    The workspace id keeps it recognisable and stable per workspace; the uuid
+    carries the guarantee.
     """
-    tail = re.sub(r"[^a-z0-9]+", "-", workspace_id.lower()).strip("-")[-12:]
-    return f"first-agent-{tail}-{int(time.time()) % 100000}"
+    tail = re.sub(r"[^a-z0-9]+", "-", workspace_id.lower()).strip("-")[:12]
+    return f"first-agent-{tail}-{uuid.uuid4().hex[:8]}"
 
 
 def _start_key_html(workspace_id: str, raw_key: str, checkout: str) -> str:

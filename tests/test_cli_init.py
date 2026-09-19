@@ -326,3 +326,24 @@ def test_no_published_surface_hands_out_a_claimable_constant():
         "the quickstart curl no longer shows a placeholder agent_id — the "
         "customer has nothing to substitute and will paste a shared id")
 
+
+def test_generated_agent_ids_are_unique_without_a_clock():
+    """Uniqueness must not depend on time resolution.
+
+    The first version of this fix derived the id from the workspace plus
+    `int(time.time()) % 100000`, which is only unique up to a one-second window:
+    two workspaces minted inside the same second would be handed the same id,
+    and the second customer would get the original 401 back. This calls the
+    helper repeatedly for ONE workspace, so any clock-derived scheme collapses
+    and any per-call entropy holds.
+    """
+    import api_server
+    ids = [api_server._fresh_agent_id("ws_Kc-identical-workspace-id") for _ in range(200)]
+    assert len(set(ids)) == len(ids), (
+        "generated ids collided for one workspace — uniqueness is coming from a "
+        "clock or a counter, not from entropy, so concurrent mints can collide")
+
+    from ledger_engine import validate_agent_id
+    for agent_id in ids[:50]:
+        validate_agent_id(agent_id)   # raises if it would 422 for a real customer)
+
