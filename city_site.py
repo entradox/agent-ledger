@@ -427,7 +427,7 @@ client = agentledger.<span class="k">wrap</span>(OpenAI(), agent_id=<span class=
 </div>"""
 
 PAGE_COMPARE = """<div class="human-surface">
-  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/compare · prices verified 2026-09-18</div>
+  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/compare · prices verified 2026-09-19</div>
   <h1>Built to enforce.<br>Not to report.</h1>
   <p class="lede">Trace viewers are excellent at answering <i>"what did my agent do?"</i> — after you've paid for it. AgentLedger answers a different question: <i>"stop the call that breaks the budget."</i> Here's the honest map, including where the competition wins.</p>
   <table class="cmp">
@@ -459,7 +459,7 @@ PAGE_COMPARE = """<div class="human-surface">
   agent_purchase:  {agentledger: "$0.01 x402", others: "none"}
   price:           {agentledger: "$19/mo flat", langsmith: "$39/seat",
                     helicone: "$79/mo", braintrust: "$249/mo", openrouter: "usage"}
-  prices_verified: "2026-09-18"
+  prices_verified: "2026-09-19"
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
