@@ -221,6 +221,8 @@ def test_the_landing_page_links_the_demo_and_the_dashboard(client):
 def test_compare_page_prices_are_dated(client):
     """Competitor prices drift; an undated price is a claim we cannot defend."""
     body = client.get("/compare").text
-    assert "2026-09-13" in body, "the comparison must date its prices"
+    # re-verified 2026-09-18 (accuracy audit): LangSmith $39/seat + $0.50/1k overages,
+    # OpenRouter Guardrails unverifiable -> listed as per-key spend limits only.
+    assert "2026-09-18" in body, "the comparison must date its prices"
     for vendor in ("LangSmith", "Helicone", "Braintrust"):
         assert vendor in body

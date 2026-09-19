@@ -212,6 +212,10 @@ REACH_EXEMPT = {
     "/cited": "different product's landing page — instrument when it gets a funnel",
     "/agent-watch": "different product's landing page — instrument when it gets a funnel",
     "/trust-scan": "different product's landing page — instrument when it gets a funnel",
+    "/products": "umbrella stack page, reached mid-funnel, not a funnel entry",
+    "/developers": "machine-readable surfaces index, not a funnel entry",
+    "/changelog": "informational release log, not a funnel entry",
+    "/spec": "internal-facing founder spec, not a funnel entry",
 }
 
 
@@ -1343,6 +1347,11 @@ def sitemap_xml():
     from datetime import date
     pages = [
         ("/",             "1.0", "daily"),
+        ("/products",     "0.9", "weekly"),
+        ("/developers",   "0.8", "weekly"),
+        ("/compare",      "0.8", "weekly"),
+        ("/changelog",    "0.7", "weekly"),
+        ("/spec",         "0.5", "weekly"),
         ("/agent-ledger", "0.9", "weekly"),
         ("/start",        "0.8", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
@@ -1373,16 +1382,39 @@ def sitemap_xml():
 
 @app.get("/", response_class=HTMLResponse)
 def front_door():
-    """The AI Agent City umbrella index (D-1239). Until D-1239 this path
-    served AgentLedger's own landing page directly — that content now lives
-    at /agent-ledger, and this lists all products so the domain reads as the
-    umbrella it actually is."""
-    import site_pages
-    return HTMLResponse(site_pages.city_page(
-        "AI Agent City",
-        "AI Agent City is a toolbelt for running AI agents in production: "
-        "AgentLedger, Perimeter Watch, Cited, Agent Watch and TrustScan.",
-        site_pages.UMBRELLA_INDEX))
+    """The AI Agent City umbrella index: one site, two readers (human + agent
+    surfaces, Human | Agent toggle). Ported from the two-surfaces mockup."""
+    return _city_response("/")
+
+
+def _city_response(path: str) -> HTMLResponse:
+    import city_site
+    const, title, desc = city_site.PAGES_META[path]
+    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)))
+
+
+@app.get("/products", response_class=HTMLResponse)
+def city_products():
+    """The five-product stack page (two surfaces)."""
+    return _city_response("/products")
+
+
+@app.get("/developers", response_class=HTMLResponse)
+def city_developers():
+    """Machine-readable surfaces: MCP, REST, CLI, x402 (two surfaces)."""
+    return _city_response("/developers")
+
+
+@app.get("/changelog", response_class=HTMLResponse)
+def city_changelog():
+    """External-facing product releases only (two surfaces)."""
+    return _city_response("/changelog")
+
+
+@app.get("/spec", response_class=HTMLResponse)
+def city_spec():
+    """Founder gap spec: what the site and each product are still missing."""
+    return _city_response("/spec")
 
 
 @app.get("/agent-ledger", response_class=HTMLResponse)
@@ -1623,13 +1655,9 @@ def quickstart_page():
 
 @app.get("/compare", response_class=HTMLResponse)
 def compare_page():
-    """Why this is not a trace viewer — the honest version, with dated prices."""
-    import site_pages
-    return HTMLResponse(site_pages.page(
-        "AgentLedger vs trace viewers — LangSmith, Helicone, Langfuse",
-        "How per-agent budget enforcement differs from request-level trace "
-        "observability, with dated list prices.",
-        site_pages.COMPARE))
+    """Why this is not a trace viewer — the honest version, with dated prices.
+    Two-surface redesign of the same comparison."""
+    return _city_response("/compare")
 
 
 @app.get("/reliability", response_class=HTMLResponse)
