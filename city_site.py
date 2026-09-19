@@ -595,9 +595,6 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
-  - 2026-09-19: pricing published for all five products (monthly/annual,
-    self-serve checkout); AgentLedger adds Starter ($19/mo, 10 agents) and
-    Team ($79/mo, 50 agents) tiers
   - 2026-09-19: satellite tool calls execute via the city gateway (MCP tools/call
     translated to each product's documented REST API); watch (8 tools),
     perimeter (6), cited (9) all callable; native MCP dispatch on the v1.30.0
@@ -616,7 +613,6 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
-    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Pricing published for all five products.</b> Every product page now shows its tiers with monthly/annual billing: AgentLedger adds Starter ($19/mo, 10 agents) and Team ($79/mo, 50 agents) alongside Free and Enterprise; Agent Watch ($29/$79), Perimeter Watch ($29/$99), TrustScan Team ($49), Cited ($49 report, $149/mo monitoring). Paid checkout is self-serve. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
