@@ -18,6 +18,7 @@ CSS = """  :root{
     --accent:#4F46E5; --accent-ink:#4338CA; --accent-deep:#3730A3;
     --accent-soft:#EFF0FE; --accent-line:#DCDDFB;
     --human:#A16207; --agent:#4F46E5; --agent-dim:#DCDDFB;
+    --txt:#1B1B18; --mut:#6E6E68; --dim:#A3A39B; --panel:#FFFFFF; --panel2:#F1EFE9; --bg:#FAFAF8;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     --sh:0 1px 2px rgba(27,27,24,.05),0 4px 16px rgba(27,27,24,.05);
@@ -415,7 +416,23 @@ PAGE_HOME = """<div class="agent-surface">
 <script>var HOME_CMDS = ["claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
 
 
-PAGE_PRODUCTS = """<div class="human-surface">
+PAGE_PRODUCTS = """<div class="agent-surface">
+  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /products</div>
+  <div class="term"><div class="thead">$ agent-view /products</div><pre>
+<span class="k">products:</span>
+  - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
+    pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
+  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch intermittent, being repaired)
+  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
+  - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
+  - id: cited · mcp: /mcp/cited (9 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_scan: https://entradox.github.io/cited-site/
+<span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility]
+<span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
+</pre></div>
+  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
+</div>
+
+<div class="human-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/products</div>
   <h1>One stack.<br>Five products.</h1>
   <p class="lede">Each solves one operational problem end to end. Each is <b>live, independently usable, and agent-callable</b> — MCP everywhere; REST + CLI on AgentLedger.</p>
@@ -472,25 +489,27 @@ PAGE_PRODUCTS = """<div class="human-surface">
 
   <div class="pull">Five products, one thesis: the agent economy needs operations. We're building the boring infrastructure that makes the exciting future possible.</div>
   <footer class="site"><div><a href="/">← /</a><a href="/developers">/developers</a></div><div>AI Agent City</div></footer>
-</div>
-
-<div class="agent-surface">
-  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /products</div>
-  <div class="term"><div class="thead">$ agent-view /products</div><pre>
-<span class="k">products:</span>
-  - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
-    pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
-  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch intermittent, being repaired)
-  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
-  - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
-  - id: cited · mcp: /mcp/cited (9 tools) · status: live (tool calls translated to REST by the city gateway; native MCP dispatch being repaired) · free_scan: https://entradox.github.io/cited-site/
-<span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility]
-<span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
-</pre></div>
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
 
-PAGE_DEVELOPERS = """<div class="human-surface">
+PAGE_DEVELOPERS = """<div class="agent-surface">
+  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /developers</div>
+  <div class="term"><div class="thead">$ agent-view /developers</div><pre>
+<span class="k">discovery:</span> /.well-known/x402.json · /llms.txt · /skill.md
+<span class="k">mcp:</span>
+  agent-ledger: https://aiagentscity.com/mcp/  <span class="c"># 12 tools</span>
+  agent-watch: .../mcp/agent-watch            <span class="c"># 8 tools · live: tool calls translated to REST by the city gateway</span>
+  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · live: tool calls translated to REST by the city gateway</span>
+  cited: .../mcp/cited                        <span class="c"># 9 tools · live: tool calls translated to REST by the city gateway</span>
+  trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
+<span class="k">purchase:</span>
+  POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
+  price: $0.01 USDC · chain: eip155:8453 · grants: 24h Pro
+<span class="k">rest:</span> /openapi.json · /server.json · AL-API-Version: 2026-09-01 (required on writes)
+</pre></div>
+  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
+</div>
+
+<div class="human-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · <span class="ra">// machine-readable</span> · aiagentscity.com/developers</div>
   <h1>We sell to agents<br>directly.</h1>
   <p class="lede">Not through humans. Machine-readable docs, self-serve keys, self-serve billing. <b>If you're an agent, everything below is your sales rep, your docs, and your checkout.</b> Humans: the quickstarts are copy-paste.</p>
@@ -531,45 +550,9 @@ client = agentledger.<span class="k">wrap</span>(OpenAI(), agent_id=<span class=
     <div class="cta-row"><a class="btn btn-human" href="/start">Get a workspace</a></div>
   </div>
   <footer class="site"><div><a href="/">← /</a><a href="/openapi.json">openapi.json</a><a href="/server.json">server.json</a><a href="/status">/status</a></div><div>AI Agent City</div></footer>
-</div>
-
-<div class="agent-surface">
-  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /developers</div>
-  <div class="term"><div class="thead">$ agent-view /developers</div><pre>
-<span class="k">discovery:</span> /.well-known/x402.json · /llms.txt · /skill.md
-<span class="k">mcp:</span>
-  agent-ledger: https://aiagentscity.com/mcp/  <span class="c"># 12 tools</span>
-  agent-watch: .../mcp/agent-watch            <span class="c"># 8 tools · live: tool calls translated to REST by the city gateway</span>
-  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · live: tool calls translated to REST by the city gateway</span>
-  cited: .../mcp/cited                        <span class="c"># 9 tools · live: tool calls translated to REST by the city gateway</span>
-  trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
-<span class="k">purchase:</span>
-  POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
-  price: $0.01 USDC · chain: eip155:8453 · grants: 24h Pro
-<span class="k">rest:</span> /openapi.json · /server.json · AL-API-Version: 2026-09-01 (required on writes)
-</pre></div>
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
 
-PAGE_COMPARE = """<div class="human-surface">
-  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/compare · prices verified 2026-09-19</div>
-  <h1>Built to enforce.<br>Not to report.</h1>
-  <p class="lede">Trace viewers are excellent at answering <i>"what did my agent do?"</i> — after you've paid for it. AgentLedger answers a different question: <i>"stop the call that breaks the budget."</i> Here's the honest map, including where the competition wins.</p>
-  <table class="cmp">
-    <tr><th></th><th><span class="us">AgentLedger</span></th><th>LangSmith</th><th>Helicone</th><th>Braintrust</th><th>OpenRouter</th></tr>
-    <tr><td><b>Stops the overspend</b></td><td class="y"><b>Yes — 402 before provider contact</b></td><td class="part">Yes — gateway spend policies, 402<span class="note">their gateway traffic only</span></td><td class="part">Spend-based rate limits<span class="note">throttles, not budgets</span></td><td class="n">No — cost regression tracking</td><td class="part">Per-key spend limits<span class="note">OpenRouter-routed traffic only</span></td></tr>
-    <tr><td><b>Budgets belong to the agent</b></td><td class="y"><b>Yes — keyed to agent_id</b></td><td class="n">Org / key / user</td><td class="n">No</td><td class="n">No</td><td class="n">API keys</td></tr>
-    <tr><td><b>Agent buys itself</b></td><td class="y"><b>$0.01 x402, no human</b></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
-    <tr><td><b>Trace debugging</b></td><td class="n">No — by design</td><td class="y">Best in class</td><td class="y">Yes</td><td class="y">Eval-first</td><td class="n">No</td></tr>
-    <tr><td><b>Price</b></td><td class="y"><b>$19/mo flat</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
-  </table>
-  <div class="pull" style="font-size:19px">If you want to <i>understand</i> your spend, buy a trace viewer — LangSmith's is superb. If you want to <i>control</i> it, per agent, with the agent itself as the customer — that's us.</div>
-  <div class="card"><h3>Also in the space</h3><p class="mut"><b>LiteLLM</b>, <b>Portkey</b>, <b>LangDB</b> — gateway proxies with per-key spend controls, scoped to the traffic routed through them. <b>Revenium</b> — API metering for monetization. <b>Langfuse</b> — open-source trace observability. Gateway- and trace-layer tools see their own layer; AgentLedger enforces per-agent budgets with a 402 before any provider is contacted, and the agent itself can buy Pro.</p></div>
-  <div class="cta-row"><a class="btn btn-human" href="/demo">Try the enforcement live — no signup</a></div>
-  <footer class="site"><div><a href="/">← /</a><a href="/products">/products</a></div><div>AI Agent City</div></footer>
-</div>
-
-<div class="agent-surface">
+PAGE_COMPARE = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /compare</div>
   <div class="term"><div class="thead">$ agent-view /compare</div><pre>
 <span class="k">verdict:</span> "If you want to understand spend, buy a trace viewer.
@@ -587,24 +570,27 @@ PAGE_COMPARE = """<div class="human-surface">
   prices_verified: "2026-09-19"
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
-</div>"""
-
-PAGE_CHANGELOG = """<div class="human-surface">
-  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/changelog</div>
-  <h1>Shipping fast.</h1>
-  <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
-  <div class="chlog">
-    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Four fixes from live testing.</b> Real <span class="ver">agent_secret="as_…"</span> format in the docs, SDK model IDs auto-priced as aliases, webhooks section on the dashboard, typed <span class="ver">payment_required</span> errors on the x402 endpoint. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (12 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (8) · Perimeter Watch <span class="ver">v1.30.0</span> (6) · Cited <span class="ver">v1.30.0</span> (9) · TrustScan <span class="ver">v4.0.3</span> (4). 39 MCP tools across five products. <span class="ver">platform</span></div></div>
-  </div>
-  <div class="cta-row"><a class="btn btn-ghost" href="/status">/status — live system status →</a></div>
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>
 
-<div class="agent-surface">
+<div class="human-surface">
+  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/compare · prices verified 2026-09-19</div>
+  <h1>Built to enforce.<br>Not to report.</h1>
+  <p class="lede">Trace viewers are excellent at answering <i>"what did my agent do?"</i> — after you've paid for it. AgentLedger answers a different question: <i>"stop the call that breaks the budget."</i> Here's the honest map, including where the competition wins.</p>
+  <table class="cmp">
+    <tr><th></th><th><span class="us">AgentLedger</span></th><th>LangSmith</th><th>Helicone</th><th>Braintrust</th><th>OpenRouter</th></tr>
+    <tr><td><b>Stops the overspend</b></td><td class="y"><b>Yes — 402 before provider contact</b></td><td class="part">Yes — gateway spend policies, 402<span class="note">their gateway traffic only</span></td><td class="part">Spend-based rate limits<span class="note">throttles, not budgets</span></td><td class="n">No — cost regression tracking</td><td class="part">Per-key spend limits<span class="note">OpenRouter-routed traffic only</span></td></tr>
+    <tr><td><b>Budgets belong to the agent</b></td><td class="y"><b>Yes — keyed to agent_id</b></td><td class="n">Org / key / user</td><td class="n">No</td><td class="n">No</td><td class="n">API keys</td></tr>
+    <tr><td><b>Agent buys itself</b></td><td class="y"><b>$0.01 x402, no human</b></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
+    <tr><td><b>Trace debugging</b></td><td class="n">No — by design</td><td class="y">Best in class</td><td class="y">Yes</td><td class="y">Eval-first</td><td class="n">No</td></tr>
+    <tr><td><b>Price</b></td><td class="y"><b>$19/mo flat</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
+  </table>
+  <div class="pull" style="font-size:19px">If you want to <i>understand</i> your spend, buy a trace viewer — LangSmith's is superb. If you want to <i>control</i> it, per agent, with the agent itself as the customer — that's us.</div>
+  <div class="card"><h3>Also in the space</h3><p class="mut"><b>LiteLLM</b>, <b>Portkey</b>, <b>LangDB</b> — gateway proxies with per-key spend controls, scoped to the traffic routed through them. <b>Revenium</b> — API metering for monetization. <b>Langfuse</b> — open-source trace observability. Gateway- and trace-layer tools see their own layer; AgentLedger enforces per-agent budgets with a 402 before any provider is contacted, and the agent itself can buy Pro.</p></div>
+  <div class="cta-row"><a class="btn btn-human" href="/demo">Try the enforcement live — no signup</a></div>
+  <footer class="site"><div><a href="/">← /</a><a href="/products">/products</a></div><div>AI Agent City</div></footer>
+</div>"""
+
+PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
@@ -619,9 +605,42 @@ PAGE_CHANGELOG = """<div class="human-surface">
 <span class="k">feed:</span> /changelog (this page) · /status (live)
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
+</div>
+
+<div class="human-surface">
+  <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/changelog</div>
+  <h1>Shipping fast.</h1>
+  <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
+  <div class="chlog">
+    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Four fixes from live testing.</b> Real <span class="ver">agent_secret="as_…"</span> format in the docs, SDK model IDs auto-priced as aliases, webhooks section on the dashboard, typed <span class="ver">payment_required</span> errors on the x402 endpoint. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (12 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (8) · Perimeter Watch <span class="ver">v1.30.0</span> (6) · Cited <span class="ver">v1.30.0</span> (9) · TrustScan <span class="ver">v4.0.3</span> (4). 39 MCP tools across five products. <span class="ver">platform</span></div></div>
+  </div>
+  <div class="cta-row"><a class="btn btn-ghost" href="/status">/status — live system status →</a></div>
+  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
 
-PAGE_SPEC = """<div class="human-surface">
+PAGE_SPEC = """<div class="agent-surface">
+  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /spec</div>
+  <div class="term"><div class="thead">$ agent-view /spec</div><pre>
+<span class="k">gaps:</span>
+  P0: [metrics-with-receipts-hero, agent-wall, homepage-onboarding-strip]
+  P1: [agent-economy-index, human-billing, key-management, skeptic-faq, docs-hub]
+  P2: [blog, discord, status-in-nav]
+<span class="k">per_product:</span>
+  agent-ledger: [ts-sdk, budget-templates, slack-alerts, bypass-detection]
+  agent-watch: [connect-page, identity-cards, email-digest]
+  perimeter-watch: [pdf-reports, scan-history, hosted-dashboard]
+  trustscan: [public-scan-page, trust-badge, pre-tx-api]
+  cited: [shareable-links, visibility-trends, fix-list]
+<span class="k">method:</span> benchmarked vs openrouter.ai, typesafe.ai, skyfire.xyz (2026-09-18)
+</pre></div>
+  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
+</div>
+
+<div class="human-surface">
   <div class="kicker"><span class="ra">// founder spec</span> · read as a founder, written as a build list</div>
   <h1>What we're missing.</h1>
   <p class="lede">I read <b>OpenRouter</b>, <b>TypeSafe AI</b>, and <b>Skyfire</b> the way a founder reads competition: not for ideas to copy, but for <b>table stakes we're not meeting</b>. Everything below is something they ship that we don't — written as a spec, prioritized. P0 = this week. P1 = this month. P2 = next.</p>
@@ -747,24 +766,6 @@ PAGE_SPEC = """<div class="human-surface">
 
   <div class="pull">None of this is exotic. It's the table stakes the best agent-native startups already ship — applied to a stack that's already live. P0 this week, P1 this month, P2 next.</div>
 
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
-</div>
-
-<div class="agent-surface">
-  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /spec</div>
-  <div class="term"><div class="thead">$ agent-view /spec</div><pre>
-<span class="k">gaps:</span>
-  P0: [metrics-with-receipts-hero, agent-wall, homepage-onboarding-strip]
-  P1: [agent-economy-index, human-billing, key-management, skeptic-faq, docs-hub]
-  P2: [blog, discord, status-in-nav]
-<span class="k">per_product:</span>
-  agent-ledger: [ts-sdk, budget-templates, slack-alerts, bypass-detection]
-  agent-watch: [connect-page, identity-cards, email-digest]
-  perimeter-watch: [pdf-reports, scan-history, hosted-dashboard]
-  trustscan: [public-scan-page, trust-badge, pre-tx-api]
-  cited: [shareable-links, visibility-trends, fix-list]
-<span class="k">method:</span> benchmarked vs openrouter.ai, typesafe.ai, skyfire.xyz (2026-09-18)
-</pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
 
