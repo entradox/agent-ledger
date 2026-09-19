@@ -4,7 +4,8 @@ Generated from the two-surfaces mockup by hidden_files/build_city_site.py —
 
 re-run that script after mockup edits instead of hand-editing this file.
 
-Human marketing surface (gold) + machine-readable terminal surface (green),
+Quiet light system (Cited-style): paper background, indigo agent accent,
+Agent surface first, human surface second,
 
 toggled per page via the Human | Agent segmented control.
 
@@ -12,152 +13,267 @@ toggled per page via the Human | Agent segmented control.
 from __future__ import annotations
 
 CSS = """  :root{
-    --bg:#0a0c10; --panel:#11151c; --panel2:#171d27; --line:#232c3b;
-    --txt:#f2f5f9; --mut:#9aa4b2; --dim:#5f6b7c;
-    --human:#e8b93e; --agent:#7ee787; --agent-dim:#2d5a35;
-    --mono:"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+    --paper:#FAFAF8; --card:#FFFFFF; --ink:#1B1B18; --muted:#6E6E68; --faint:#A3A39B;
+    --line:#E9E7E1; --line-soft:#F1EFE9;
+    --accent:#4F46E5; --accent-ink:#4338CA; --accent-deep:#3730A3;
+    --accent-soft:#EFF0FE; --accent-line:#DCDDFB;
+    --human:#A16207; --agent:#4F46E5; --agent-dim:#DCDDFB;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --sh:0 1px 2px rgba(27,27,24,.05),0 4px 16px rgba(27,27,24,.05);
+    --ease:cubic-bezier(.22,.68,0,1.02);
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.6;font-size:16px}
-    position:sticky;top:0;z-index:60;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  nav.tabs{background:rgba(17,21,28,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
-    padding:0 20px;display:flex;gap:4px;overflow-x:auto;position:sticky;top:37px;z-index:59;align-items:center}
-  nav.tabs a{background:none;text-decoration:none;border:none;color:var(--mut);font-family:var(--mono);font-size:13px;
-    padding:14px 14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-  nav.tabs a:hover{color:var(--txt)}
-  nav.tabs a.active{color:var(--human);border-bottom-color:var(--human)}
-  .seg{margin-left:auto;display:flex;border:1px solid var(--line);border-radius:20px;overflow:hidden;flex-shrink:0}
-  .seg button{padding:8px 16px;font-size:12px;border-bottom:none!important}
-  .seg button.on-h{background:var(--human);color:#191104;font-weight:700}
-  .seg button.on-a{background:var(--agent);color:#04120a;font-weight:700}
-  .page{display:none;max-width:1080px;margin:0 auto;padding:56px 24px 80px}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+  /* top bar: wordmark + tabs + surface toggle */
+  .topbar{border-bottom:1px solid var(--line);background:rgba(250,250,248,.9);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    position:sticky;top:0;z-index:60}
+  .nav-in{max-width:1060px;margin:0 auto;padding:11px 20px;display:flex;
+    align-items:center;gap:14px}
+  .wordmark{display:flex;align-items:center;gap:8px;font-family:var(--mono);
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;
+    color:var(--ink);text-decoration:none;white-space:nowrap}
+  .wordmark .mark{width:14px;height:14px;border-radius:4px;flex-shrink:0;
+    background:linear-gradient(135deg,var(--accent),var(--accent-deep));
+    box-shadow:0 2px 6px rgba(79,70,229,.35)}
+  .tabs{display:flex;gap:2px;overflow-x:auto;flex:1;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;
+    padding:8px 12px;border-radius:9px;white-space:nowrap}
+  .tabs a:hover{color:var(--ink);background:var(--line-soft)}
+  .tabs a.active{color:var(--accent-ink);background:var(--accent-soft);font-weight:600}
+  body.agent-view .tabs a.active{color:var(--accent-ink)}
+  .toggle{position:relative;display:flex;background:#EDECE7;border-radius:99px;
+    padding:3px;isolation:isolate;flex-shrink:0}
+  .toggle .ind{position:absolute;top:3px;bottom:3px;left:0;border-radius:99px;
+    background:var(--accent);transition:transform .38s var(--ease),width .38s var(--ease);z-index:0}
+  .toggle button{position:relative;z-index:1;border:0;background:transparent;
+    font-family:var(--mono);font-size:11px;letter-spacing:.1em;padding:7px 15px;
+    border-radius:99px;color:var(--muted);cursor:pointer;text-transform:uppercase;transition:color .3s}
+  .toggle button.on{color:#fff}
+  .toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media(max-width:640px){.nav-in{flex-wrap:wrap}.tabs{order:3;flex-basis:100%}}
+  /* surfaces */
+  .page{display:none;max-width:1060px;margin:0 auto;padding:48px 20px 72px}
   .page.active{display:block}
   .agent-surface{display:none}
   body.agent-view .human-surface{display:none!important}
-  body.agent-view .agent-surface{display:block!important}
-  body.agent-view nav.tabs a.active{color:var(--agent);border-bottom-color:var(--agent)}
-  h1{font-size:52px;line-height:1.05;letter-spacing:-.025em;margin-bottom:18px;font-weight:800}
-  h2{font-size:30px;letter-spacing:-.015em;margin:64px 0 18px;font-weight:750}
-  h3{font-size:20px;margin:0 0 8px;font-weight:700}
-  @media(max-width:760px){h1{font-size:36px}.hero-grid{grid-template-columns:1fr!important}}
-  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;margin-bottom:12px}
-  .kicker .rh{color:var(--human)} .kicker .ra{color:var(--agent)}
-  .lede{font-size:20px;color:var(--mut);max-width:680px;margin-bottom:30px}
-  .lede b{color:var(--txt)}
-  .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0;align-items:center}
-  .btn{display:inline-block;padding:14px 26px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;cursor:pointer;border:1px solid transparent}
-  .btn-human{background:var(--human);color:#191104}
-  .btn-agentb{background:transparent;color:var(--agent);border-color:var(--agent-dim);font-family:var(--mono);font-size:14px}
-  .btn-ghost{background:transparent;color:var(--txt);border-color:var(--line)}
-  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;margin-top:8px}
-  /* live agent session terminal */
-  .session{background:#07090d;border:1px solid var(--agent-dim);border-radius:14px;overflow:hidden;box-shadow:0 0 60px rgba(126,231,135,.06)}
-  .session .shead{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--mut)}
-  .session .shead .dots{display:flex;gap:6px}
-  .session .shead .dots i{width:10px;height:10px;border-radius:50%;background:#2a3342;display:block}
-  .session .shead .live{margin-left:auto;color:var(--agent);display:flex;align-items:center;gap:6px}
-  .session .shead .live i{width:8px;height:8px;border-radius:50%;background:var(--agent);animation:blink 1.6s infinite}
-  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
-  .session .sbody{padding:18px;font-family:var(--mono);font-size:13px}
-  .step{display:flex;gap:12px;padding:10px 0;border-bottom:1px dashed #1c2330;align-items:flex-start}
-  .step:last-child{border-bottom:none}
-  .step .dot{width:10px;height:10px;border-radius:50%;background:#2a3342;margin-top:5px;flex-shrink:0}
-  .step.run .dot{background:var(--human);animation:blink 1s infinite}
-  .step.done .dot{background:var(--agent)}
-  .step .t{color:var(--dim)} .step.run .t{color:var(--txt)} .step.done .t{color:var(--mut)}
-  .step .cmd{color:var(--agent);display:block;margin-top:2px}
-  .step .res{color:var(--dim);display:block}
-  .step.done .res{color:#6f8a76}
-  .step .res b{color:var(--agent);font-weight:600}
-  /* rails strip */
-  .rails{display:flex;gap:10px;flex-wrap:wrap;margin:30px 0;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-  .rails span{font-family:var(--mono);font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--panel)}
-  .rails span b{color:var(--txt)}
-  .rails .rl{font-size:11px;color:var(--dim);border:none;background:none;padding:8px 4px;letter-spacing:.1em}
-  /* numbered stack */
-  .stacknum{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.12em;margin-bottom:10px}
-  .stacknum b{color:var(--human)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;margin-bottom:18px}
-  .card.hl{border-color:#5a4a1c}
-  .card p{color:var(--mut);font-size:15px;margin-bottom:14px}
-  .card p b{color:var(--txt)}
-  .card .links{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;margin-top:6px}
-  .card .links a{color:var(--human);text-decoration:none;font-weight:600}
-  .card .links a.ag{color:var(--agent);font-family:var(--mono);font-size:13px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-  @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
-  pre{background:#07090d;border:1px solid var(--line);border-radius:10px;padding:18px;overflow-x:auto;
-    font-family:var(--mono);font-size:13px;line-height:1.6;color:#c9d4e3;margin:14px 0;position:relative}
-  pre .c{color:var(--dim)} pre .k{color:var(--agent)} pre .s{color:#a5d6ff}
-  .copybtn{position:absolute;top:10px;right:10px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);
-    font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer}
-  .thesis{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:34px 0}
-  @media(max-width:760px){.thesis{grid-template-columns:1fr}}
-  .thesis .t{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
-  .thesis .t .n{font-family:var(--mono);color:var(--human);font-size:13px;margin-bottom:8px}
-  .thesis .t h4{font-size:16px;margin-bottom:6px}
-  .thesis .t p{font-size:14px;color:var(--mut)}
-  .pull{border-left:3px solid var(--human);padding:6px 0 6px 20px;margin:30px 0;font-size:21px;color:var(--txt);font-weight:600;max-width:660px}
+  body.agent-view .agent-surface{display:block!important;animation:surfIn .5s var(--ease)}
+  @keyframes surfIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  /* type */
+  h1{font-size:31px;line-height:1.16;letter-spacing:-.025em;font-weight:700;margin-bottom:14px;max-width:17em}
+  h2{font-size:21px;letter-spacing:-.015em;font-weight:700;margin:0 0 10px}
+  h3{font-size:17px;margin:0 0 7px;letter-spacing:-.012em;font-weight:700}
+  @media(min-width:900px){h1{font-size:44px}}
+  .kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:16px}
+  .kicker .rh{color:var(--muted)} .kicker .ra{color:var(--accent-ink)}
+  section{padding:48px 0;border-bottom:1px solid var(--line-soft)}
+  .lede{font-size:15px;color:var(--muted);max-width:36em;margin-bottom:24px}
+  .lede b{color:var(--ink);font-weight:600}
+  .cta-row{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0;align-items:center}
+  .btn{display:inline-block;padding:13px 24px;border-radius:13px;font-weight:600;font-size:14px;
+    text-decoration:none;cursor:pointer;border:1px solid transparent;transition:transform .15s,box-shadow .2s,background .2s}
+  .btn:active{transform:scale(.97)}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .btn-human{background:var(--accent);color:#fff;box-shadow:0 4px 14px rgba(79,70,229,.28)}
+  .btn-human:hover{background:var(--accent-deep)}
+  .btn-agentb{background:transparent;color:var(--accent-ink);border-color:var(--accent-line);
+    font-family:var(--mono);font-size:13px;font-weight:400}
+  .btn-agentb:hover{border-color:var(--accent)}
+  .btn-ghost{background:var(--card);color:var(--ink);border-color:var(--line)}
+  .btn-ghost:hover{border-color:var(--ink)}
+  .hero-grid{display:grid;grid-template-columns:1fr;gap:28px;margin-top:8px}
+  @media(min-width:900px){.hero-grid{grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}}
+  /* agent hero wash */
+  .agent-hero{position:relative;overflow:hidden;background:var(--accent-soft);
+    border:1px solid var(--accent-line);border-radius:18px;padding:26px 22px;margin-bottom:10px}
+  .agent-hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(420px 200px at 85% -20%,rgba(79,70,229,.14),transparent 70%)}
+  .agent-hero>*{position:relative}
+  .agent-hero .lede{margin-bottom:0}
+  /* live terminal */
+  .term{background:#101013;color:#D8D8D2;border-radius:16px;overflow:hidden;
+    margin:8px 0 12px;font-family:var(--mono);font-size:12px;
+    box-shadow:0 12px 32px rgba(16,16,19,.22),0 2px 6px rgba(16,16,19,.25)}
+  .term .bar{display:flex;align-items:center;gap:7px;padding:11px 15px;
+    border-bottom:1px solid #232327;background:#17171a}
+  .term .bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .term .bar i:nth-child(1){background:#FF5F57;opacity:.85}
+  .term .bar i:nth-child(2){background:#FEBC2E;opacity:.85}
+  .term .bar i:nth-child(3){background:#28C840;opacity:.85}
+  .term .bar span{margin-left:7px;color:#8E8E96;font-size:10px;letter-spacing:.16em;text-transform:uppercase}
+  .term .bar .live{margin-left:auto;color:#6EE7A8;display:flex;align-items:center;gap:6px;
+    font-size:10px;letter-spacing:.16em}
+  .term .bar .live::before{content:"";width:7px;height:7px;border-radius:50%;
+    background:#34D399;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}50%{box-shadow:0 0 0 5px rgba(52,211,153,0)}}
+  .term .rows{padding:8px 16px 12px}
+  .term .step{padding:10px 0;border-bottom:1px solid #1E1E22;opacity:0;
+    animation:stepIn .55s var(--ease) forwards}
+  .term .step:nth-child(1){animation-delay:.15s}.term .step:nth-child(2){animation-delay:.55s}
+  .term .step:nth-child(3){animation-delay:.95s}.term .step:nth-child(4){animation-delay:1.35s}
+  @keyframes stepIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .term .step:last-child{border:0}
+  .term .step .t{color:#71717A;font-size:10px;letter-spacing:.16em;text-transform:uppercase;display:block;margin-bottom:4px}
+  .term .step .c{color:#F4F4F2;word-break:break-all;display:block}
+  .term .step .r{color:#6EE7A8;display:block}
+  .term .step .r b{color:#A7F3D0;font-weight:600}
+  .cursor{display:inline-block;width:7px;height:13px;background:#A5B4FC;
+    vertical-align:-2px;margin-left:3px;animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .note{font-family:var(--mono);font-size:11px;color:var(--faint);margin-bottom:28px}
+  .note::before{content:"▲ "}
+  /* legacy agent-surface terminal (other pages) */
+  .agent-surface .term .thead{padding:12px 18px;border-bottom:1px solid #232327;
+    font-family:var(--mono);font-size:12px;color:#A5B4FC;background:#17171a}
+  .agent-surface .term pre{border:none;margin:0;border-radius:0;background:transparent;box-shadow:none}
+  .agent-note{font-family:var(--mono);font-size:12px;color:var(--faint);margin:14px 0;max-width:46em;line-height:1.7}
+  .agent-note b{color:var(--accent-ink);font-weight:600}
+  /* connect list */
+  .conn{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:4px 0;margin-bottom:8px;box-shadow:var(--sh)}
+  .conn-row{display:flex;align-items:center;gap:10px;padding:12px 16px;
+    border-bottom:1px solid var(--line-soft);font-family:var(--mono);font-size:12px}
+  .conn-row:last-child{border:0}
+  .conn-row .nm{color:var(--accent-ink);font-weight:600;white-space:nowrap}
+  .conn-row .cnt{font-size:10px;color:var(--faint);background:var(--paper);
+    border:1px solid var(--line);border-radius:99px;padding:2px 8px;white-space:nowrap}
+  .conn-row .url{color:var(--muted);flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .copy{border:1px solid var(--line);background:var(--paper);border-radius:9px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);
+    padding:6px 11px;cursor:pointer;text-transform:uppercase;white-space:nowrap;transition:all .18s}
+  .copy:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .copy:active{transform:scale(.94)}
+  .copy.ok{background:var(--accent);border-color:var(--accent);color:#fff}
+  .buy{background:var(--accent-soft);border:1px solid var(--accent-line);
+    border-radius:16px;padding:18px;margin:20px 0 0}
+  .buy .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--accent-ink);display:block;margin-bottom:8px;opacity:.75}
+  .buy p{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--accent-deep);margin:0}
+  .buy b{font-weight:700}
+  /* rails pills */
+  .rails{display:flex;gap:8px;flex-wrap:wrap;margin:28px 0;padding:20px 0;
+    border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft)}
+  .rails span{font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--faint);
+    border:1px solid var(--line);border-radius:99px;padding:8px 15px;background:var(--card)}
+  .rails span b{color:var(--ink);font-weight:600}
+  .rails .rl{font-size:10px;color:var(--faint);border:none;background:none;
+    padding:8px 4px;letter-spacing:.18em;text-transform:uppercase}
+  /* thesis */
+  .thesis{display:grid;grid-template-columns:1fr;gap:12px;margin:26px 0}
+  @media(min-width:900px){.thesis{grid-template-columns:1fr 1fr 1fr}}
+  .thesis .t{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:22px 20px;box-shadow:var(--sh)}
+  .thesis .t .n{font-family:var(--mono);color:var(--accent-ink);font-size:12px;margin-bottom:8px}
+  .thesis .t h4{font-size:15px;margin-bottom:6px}
+  .thesis .t p{font-size:13.5px;color:var(--muted);margin:0}
+  .pull{border-left:3px solid var(--accent);padding:6px 0 6px 20px;margin:28px 0;
+    font-size:19px;color:var(--ink);font-weight:600;max-width:36em;letter-spacing:-.01em}
+  /* product cards */
+  .stacknum{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:10px}
+  .stacknum b{color:var(--ink);font-weight:600}
+  .stacknum .tc{color:var(--accent-ink);background:var(--accent-soft);
+    border-radius:99px;padding:2px 9px;letter-spacing:.06em;white-space:nowrap}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:22px 20px;margin-bottom:12px;box-shadow:var(--sh);
+    transition:transform .25s var(--ease),box-shadow .25s}
+  .card:hover{transform:translateY(-2px);
+    box-shadow:0 2px 4px rgba(27,27,24,.06),0 10px 28px rgba(27,27,24,.08)}
+  .card.hl{border:1.5px solid var(--ink)}
+  .card p{color:var(--muted);font-size:14px;margin-bottom:14px;max-width:40em}
+  .card p b{color:var(--ink)}
+  .card .links{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;margin-top:6px}
+  .card .links a{color:var(--ink);text-decoration:none;font-weight:600}
+  .card .links a:hover{text-decoration:underline}
+  .card .links a.ag{color:var(--accent-ink);font-family:var(--mono);font-size:12px;font-weight:400}
+  .grid2{display:grid;grid-template-columns:1fr;gap:12px}
+  .grid3{display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}.grid3{grid-template-columns:1fr 1fr 1fr}}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 4px}
+  .pill{font-family:var(--mono);font-size:11px;letter-spacing:.05em;
+    border:1px solid var(--line);border-radius:99px;padding:8px 15px;
+    color:var(--faint);background:var(--card)}
+  .pill.on{border-color:var(--accent-line);color:var(--accent-ink);background:var(--accent-soft)}
+  pre{background:#101013;border:1px solid #232327;border-radius:12px;padding:18px;overflow-x:auto;
+    font-family:var(--mono);font-size:12.5px;line-height:1.65;color:#D8D8D2;margin:14px 0;position:relative}
+  pre .c{color:#71717A} pre .k{color:#A5B4FC} pre .s{color:#6EE7A8}
+  .copybtn{position:absolute;top:10px;right:10px;background:#1c1c21;border:1px solid #2c2c33;color:#a1a1aa;
+    font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:8px;cursor:pointer}
   ul.feat{list-style:none;margin:14px 0}
-  ul.feat li{padding:9px 0 9px 28px;border-bottom:1px solid var(--line);font-size:15px;color:var(--mut);position:relative}
-  ul.feat li:before{content:"→";position:absolute;left:4px;color:var(--human)}
-  ul.feat li b{color:var(--txt)}
+  ul.feat li{padding:10px 0 10px 28px;border-bottom:1px solid var(--line-soft);font-size:14.5px;
+    color:var(--muted);position:relative}
+  ul.feat li:before{content:"→";position:absolute;left:4px;color:var(--accent-ink)}
+  ul.feat li b{color:var(--ink)}
   ul.feat li:last-child{border-bottom:none}
-  table.cmp{width:100%;border-collapse:collapse;font-size:14px;margin-top:16px}
+  table.cmp{width:100%;border-collapse:collapse;font-size:14px;margin-top:16px;
+    background:var(--card);border-radius:12px;overflow:hidden;box-shadow:var(--sh)}
   table.cmp th,table.cmp td{border:1px solid var(--line);padding:12px 14px;text-align:left;vertical-align:top}
-  table.cmp th{background:var(--panel);font-family:var(--mono);font-size:13px}
-  table.cmp td.y{color:var(--agent)} table.cmp td.n{color:var(--mut)} table.cmp td.part{color:var(--human)}
-  table.cmp .note{font-size:12px;color:var(--dim);display:block;margin-top:6px}
-  .us{color:var(--human);font-weight:700}
+  table.cmp th{background:var(--paper);font-family:var(--mono);font-size:12px}
+  table.cmp td.y{color:#15803d} table.cmp td.n{color:var(--faint)} table.cmp td.part{color:var(--human)}
+  table.cmp .note{font-size:12px;color:var(--faint);display:block;margin-top:6px}
+  .us{color:var(--accent-ink);font-weight:700}
   .chlog{border-left:2px solid var(--line);margin:20px 0 0 8px;padding-left:24px}
   .chlog .e{margin-bottom:22px;position:relative}
-  .chlog .e:before{content:"";position:absolute;left:-31px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--human)}
-  .chlog .d{font-family:var(--mono);font-size:12px;color:var(--dim)}
-  .chlog .t{font-size:15px;margin-top:2px;color:var(--mut)}
-  .chlog .t b{color:var(--txt)}
-  .ver{font-family:var(--mono);font-size:12px;color:var(--dim);margin-left:10px}
-  .illus{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:10px}
-  footer.site{border-top:1px solid var(--line);margin-top:72px;padding:28px 0;color:var(--dim);font-size:13px;
-    display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
-  footer.site a{color:var(--mut);text-decoration:none;margin-right:16px;font-family:var(--mono);font-size:12px}
-  footer.site a:hover{color:var(--txt)}
-  /* agent surface */
-  .agent-surface .term{background:#07090d;border:1px solid var(--agent-dim);border-radius:14px;overflow:hidden}
-  .agent-surface .term .thead{padding:12px 18px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--agent)}
-  .agent-surface .term pre{border:none;margin:0;border-radius:0;background:transparent}
-  .agent-note{font-family:var(--mono);font-size:12px;color:var(--dim);margin:14px 0;max-width:720px}
-  .agent-note b{color:var(--agent)}"""
+  .chlog .e:before{content:"";position:absolute;left:-31px;top:6px;width:10px;height:10px;
+    border-radius:50%;background:var(--accent)}
+  .chlog .d{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .chlog .t{font-size:14.5px;margin-top:2px;color:var(--muted)}
+  .chlog .t b{color:var(--ink)}
+  .ver{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:8px}
+  .illus{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:10px}
+  footer.site{border-top:1px solid var(--line);margin-top:64px;padding:28px 0;color:var(--faint);
+    font-size:13px;display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
+  footer.site a{color:var(--muted);text-decoration:none;margin-right:16px;font-family:var(--mono);font-size:12px}
+  footer.site a:hover{color:var(--ink)}
+  .fine{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:24px;line-height:2}
+  .fine b{color:var(--muted);font-weight:400}
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+    .term .step{opacity:1}
+  }
+"""
 
 TOGGLE_JS = """<script>
 function setView(v){
-  document.body.classList.toggle('agent-view', v==='agent');
-  document.getElementById('segH').className = v==='human' ? 'on-h' : '';
-  document.getElementById('segA').className = v==='agent' ? 'on-a' : '';
+  var a = v==='agent';
+  document.body.classList.toggle('agent-view', a);
+  var h=document.getElementById('segH'), g=document.getElementById('segA');
+  h.classList.toggle('on', !a); g.classList.toggle('on', a);
+  h.setAttribute('aria-selected', !a); g.setAttribute('aria-selected', a);
+  moveInd(a?'segA':'segH');
+  document.querySelectorAll('.agent-surface .term .step').forEach(function(s){
+    s.style.animation='none'; void s.offsetWidth; s.style.animation='';
+  });
   window.scrollTo({top:0});
 }
-function copyPre(btn){
-  const pre=btn.parentElement;
-  const text=Array.from(pre.childNodes).filter(n=>n!==btn).map(n=>n.textContent).join('');
-  navigator.clipboard.writeText(text.trim()).then(()=>{btn.textContent='copied';setTimeout(()=>btn.textContent='copy',1200);});
+function moveInd(id){
+  var b=document.getElementById(id), ind=document.getElementById('segInd');
+  if(!b||!ind) return;
+  ind.style.width=b.offsetWidth+'px';
+  ind.style.transform='translateX('+(b.offsetLeft-2)+'px)';
 }
-/* live agent session animation */
-(function(){
-  const steps=document.querySelectorAll('#session .step');
-  if(!steps.length) return;
-  let i=0;
-  function cycle(){
-    steps.forEach(s=>s.classList.remove('run','done'));
-    let n=0;
-    const tick=setInterval(()=>{
-      if(n>0){steps[n-1].classList.remove('run');steps[n-1].classList.add('done');}
-      if(n>=steps.length){clearInterval(tick);setTimeout(cycle,2600);return;}
-      steps[n].classList.add('run'); n++;
-    },1400);
-  }
-  cycle();
-})();
+window.addEventListener('load',function(){
+  moveInd(document.body.classList.contains('agent-view')?'segA':'segH');
+});
+window.addEventListener('resize',function(){
+  moveInd(document.getElementById('segA').classList.contains('on')?'segA':'segH');
+});
+function copyPre(btn){
+  var pre=btn.parentElement;
+  var text=Array.from(pre.childNodes).filter(function(n){return n!==btn;}).map(function(n){return n.textContent;}).join('');
+  navigator.clipboard.writeText(text.trim()).then(function(){btn.textContent='copied';setTimeout(function(){btn.textContent='copy'},1200);});
+}
+function copyCmd(i,btn){
+  var done=function(){btn.textContent='copied';btn.classList.add('ok');setTimeout(function(){btn.textContent='copy';btn.classList.remove('ok')},1400)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(HOME_CMDS[i]).then(done).catch(done)}else{done()}
+}
 </script>"""
 
 SHELL = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -167,7 +283,7 @@ SHELL = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>
 """ + CSS + """
 </style></head>
-<body>
+<body class="agent-view">
 __NAV__
 <div class="wrap">
 __BODY__
@@ -186,16 +302,23 @@ TABS = [
 
 
 def nav(active: str) -> str:
-    parts = ['<nav class="tabs" id="tabs">']
+    tabs = []
     for path, label, style in TABS:
         cls = ' class="active"' if path == active else ""
-        st = f' style="{style}"' if style else ""
-        parts.append(f'<a href="{path}"{cls}{st}>{label}</a>')
-    parts.append('<div class="seg" id="seg">'
-                 '<button id="segH" class="on-h" onclick="setView(\'human\')">Human</button>'
-                 '<button id="segA" onclick="setView(\'agent\')">Agent</button>'
-                 "</div></nav>")
-    return "".join(parts)
+        tabs.append(f'<a href="{path}"{cls}>{label}</a>')
+    return (
+        '<nav class="topbar"><div class="nav-in">'
+        '<a class="wordmark" href="/"><span class="mark"></span>AI Agent City</a>'
+        '<div class="tabs">' + "".join(tabs) + "</div>"
+        '<div class="toggle" role="tablist" aria-label="Surface"><span class="ind" id="segInd"></span>'
+        '<button id="segA" class="on" role="tab" aria-selected="true" '
+        'onclick="setView(\'agent\')">Agent</button>'
+        '<button id="segH" role="tab" aria-selected="false" '
+        'onclick="setView(\'human\')">Human</button>'
+        "</div></div></nav>"
+    )
+
+
 
 
 def render(active: str, title: str, desc: str, body: str) -> str:
@@ -206,93 +329,91 @@ def render(active: str, title: str, desc: str, body: str) -> str:
     html = html.replace("__BODY__", body)
     return html
 
-PAGE_HOME = """<div class="human-surface">
-  <div class="kicker"><span class="rh">// human-readable</span> · AI Agent City</div>
-  <div class="hero-grid">
-    <div>
-      <h1>Agents are economic<br>actors now.</h1>
-      <p class="lede">They spend money. They call your APIs. They represent businesses. <b>AI Agent City is the operations layer they run on</b> — budgets, monitoring, security, trust, and discovery. Live software, MCP everywhere; REST + CLI on AgentLedger.</p>
-      <div class="cta-row">
-        <a class="btn btn-human" href="/products">Explore the stack</a>
-        <a class="btn btn-ghost" href="/start">Start free</a>
-      </div>
-    </div>
-    <div>
-      <div class="session" id="session">
-        <div class="shead"><div class="dots"><i></i><i></i><i></i></div><span>agent session — live</span><span class="live"><i></i>LIVE</span></div>
-        <div class="sbody">
-          <div class="step" data-s="0"><span class="dot"></span><div><span class="t">discover</span><span class="cmd">GET /.well-known/x402.json</span><span class="res"><b>200</b> · mainnet: eip155:8453 · accepts USDC</span></div></div>
-          <div class="step" data-s="1"><span class="dot"></span><div><span class="t">connect</span><span class="cmd">mcp add agent-ledger https://aiagentscity.com/mcp/</span><span class="res"><b>12 tools</b> registered · ledger_track · ledger_set_budget …</span></div></div>
-          <div class="step" data-s="2"><span class="dot"></span><div><span class="t">transact</span><span class="cmd">POST /v1/billing/x402 · X-PAYMENT: &lt;signed&gt;</span><span class="res"><b>200</b> · 24h Pro activated · $0.01 USDC settled</span></div></div>
-          <div class="step" data-s="3"><span class="dot"></span><div><span class="t">enforce</span><span class="cmd">ledger_set_budget {agent: "researcher", monthly: $50}</span><span class="res">cap armed · over-budget calls → <b>402</b> before provider contact</span></div></div>
-        </div>
-      </div>
-      <p class="illus">▲ this is the agent-native surface, playing live next to the human pitch — the whole site works like this</p>
+
+PAGE_HOME = """<div class="agent-surface">
+<section>
+  <div class="agent-hero">
+    <div class="kicker"><span class="ra">// machine-readable</span> · ai agent city</div>
+    <h1>The operations layer agents run on.</h1>
+    <p class="lede">Budgets, monitoring, security, trust, discovery — <b>five products, one MCP catalog, zero human required.</b> Read the contract, connect, transact.</p>
+  </div>
+  <div class="kicker"><span class="ra">// live session</span></div>
+  <div class="term">
+    <div class="bar"><i></i><i></i><i></i><span>agent session</span><span class="live">live</span></div>
+    <div class="rows">
+      <div class="step"><span class="t">discover</span><span class="c">GET /.well-known/x402.json</span><span class="r"><b>200</b> · mainnet eip155:8453 · accepts USDC</span></div>
+      <div class="step"><span class="t">connect</span><span class="c">mcp add agent-ledger https://aiagentscity.com/mcp/</span><span class="r"><b>12 tools</b> · ledger_track · ledger_set_budget …</span></div>
+      <div class="step"><span class="t">transact</span><span class="c">POST /v1/billing/x402 · X-PAYMENT: &lt;signed&gt;</span><span class="r"><b>200</b> · 24h Pro · $0.01 USDC settled</span></div>
+      <div class="step"><span class="t">enforce</span><span class="c">ledger_set_budget {agent:"researcher", monthly:$50}</span><span class="r">cap armed · over-budget calls → <b>402</b> pre-provider<span class="cursor"></span></span></div>
     </div>
   </div>
-
-  <div class="rails">
-    <span class="rl">RAILS</span><span><b>MCP</b> · tool protocol</span><span><b>x402</b> · payment protocol</span><span><b>Base</b> · eip155:8453</span><span><b>USDC</b> · settlement</span><span><b>llms.txt</b> · discovery</span><span><b>A2A</b> · ecosystem</span>
+  <p class="note">the agent-native surface, playing next to the contract — the whole site works like this</p>
+  <div class="kicker"><span class="ra">// connect</span> · one command per product</div>
+  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">12 tools</span><span class="url">claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for cited">copy</button></div></div>
+  <div class="buy">
+    <span class="lbl">x402 · Base mainnet</span>
+    <p><b>$0.01 · zero clicks.</b><br>POST /v1/billing/x402 + X-PAYMENT header → 24h AgentLedger Pro on the workspace your wallet resolves to. No signup flow, no card form, no human.</p>
   </div>
+</section>
+<section>
+  <div class="kicker"><span class="ra">// machine-readable</span> · the stack</div>
+  <h2>Five products, one contract.</h2>
+  <p class="lede">Every product is MCP-native. Tool counts are the live <span style="font-family:var(--mono);font-size:13px">tools/list</span> output, not marketing.</p>
+  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">12 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
+  <div class="fine"><b>machine entry points</b><br>/.well-known/x402.json · /skill.md · /openapi.json · /server.json · /.well-known/mcp.json · /status · /llms.txt</div>
+  <footer class="site"><div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a></div><div>AI Agent City · one site, two readers</div></footer>
+</section>
+</div>
 
+<div class="human-surface">
+<section>
+  <div class="kicker"><span class="rh">// human-readable</span> · ai agent city</div>
+  <h1>Agents are economic actors now.</h1>
+  <p class="lede">They spend money. They call your APIs. They represent businesses. <b>AI Agent City is the operations layer they run on</b> — budgets, monitoring, security, trust, and discovery. Live software, not slides.</p>
+  <div class="cta-row">
+    <a class="btn btn-human" href="/products">Explore the stack</a>
+    <a class="btn btn-ghost" href="/start">Start free</a>
+  </div>
+  <div class="pills">
+    <span class="pill on">MCP · tool protocol</span>
+    <span class="pill on">x402 · payment protocol</span>
+    <span class="pill">Base · eip155:8453</span>
+    <span class="pill">USDC · settlement</span>
+    <span class="pill">llms.txt · discovery</span>
+  </div>
+</section>
+<section>
   <div class="kicker"><span class="rh">// human-readable</span> · why now</div>
   <div class="thesis">
     <div class="t"><div class="n">01</div><h4>Agents hold wallets</h4><p>Machine-to-machine payments settle on-chain for fractions of a cent. The moment agents spend, someone has to set the budget.</p></div>
     <div class="t"><div class="n">02</div><h4>Agents call your APIs</h4><p>Non-human traffic already hits production endpoints, and most teams can't see it. You can't secure or bill what you can't attribute.</p></div>
     <div class="t"><div class="n">03</div><h4>AI answers are the new search</h4><p>Customers ask ChatGPT and Claude instead of Googling. If the models don't recommend you — with receipts — you're invisible.</p></div>
   </div>
-
-  <div class="kicker"><span class="rh">// human-readable</span> · <span class="ra">// machine-readable</span> · the stack</div>
   <div class="pull">"Every economic actor needs five things: a budget, a monitor, a perimeter, a reputation, and a way to be found. We're building all five — for agents."</div>
-
-  <div class="card hl">
-    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.1 · 12 tools</span></div>
-    <h3>AgentLedger — spending limits for AI agents</h3>
-    <p>The call that would break the budget <b>never reaches the provider</b>. Per-agent P&amp;L, enforced dollar and token caps, anomaly alerts — and the agent itself buys Pro for $0.01 with no human involved.</p>
-    <div class="links"><a href="/products">How it works →</a><a href="/demo">Live demo →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div>
-    <div class="card"><div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div>
-    <div class="card"><div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div>
-    <div class="card"><div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
-  </div>
-
+</section>
+<section>
+  <div class="kicker"><span class="rh">// human-readable</span> · the stack</div>
+  <h2>One stack. Five products.</h2>
+  <p class="lede">Each solves one operational problem end to end. Each is <b>live and independently usable.</b></p>
+  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">12 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
+</section>
+<section>
   <div class="kicker"><span class="rh">// human-readable</span> · proof</div>
-  <h2 style="margin-top:12px">Live, not slides</h2>
-  <div class="grid3">
+  <h2>Live, not slides.</h2>
+  <div class="grid3" style="margin-top:16px">
     <div class="card"><h3>$0.01, zero clicks</h3><p>An agent bought 24h of AgentLedger Pro over x402 on Base mainnet — real USDC, no human in the loop.</p></div>
-    <div class="card"><h3>7.4× more accurate</h3><p>Flat-rate token pricing was 7.4× wrong on a real session. AgentLedger prices cache-aware.</p></div>
-    <div class="card"><h3>402, not a dashboard</h3><p>Trace viewers report after you've paid. AgentLedger refuses the $401st call <b>before the provider sees it</b>.</p></div>
+    <div class="card"><h3>402, not a dashboard</h3><p>Trace viewers report after you've paid. AgentLedger refuses the over-budget call <b>before the provider sees it</b>.</p></div>
+    <div class="card"><h3>Priced honestly</h3><p>Flat-rate token pricing was 7.4× wrong on a real session. AgentLedger prices cache-aware.</p></div>
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/compare">AgentLedger vs trace viewers →</a><a class="btn btn-agentb" href="/developers">I'm an agent — take me to /developers →</a></div>
-
   <footer class="site">
     <div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a></div>
     <div>AI Agent City · one site, two readers</div>
   </footer>
+</section>
 </div>
+<script>var HOME_CMDS = ["claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
 
-<div class="agent-surface">
-  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /</div>
-  <p class="agent-note">Flip the <b>Human | Agent</b> toggle in the nav on any page. This is the agent-native surface: the same content, structured for machines — the live equivalent of <b>llms.txt</b>. No marketing prose, no missing endpoints.</p>
-  <div class="term"><div class="thead">$ curl https://aiagentscity.com/llms.txt</div><pre>
-<span class="k"># AI Agent City</span> — operations layer for the agent economy
-<span class="c"># Products (MCP across the board; REST + CLI on AgentLedger)</span>
-- <span class="k">AgentLedger</span>: per-agent spend caps, 402 enforcement pre-provider.
-  MCP: /mcp/ (12 tools) · REST: /v1/track /v1/budget /v1/report
-  Pricing: free ≤3 agents · Pro $19/mo flat · x402: $0.01 = 24h Pro (Base eip155:8453, USDC)
-  Purchase (no human): POST /v1/billing/x402 + X-PAYMENT header
-- <span class="k">Agent Watch</span>: agent-economy monitoring. MCP: /mcp/agent-watch (8 tools)
-- <span class="k">Perimeter Watch</span>: external perimeter scans. MCP: /mcp/perimeter-watch (6 tools)
-- <span class="k">TrustScan</span>: MCP-server/skill security scans. MCP: /mcp/trustscan (4 tools · v4.0.3)
-- <span class="k">Cited</span>: AI-visibility scans, verbatim evidence. MCP: /mcp/cited (9 tools)
-<span class="c"># Machine entry points</span>
-  /.well-known/x402.json · /skill.md · /openapi.json · /server.json · /status
-</pre></div>
-  <p class="agent-note">Every page on the live site carries this dual surface. Agents never scrape marketing copy — they read the contract.</p>
-  <footer class="site"><div><a href="/products">/products</a><a href="/developers">/developers</a></div><div>AI Agent City</div></footer>
-</div>"""
 
 PAGE_PRODUCTS = """<div class="human-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/products</div>
