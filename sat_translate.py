@@ -121,9 +121,9 @@ _TRANSLATIONS = {
             "cited_scan": {"rest": ("POST", "/scan", 150),
                            "body": {"business": "business", "city": "business",
                                     "category": "text"}},
-            "cited_api_docs": {"static": "cited_docs"},
-            "cited_examples": {"static": "cited_examples"},
-            "skills_list_tool": {"static": "cited_skills"},
+            # cited_api_docs / cited_examples / skills_list_tool are NOT
+            # translated: they execute natively and fast (0.5-0.9s, verified
+            # 2026-09-19) — only the live-read tools hit the broken path.
             "read_skill": {"static": "cited_read_skill"},
         },
     },
@@ -165,74 +165,6 @@ _TRANSLATIONS = {
 # docs (llms.txt / SKILL.md), bundled here because the native MCP doc tools
 # hit the same broken dispatch path.
 # ---------------------------------------------------------------------------
-
-_CITED_DOCS = {
-    "quickstart": (
-        "Cited quickstart for agents. MCP (preferred):\n"
-        "  claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/\n"
-        "then call cited_scan(business=\"Gentry Dentistry of Suwanee\", city=\"Suwanee, GA\").\n"
-        "REST: POST https://cited-api-production.up.railway.app/scan "
-        "{\"business\": ..., \"city\": ..., \"category\": \"dentist\"} "
-        "(free tier: 3 scans/IP/24h, completes in under 20s). "
-        "scan_id re-fetches via cited_report(scan_id). "
-        "No auth for reads; one POST for a scan."
-    ),
-    "mcp": (
-        "Cited MCP: streamable-http remote https://aiagentscity.com/mcp/cited/ "
-        "(city gateway; the satellite's native tool dispatch is under repair, "
-        "so the gateway translates tool calls to the documented REST API). "
-        "Tools: cited_health() liveness; cited_scan(business, city, category=\"dentist\") "
-        "free instant scan (verdicts, verbatim quotes, citations, cta_teaser); "
-        "cited_report(scan_id) re-fetch a past scan; cited_watch_status(business) "
-        "paid weekly-watch registration status; cited_stats() funnel counters; "
-        "cited_api_docs(topic) this documentation; cited_examples(pattern) recipes."
-    ),
-    "rest": (
-        "Cited REST (base https://cited-api-production.up.railway.app): "
-        "GET /health liveness {\"ok\": true, \"service\": \"cited\", \"version\": \"1.0\"}; "
-        "POST /scan {\"business\", \"city\", \"category\"} free instant AI-visibility scan, "
-        "returns per-engine verdict (recommended|mentioned_lower|not_mentioned), verbatim "
-        "AI evidence quote, citation URLs, cta_teaser; rate limit 3/IP/24h (429 beyond); "
-        "GET /report/{scan_id} re-fetch a past scan (404 if unknown); "
-        "GET /watch/{business} paid weekly-watch registration status; "
-        "GET /stats funnel counters (page_views/scans/registrations)."
-    ),
-    "errors": (
-        "Cited error shapes: 400 {\"detail\": \"...\"} malformed input "
-        "(business/city too short, etc.); 429 {\"detail\": \"Daily free-scan limit "
-        "reached...\"} rate limited; 404 {\"detail\": \"No report found for that id.\"}. "
-        "Gateway translation errors come back as MCP isError results with the "
-        "upstream detail quoted."
-    ),
-    "policies": (
-        "Cited policies for agent operators: no authority attestation required "
-        "(Cited only asks public AI engines a public question; it never touches the "
-        "target business's infrastructure). Methodology is always disclosed in the "
-        "methodology field (paid tier runs each prompt 3x and majority-votes; free "
-        "tier is a single run, stated as such). Retention: scan reports up to 90 "
-        "days, then deleted; share links stop resolving. Contact: entradox@icloud.com."
-    ),
-}
-
-_CITED_EXAMPLES = (
-    "Cited integration recipes.\n\n"
-    "1) Instant visibility check (MCP):\n"
-    "   cited_scan(business=\"Gentry Dentistry of Suwanee\", city=\"Suwanee, GA\")\n"
-    "   -> summary.overall: GREEN|AMBER|RED|INCOMPLETE. INCOMPLETE means checks "
-    "failed (engine outage/rate limit) — never report it as a visibility verdict.\n\n"
-    "2) Same via REST:\n"
-    "   curl -X POST https://cited-api-production.up.railway.app/scan "
-    "-H 'Content-Type: application/json' "
-    "-d '{\"business\": \"Gentry Dentistry of Suwanee\", \"city\": \"Suwanee, GA\"}'\n\n"
-    "3) Re-fetch / share: cited_report(scan_id=\"<scan_id from step 1>\") — "
-    "scan_id is stable and shareable for 90 days.\n\n"
-    "4) Reading results: results[].verdict is recommended|mentioned_lower|"
-    "not_mentioned|error; results[].quote is the AI engine's own words — quote "
-    "it verbatim, never paraphrase evidence into a stronger claim. "
-    "cta_teaser names the fix area; the specific fix (cta_full) is paid-tier.\n\n"
-    "5) Monitoring: cited_watch_status(business=\"...\") -> registered true|false "
-    "for the $39/mo weekly watch (movement-scored briefs per intent bucket)."
-)
 
 _CITED_SKILLS = [
     {"name": "cited-watch",
@@ -309,22 +241,6 @@ Exit codes: 0=GREEN (recommended) · 1=AMBER (mentioned, not top) · 2=RED (abse
 """
 
 
-def _static_cited_docs(args):
-    topic = str((args or {}).get("topic", "")).lower().strip()
-    if topic in _CITED_DOCS:
-        return _CITED_DOCS[topic]
-    return ("Cited — AI-visibility scans for local businesses. Topics: quickstart, "
-            "mcp, rest, errors, policies.\n\n" + _CITED_DOCS["quickstart"])
-
-
-def _static_cited_examples(args):
-    return _CITED_EXAMPLES
-
-
-def _static_cited_skills(args):
-    return _json.dumps(_CITED_SKILLS)
-
-
 def _static_cited_read_skill(args):
     uri = str((args or {}).get("uri", "")).strip()
     known = _CITED_SKILLS[0]["uri"]
@@ -334,9 +250,6 @@ def _static_cited_read_skill(args):
 
 
 _STATIC_HANDLERS = {
-    "cited_docs": _static_cited_docs,
-    "cited_examples": _static_cited_examples,
-    "cited_skills": _static_cited_skills,
     "cited_read_skill": _static_cited_read_skill,
 }
 
