@@ -222,7 +222,6 @@ PERIMETER_WATCH_PAGE = """
 to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
 is being repaired (Sept 2026). The free browser snapshot works today.</p>
 
-<h2>Pricing</h2>
 {PRICING_PERIMETER_WATCH}
 """
 
@@ -247,7 +246,6 @@ CITED_PAGE = """
 to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
 is being repaired (Sept 2026). The free browser scan works today.</p>
 
-<h2>Pricing</h2>
 {PRICING_CITED}
 """
 
@@ -290,7 +288,6 @@ are <b>$29/mo</b> — pick a plan below and checkout is self-serve. Every MCP to
 &mdash; including <span class="ver">aw_watch</span> &mdash; works today for subscribers.</p>
 </div>
 
-<h2>Pricing</h2>
 {PRICING_AGENT_WATCH}
 
 <h2>For agents</h2>
@@ -403,7 +400,6 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 &mdash; teams wire it into CI on the <b>Team plan</b> below.</p>
 </div>
 
-<h2>Pricing</h2>
 {PRICING_TRUST_SCAN}
 
 <script>
