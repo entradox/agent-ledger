@@ -620,7 +620,7 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
 
-Tools exposed at POST /mcp/:
+Tools exposed at POST /mcp/ (12):
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
   ledger_report         — get a spend report (agent_secret or workspace_key param)
@@ -628,8 +628,49 @@ Tools exposed at POST /mcp/:
   ledger_rotate_secret  — recover a lost agent_secret (workspace_key param; old secret dies at once)
   ledger_revoke_secret  — invalidate an agent's secret without deleting its history (workspace_key param)
   ledger_list_agents    — owner-only (admin_secret param)
+  ledger_start          — mint a workspace over MCP (no human)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|metering|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
+  skills_list_tool      — list this product's skills (open read)
+  read_skill            — read a product skill file by its skill:// URI (open read)
+
+## Satellite products (MCP, proxied through this host)
+
+Every satellite exposes its own streamable-http MCP server at
+https://aiagentscity.com/mcp/<slug> — the path resolves on this host and
+is proxied to the owning backend. POST JSON-RPC to the URL (Accept:
+application/json, text/event-stream; no auth needed to connect).
+Tool lists below are each server's live tools/list (2026-09-19).
+
+- agent-watch:        /mcp/agent-watch        (v1.30.0, 8 tools)
+  aw_health, aw_check_endpoint, aw_census, aw_list_monitored,
+  aw_alerts, aw_watch, skills_list_tool, read_skill
+  STATUS degraded: initialize + tools/list work; every tools/call times
+  out on the satellite backend ("read operation timed out"). Fix in
+  progress on the satellite service.
+
+- perimeter-watch:    /mcp/perimeter-watch    (v1.30.0, 6 tools)
+  pw_health, pw_snapshot, pw_watch_status, pw_stats,
+  skills_list_tool, read_skill
+  STATUS degraded: same backend fault as agent-watch. The free browser
+  snapshot form works today:
+  https://entradox.github.io/perimeter-watch-site/
+
+- cited:              /mcp/cited              (v1.30.0, 9 tools)
+  cited_health, cited_scan, cited_report, cited_watch_status,
+  cited_stats, cited_api_docs, cited_examples, skills_list_tool, read_skill
+  STATUS degraded: same backend fault as agent-watch. The free browser
+  scan form works today: https://entradox.github.io/cited-site/
+
+- trustscan:          /mcp/trustscan          (v4.0.3, 4 tools, LIVE)
+  trust_scan_server — security-scan an MCP server or skill package before
+  trusting it (invisible-Unicode prompt injection, dangerous code
+  patterns MCP001-MCP006, hardcoded secrets, typosquat names);
+  returns a 0-100 score, letter grade, and findings. Read-only.
+  trust_scan_file — security-scan a single file for invisible Unicode,
+  dangerous patterns, and secrets. Read-only.
+  skills_list_tool, read_skill
+  (alias /mcp/trust-scan resolves to the same server)
 
 Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
 take agent_secret/workspace_key parameters and enforce the same access rule
@@ -1085,20 +1126,64 @@ def agent_card_json():
 
 @app.get("/.well-known/mcp.json")
 def mcp_wellknown_json():
-    """MCP server descriptor at the spelling agents probe (23 live 404s).
+    """City-wide MCP catalog: all five servers, true tool lists.
 
     Distinct from /.well-known/mcp/server-card.json (which is the richer
-    registry card). This is the shorthand form crawlers look for.
+    registry card for AgentLedger alone). Tool names and counts below were
+    read from each server's live tools/list on 2026-09-19. The three
+    v1.30.0 satellite servers currently execute tool calls with an upstream
+    "read operation timed out" fault — listed honestly rather than hidden.
     """
     return JSONResponse(content={
-        "name": "io.aiagentscity/agent-ledger",
-        "title": "AgentLedger",
-        "description": "Per-agent spend management: track spend across "
-                       "x402/MPP/API-key rails, set budget caps, get anomaly "
-                       "alerts, keep an audit trail.",
-        "version": APP_VERSION,
-        "remotes": [{"type": "streamable-http",
-                     "url": "https://aiagentscity.com/mcp/"}],
+        "name": "io.aiagentscity/catalog",
+        "title": "AI Agent City MCP catalog",
+        "description": "Every MCP server on aiagentscity.com: one city URL "
+                       "per product, proxied to the owning backend.",
+        "servers": [
+            {"id": "agent-ledger",
+             "url": "https://aiagentscity.com/mcp/",
+             "version": "v0.4.1", "status": "live",
+             "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
+                       "ledger_track", "ledger_set_budget", "ledger_report",
+                       "ledger_alerts", "ledger_list_agents", "ledger_start",
+                       "ledger_api_docs", "ledger_examples",
+                       "skills_list_tool", "read_skill"]},
+            {"id": "agent-watch",
+             "url": "https://aiagentscity.com/mcp/agent-watch",
+             "version": "v1.30.0", "status": "degraded",
+             "status_note": "initialize + tools/list work; tool execution "
+                            "times out on the satellite backend — fix in "
+                            "progress on the satellite service.",
+             "tools": ["aw_health", "aw_check_endpoint", "aw_census",
+                       "aw_list_monitored", "aw_alerts", "aw_watch",
+                       "skills_list_tool", "read_skill"]},
+            {"id": "perimeter-watch",
+             "url": "https://aiagentscity.com/mcp/perimeter-watch",
+             "version": "v1.30.0", "status": "degraded",
+             "status_note": "initialize + tools/list work; tool execution "
+                            "times out on the satellite backend — fix in "
+                            "progress on the satellite service. The free "
+                            "snapshot form works: "
+                            "https://entradox.github.io/perimeter-watch-site/",
+             "tools": ["pw_health", "pw_snapshot", "pw_watch_status",
+                       "pw_stats", "skills_list_tool", "read_skill"]},
+            {"id": "cited",
+             "url": "https://aiagentscity.com/mcp/cited",
+             "version": "v1.30.0", "status": "degraded",
+             "status_note": "initialize + tools/list work; tool execution "
+                            "times out on the satellite backend — fix in "
+                            "progress on the satellite service. The free "
+                            "scan form works: "
+                            "https://entradox.github.io/cited-site/",
+             "tools": ["cited_health", "cited_scan", "cited_report",
+                       "cited_watch_status", "cited_stats", "cited_api_docs",
+                       "cited_examples", "skills_list_tool", "read_skill"]},
+            {"id": "trustscan",
+             "url": "https://aiagentscity.com/mcp/trustscan",
+             "version": "v4.0.3", "status": "live",
+             "tools": ["trust_scan_server", "trust_scan_file",
+                       "skills_list_tool", "read_skill"]},
+        ],
         "documentation": "https://aiagentscity.com/llms.txt",
         "payment": {"protocol": "x402",
                     "discovery": "https://aiagentscity.com/.well-known/x402",
@@ -2022,7 +2107,161 @@ try:
 
     # Added before the mount so it wraps the whole router, including /mcp/.
     app.add_middleware(_McpSlashRewrite)
+
     app.mount("/mcp", _al_asgi)
 except Exception as _e:  # MCP optional — API keeps working without it
     import logging
     logging.warning(f"MCP mount skipped: {_e}")
+
+
+# ── Satellite MCP reverse proxy ──────────────────────────────────────────
+# The four satellite products run their own MCP servers on Railway.
+# /products and /developers document them at /mcp/<slug> on THIS host, so
+# those paths must resolve here rather than 404. A pure-ASGI reverse proxy
+# forwards method/headers/body (streaming both ways, so SSE event streams
+# survive) to the owning backend.
+#
+# This is deliberately OUTSIDE the try/except above: it does not depend on
+# the AgentLedger fastmcp mount. If that mount is skipped (fastmcp missing),
+# satellite paths must still proxy. httpx is imported lazily — a deployment
+# without it gets a 502 on satellite paths, never a silent 404.
+#
+# Added LAST so it is the outermost middleware: satellite paths are
+# prefixes of /mcp and would otherwise be swallowed by the AgentLedger
+# FastMCP mount and 404.
+_SATELLITE_MCP_UPSTREAMS = {
+    # city path prefix -> upstream MCP base URL (must end in "/")
+    "/mcp/agent-watch": "https://agent-watch-api-production.up.railway.app/mcp/",
+    "/mcp/perimeter-watch": "https://perimeter-watch-api-production.up.railway.app/mcp/",
+    "/mcp/cited": "https://cited-api-production.up.railway.app/mcp/",
+    "/mcp/trustscan": "https://trust-scan-production.up.railway.app/mcp/",
+    "/mcp/trust-scan": "https://trust-scan-production.up.railway.app/mcp/",
+}
+_SAT_HOP_BY_HOP = frozenset({
+    b"host", b"connection", b"keep-alive", b"proxy-authenticate",
+    b"proxy-authorization", b"te", b"trailer", b"transfer-encoding",
+    b"upgrade", b"content-length",
+})
+
+
+class _SatelliteMcpProxy:
+    """Reverse-proxy /mcp/<satellite> to the satellite's own MCP server.
+
+    Streams request and response bodies so SSE works; defaults the Accept
+    header on POST when the client sends none (the satellite servers answer
+    406 without an SSE-capable Accept, the same front-door class the
+    ledger's _McpSlashRewrite already handles for Content-Type). Upstream
+    failures become 502, never a hang: connect 10s, read 180s (long scans
+    are legitimate).
+    """
+
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+        self._client = None
+
+    def _match(self, path):
+        for prefix, base in _SATELLITE_MCP_UPSTREAMS.items():
+            if path == prefix or path.startswith(prefix + "/"):
+                return base + path[len(prefix):].lstrip("/")
+        return None
+
+    def _client_or_none(self):
+        if self._client is None:
+            try:
+                import httpx
+            except Exception:
+                return None
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=10.0, read=180.0,
+                                      write=30.0, pool=10.0),
+                follow_redirects=False,
+                # Deterministic: never parse proxy env vars. (httpx's
+                # trust_env parsing chokes on some sandbox NO_PROXY
+                # spellings like [::1]; Railway egress is direct anyway.)
+                trust_env=False,
+            )
+        return self._client
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.asgi_app(scope, receive, send)
+            return
+        upstream = self._match(scope.get("path", ""))
+        if upstream is None:
+            await self.asgi_app(scope, receive, send)
+            return
+        client = self._client_or_none()
+        if client is None:  # httpx missing: 502, don't silently 404
+            body = (b'{"error":{"type":"proxy_unavailable",'
+                    b'"message":"satellite MCP proxy not installed"}}')
+            await send({"type": "http.response.start", "status": 502,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length",
+                                     str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        headers = [(k, v) for k, v in (scope.get("headers") or [])
+                   if k.lower() not in _SAT_HOP_BY_HOP]
+        lowered = {k.lower() for k, _ in headers}
+        # The satellite servers speak streamable-http: a POST without an
+        # SSE-capable Accept gets 406. Default it when the client omits one,
+        # exactly as _McpSlashRewrite does for Content-Type.
+        if scope.get("method") == "POST" and b"accept" not in lowered:
+            headers.append((b"accept",
+                            b"application/json, text/event-stream"))
+        if scope.get("method") == "POST":
+            ct = next((v for k, v in headers if k.lower() == b"content-type"),
+                      b"").decode("latin-1").split(";")[0].strip().lower()
+            if ct in ("", "application/x-www-form-urlencoded"):
+                headers = [(k, v) for k, v in headers
+                           if k.lower() != b"content-type"]
+                headers.append((b"content-type", b"application/json"))
+        if scope.get("query_string"):
+            upstream += "?" + scope["query_string"].decode("latin-1")
+
+        async def _body():
+            while True:
+                msg = await receive()
+                if msg["type"] == "http.request":
+                    chunk = msg.get("body", b"")
+                    if chunk:
+                        yield chunk
+                    if not msg.get("more_body"):
+                        break
+                elif msg["type"] == "http.disconnect":
+                    break
+
+        try:
+            req = client.build_request(scope.get("method", "GET"),
+                                       upstream, headers=headers,
+                                       content=_body())
+            resp = await client.send(req, stream=True)
+        except Exception as exc:
+            import json as _json
+            body_b = ('{"error":{"type":"upstream_unreachable",'
+                      '"message":%s}}'
+                      % _json.dumps(type(exc).__name__)).encode()
+            await send({"type": "http.response.start", "status": 502,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length",
+                                     str(len(body_b)).encode())]})
+            await send({"type": "http.response.body", "body": body_b})
+            return
+        out_headers = [(k, v) for k, v in resp.headers.raw
+                       if k.lower() not in _SAT_HOP_BY_HOP
+                       and k.lower() not in (b"content-encoding",
+                                             b"content-length")]
+        await send({"type": "http.response.start",
+                    "status": resp.status_code,
+                    "headers": out_headers})
+        try:
+            async for chunk in resp.aiter_bytes():
+                await send({"type": "http.response.body",
+                            "body": chunk, "more_body": True})
+        finally:
+            await resp.aclose()
+        await send({"type": "http.response.body", "body": b""})
+
+
+app.add_middleware(_SatelliteMcpProxy)

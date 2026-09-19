@@ -146,7 +146,7 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 PERIMETER_WATCH_PAGE = """
 <h1>Perimeter Watch</h1>
 <p class="mut">Passive external-perimeter monitoring for web agencies</p>
-<p class="mut">v1.30.0 &middot; 4 MCP tools live</p>
+<p class="mut">v1.30.0 &middot; 6 MCP tools</p>
 
 <h2>Try it</h2>
 <ul>
@@ -156,13 +156,17 @@ PERIMETER_WATCH_PAGE = """
 </ul>
 
 <h2>Connect</h2>
-<p><a class="plain" href="https://entradox.github.io/perimeter-watch-site/">Visit the Perimeter Watch site &rarr;</a></p>
+<p class="mut">MCP (no signup):</p>
+<pre>claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</pre>
+<p class="mut">Or run a free one-time snapshot in the browser:</p>
+<p><a class="plain" href="https://entradox.github.io/perimeter-watch-site/">Free perimeter snapshot &rarr;</a></p>
+<p class="mut">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026) — the browser snapshot works today.</p>
 """
 
 CITED_PAGE = """
 <h1>Cited</h1>
 <p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p>
-<p class="mut">v1.30.0 &middot; 7 MCP tools live</p>
+<p class="mut">v1.30.0 &middot; 9 MCP tools</p>
 
 <h2>Try it</h2>
 <ul>
@@ -172,13 +176,17 @@ CITED_PAGE = """
 </ul>
 
 <h2>Connect</h2>
-<p><a class="plain" href="https://entradox.github.io/cited-site/">Visit the Cited site &rarr;</a></p>
+<p class="mut">MCP (no signup):</p>
+<pre>claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</pre>
+<p class="mut">Or run a free scan in the browser:</p>
+<p><a class="plain" href="https://entradox.github.io/cited-site/">Free AI-visibility scan &rarr;</a></p>
+<p class="mut">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026) — the browser scan works today.</p>
 """
 
 AGENT_WATCH_PAGE = """
 <h1>Agent Watch</h1>
 <p class="mut">Monitoring for the agent economy</p>
-<p class="mut">v1.30.0 &middot; 6 MCP tools live</p>
+<p class="mut">v1.30.0 &middot; 8 MCP tools</p>
 
 <h2>Try it</h2>
 <ul>
@@ -188,13 +196,15 @@ AGENT_WATCH_PAGE = """
 </ul>
 
 <h2>Connect</h2>
-<p class="mut">Dedicated connect page launching soon. Agent Watch is live and agent-callable today via MCP.</p>
+<p class="mut">MCP (no signup):</p>
+<pre>claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</pre>
+<p class="mut">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026).</p>
 """
 
 TRUST_SCAN_PAGE = """
 <h1>TrustScan</h1>
 <p class="mut">Scan before you trust</p>
-<p class="mut">v4.0.3 &middot; 2 MCP tools live</p>
+<p class="mut">v4.0.3 &middot; 4 MCP tools &middot; live</p>
 
 <h2>Try it</h2>
 <ul>
@@ -204,7 +214,9 @@ TRUST_SCAN_PAGE = """
 </ul>
 
 <h2>Connect</h2>
-<p class="mut">Dedicated connect page launching soon. TrustScan is live and agent-callable today via MCP.</p>
+<p class="mut">MCP (no signup):</p>
+<pre>claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</pre>
+<p class="mut">Two scanners: <b>trust_scan_server</b> security-scans an MCP server or skill package before you trust it — invisible-Unicode prompt injection, dangerous code patterns (MCP001&ndash;MCP006), hardcoded secrets, typosquat names — and returns a 0&ndash;100 score, a letter grade, and detailed findings. <b>trust_scan_file</b> scans a single file. Read-only: neither ever modifies the target.</p>
 """
 
 

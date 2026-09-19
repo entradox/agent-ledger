@@ -222,7 +222,7 @@ PAGE_HOME = """<div class="human-surface">
         <div class="shead"><div class="dots"><i></i><i></i><i></i></div><span>agent session — live</span><span class="live"><i></i>LIVE</span></div>
         <div class="sbody">
           <div class="step" data-s="0"><span class="dot"></span><div><span class="t">discover</span><span class="cmd">GET /.well-known/x402.json</span><span class="res"><b>200</b> · mainnet: eip155:8453 · accepts USDC</span></div></div>
-          <div class="step" data-s="1"><span class="dot"></span><div><span class="t">connect</span><span class="cmd">mcp add agent-ledger https://aiagentscity.com/mcp/</span><span class="res"><b>9 tools</b> registered · ledger_track · ledger_set_budget …</span></div></div>
+          <div class="step" data-s="1"><span class="dot"></span><div><span class="t">connect</span><span class="cmd">mcp add agent-ledger https://aiagentscity.com/mcp/</span><span class="res"><b>12 tools</b> registered · ledger_track · ledger_set_budget …</span></div></div>
           <div class="step" data-s="2"><span class="dot"></span><div><span class="t">transact</span><span class="cmd">POST /v1/billing/x402 · X-PAYMENT: &lt;signed&gt;</span><span class="res"><b>200</b> · 24h Pro activated · $0.01 USDC settled</span></div></div>
           <div class="step" data-s="3"><span class="dot"></span><div><span class="t">enforce</span><span class="cmd">ledger_set_budget {agent: "researcher", monthly: $50}</span><span class="res">cap armed · over-budget calls → <b>402</b> before provider contact</span></div></div>
         </div>
@@ -246,7 +246,7 @@ PAGE_HOME = """<div class="human-surface">
   <div class="pull">"Every economic actor needs five things: a budget, a monitor, a perimeter, a reputation, and a way to be found. We're building all five — for agents."</div>
 
   <div class="card hl">
-    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.1 · 9 tools</span></div>
+    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.1 · 12 tools</span></div>
     <h3>AgentLedger — spending limits for AI agents</h3>
     <p>The call that would break the budget <b>never reaches the provider</b>. Per-agent P&amp;L, enforced dollar and token caps, anomaly alerts — and the agent itself buys Pro for $0.01 with no human involved.</p>
     <div class="links"><a href="/products">How it works →</a><a href="/demo">Live demo →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div>
@@ -280,13 +280,13 @@ PAGE_HOME = """<div class="human-surface">
 <span class="k"># AI Agent City</span> — operations layer for the agent economy
 <span class="c"># Products (MCP across the board; REST + CLI on AgentLedger)</span>
 - <span class="k">AgentLedger</span>: per-agent spend caps, 402 enforcement pre-provider.
-  MCP: /mcp/ (9 tools) · REST: /v1/track /v1/budget /v1/report
+  MCP: /mcp/ (12 tools) · REST: /v1/track /v1/budget /v1/report
   Pricing: free ≤3 agents · Pro $19/mo flat · x402: $0.01 = 24h Pro (Base eip155:8453, USDC)
   Purchase (no human): POST /v1/billing/x402 + X-PAYMENT header
-- <span class="k">Agent Watch</span>: agent-economy monitoring. MCP: /mcp/agent-watch (6 tools)
-- <span class="k">Perimeter Watch</span>: external perimeter scans. MCP: /mcp/perimeter-watch (4 tools)
-- <span class="k">TrustScan</span>: pre-transaction counterparty scans. MCP (2 tools · v4.0.3). Access: request
-- <span class="k">Cited</span>: AI-visibility scans, verbatim evidence. MCP: /mcp/cited (7 tools)
+- <span class="k">Agent Watch</span>: agent-economy monitoring. MCP: /mcp/agent-watch (8 tools)
+- <span class="k">Perimeter Watch</span>: external perimeter scans. MCP: /mcp/perimeter-watch (6 tools)
+- <span class="k">TrustScan</span>: MCP-server/skill security scans. MCP: /mcp/trustscan (4 tools · v4.0.3)
+- <span class="k">Cited</span>: AI-visibility scans, verbatim evidence. MCP: /mcp/cited (9 tools)
 <span class="c"># Machine entry points</span>
   /.well-known/x402.json · /skill.md · /openapi.json · /server.json · /status
 </pre></div>
@@ -300,7 +300,7 @@ PAGE_PRODUCTS = """<div class="human-surface">
   <p class="lede">Each solves one operational problem end to end. Each is <b>live, independently usable, and agent-callable</b> — MCP everywhere; REST + CLI on AgentLedger.</p>
 
   <div class="card hl">
-    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.1 · 9 tools</span></div>
+    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.1 · 12 tools</span></div>
     <h3>AgentLedger — spending limits for AI agents</h3>
     <p><b>Your agents spend money. Give each one a spending limit.</b> Meters every call, shows a live P&amp;L per agent, and refuses the call that would cross the budget — before the provider is contacted.</p>
     <ul class="feat">
@@ -316,33 +316,36 @@ PAGE_PRODUCTS = """<div class="human-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 6 MCP tools live</span></div>
+    <div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 8 MCP tools</span></div>
     <h3>Agent Watch — monitoring for the agent economy</h3>
     <p><b>Non-human traffic is hitting your APIs and you can't see it.</b> What changed this week, alerts the moment a new agent calls your endpoints, anomaly summaries — before they become incidents or invoices.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Alert me when a new agent calls our API, with a weekly activity summary."</span></pre>
+    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026).</p>
     <div class="cta-row"><a class="btn btn-human" href="/agent-watch">Start monitoring</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-watch →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 4 MCP tools live</span></div>
+    <div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 6 MCP tools</span></div>
     <h3>Perimeter Watch — passive external-perimeter monitoring for web agencies</h3>
     <p><b>Attackers view your clients' domains from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan example.com for dangling DNS and cert expiry, then check lookalikes."</span></pre>
+    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026). The free browser snapshot works today.</p>
     <div class="cta-row"><a class="btn btn-human" href="/perimeter-watch">Scan a domain</a><a class="btn btn-agentb" href="/developers">$ mcp add perimeter-watch →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 2 tools · MCP</span></div>
+    <div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 4 MCP tools · live</span></div>
     <h3>TrustScan — scan before you trust</h3>
-    <p><b>Your agent is about to do business with a stranger.</b> TrustScan answers the question every agent should ask before money, data, or access changes hands: <i>who am I dealing with?</i> A verdict with evidence — not a black-box score — callable over MCP today <span class="ver">v4.0.3 · 2 tools live · dedicated connect page launching soon</span>, built to sit in front of any agent transaction.</p>
-    <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Request access</a></div>
+    <p><b>Your agent is about to install a stranger's MCP server.</b> TrustScan answers the question every agent should ask first: <i>is this safe to wire in?</i> Invisible-Unicode prompt-injection, dangerous code patterns (MCP001&ndash;MCP006), hardcoded secrets, typosquat names — a 0&ndash;100 score, a letter grade, and evidence. Live over MCP today, read-only, no signup.</p>
+    <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Scan a server</a><a class="btn btn-agentb" href="/developers">$ mcp add trustscan →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 7 MCP tools live</span></div>
+    <div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 9 MCP tools</span></div>
     <h3>Cited — does AI recommend your practice?</h3>
     <p><b>Your customers stopped Googling. They ask AI.</b> Instant scan of what the AI engines say about your business — with verbatim evidence. Free.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan Gentry Dentistry of Suwanee for AI visibility — verbatim quotes."</span></pre>
+    <p class="mut" style="font-size:13px">Status: the MCP endpoint is up and lists tools; tool execution on the satellite backend is being repaired (Sept 2026). The free browser scan works today.</p>
     <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
   </div>
 
@@ -354,12 +357,12 @@ PAGE_PRODUCTS = """<div class="human-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /products</div>
   <div class="term"><div class="thead">$ agent-view /products</div><pre>
 <span class="k">products:</span>
-  - id: agent-ledger · mcp: /mcp/ (9 tools) · rest: /v1/*
+  - id: agent-ledger · mcp: /mcp/ (12 tools) · rest: /v1/*
     pricing: {free: "≤3 agents", pro: "$19/mo flat"} · x402: "$0.01 = 24h Pro"
-  - id: agent-watch · mcp: /mcp/agent-watch (6 tools)
-  - id: perimeter-watch · mcp: /mcp/perimeter-watch (4 tools)
-  - id: trustscan · access: request · protocols: [mcp]
-  - id: cited · mcp: /mcp/cited (7 tools) · free_scan: true
+  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: degraded (tool execution being repaired)
+  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: degraded (tool execution being repaired) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
+  - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
+  - id: cited · mcp: /mcp/cited (9 tools) · status: degraded (tool execution being repaired) · free_scan: https://entradox.github.io/cited-site/
 <span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility]
 <span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
 </pre></div>
@@ -379,11 +382,11 @@ PAGE_DEVELOPERS = """<div class="human-surface">
   <h2>The MCP catalog</h2>
   <table class="cmp">
     <tr><th>Server</th><th>What your agent gets</th><th>Connect</th></tr>
-    <tr><td><b>agent-ledger</b> <span class="ver">9 tools</span></td><td style="color:var(--mut)">Track spend, set budgets, pull P&amp;L, manage alerts</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/</code></td></tr>
-    <tr><td><b>agent-watch</b> <span class="ver">6 tools</span></td><td style="color:var(--mut)">Activity briefs, new-agent alerts, anomaly summaries</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/agent-watch</code></td></tr>
-    <tr><td><b>perimeter-watch</b> <span class="ver">4 tools</span></td><td style="color:var(--mut)">Dangling-DNS scans, cert watch, lookalike checks</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/perimeter-watch</code></td></tr>
-    <tr><td><b>cited</b> <span class="ver">7 tools</span></td><td style="color:var(--mut)">AI-visibility scans with verbatim evidence</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/cited</code></td></tr>
-    <tr><td><b>trustscan</b> <span class="ver">2 tools · v4.0.3</span></td><td style="color:var(--mut)">Pre-transaction counterparty scans</td><td style="color:var(--mut)">MCP · connect page launching soon</td></tr>
+    <tr><td><b>agent-ledger</b> <span class="ver">12 tools</span></td><td style="color:var(--mut)">Track spend, set budgets, pull P&amp;L, manage alerts</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/</code></td></tr>
+    <tr><td><b>agent-watch</b> <span class="ver">8 tools</span></td><td style="color:var(--mut)">Activity briefs, new-agent alerts, anomaly summaries</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/agent-watch</code></td></tr>
+    <tr><td><b>perimeter-watch</b> <span class="ver">6 tools</span></td><td style="color:var(--mut)">Dangling-DNS scans, cert watch, lookalike checks</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/perimeter-watch</code></td></tr>
+    <tr><td><b>cited</b> <span class="ver">9 tools</span></td><td style="color:var(--mut)">AI-visibility scans with verbatim evidence</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/cited</code></td></tr>
+    <tr><td><b>trustscan</b> <span class="ver">4 tools · v4.0.3 · live</span></td><td style="color:var(--mut)">MCP-server/skill security scans (prompt-injection, secrets, typosquat)</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/trustscan</code></td></tr>
   </table>
   <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command and your agent is connected</span>
 claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</pre>
@@ -414,10 +417,11 @@ client = agentledger.<span class="k">wrap</span>(OpenAI(), agent_id=<span class=
   <div class="term"><div class="thead">$ agent-view /developers</div><pre>
 <span class="k">discovery:</span> /.well-known/x402.json · /llms.txt · /skill.md
 <span class="k">mcp:</span>
-  agent-ledger: https://aiagentscity.com/mcp/  <span class="c"># 9 tools</span>
-  agent-watch: .../mcp/agent-watch            <span class="c"># 6 tools</span>
-  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 4 tools</span>
-  cited: .../mcp/cited                        <span class="c"># 7 tools</span>
+  agent-ledger: https://aiagentscity.com/mcp/  <span class="c"># 12 tools</span>
+  agent-watch: .../mcp/agent-watch            <span class="c"># 8 tools · degraded: tool calls timing out upstream</span>
+  perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · degraded: tool calls timing out upstream</span>
+  cited: .../mcp/cited                        <span class="c"># 9 tools · degraded: tool calls timing out upstream</span>
+  trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
 <span class="k">purchase:</span>
   POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
   price: $0.01 USDC · chain: eip155:8453 · grants: 24h Pro
@@ -469,9 +473,10 @@ PAGE_CHANGELOG = """<div class="human-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
+    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly while tool execution is being repaired on their backends. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Four fixes from live testing.</b> Real <span class="ver">agent_secret="as_…"</span> format in the docs, SDK model IDs auto-priced as aliases, webhooks section on the dashboard, typed <span class="ver">payment_required</span> errors on the x402 endpoint. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (9 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (6) · Perimeter Watch <span class="ver">v1.30.0</span> (4) · Cited <span class="ver">v1.30.0</span> (7) · TrustScan <span class="ver">v4.0.3</span> (2). 28 MCP tools live across five products. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (12 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (8) · Perimeter Watch <span class="ver">v1.30.0</span> (6) · Cited <span class="ver">v1.30.0</span> (9) · TrustScan <span class="ver">v4.0.3</span> (4). 39 MCP tools across five products. <span class="ver">platform</span></div></div>
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/status">/status — live system status →</a></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
@@ -481,10 +486,14 @@ PAGE_CHANGELOG = """<div class="human-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
+  - 2026-09-19: satellite MCP routes mounted on aiagentscity.com (/mcp/agent-watch,
+    /mcp/perimeter-watch, /mcp/cited, /mcp/trustscan resolve to owning backends);
+    TrustScan live (4 tools); watch/perimeter/cited list tools while their
+    backend tool execution is being repaired
   - 2026-09-16: x402 live on eip155:8453 ($0.01 USDC = 24h Pro, zero-click)
   - 2026-09-16: agent-ledger fixes (agent_secret format, model alias pricing,
     dashboard webhooks, typed payment_required errors)
-  - 2026-09-16: per-product releases (28 MCP tools: ledger 9, watch 6, perimeter 4, cited 7, trustscan 2)
+  - 2026-09-16: per-product releases (39 MCP tools: ledger 12, watch 8, perimeter 6, cited 9, trustscan 4)
 <span class="k">feed:</span> /changelog (this page) · /status (live)
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
