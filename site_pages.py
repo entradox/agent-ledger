@@ -313,12 +313,12 @@ the <code>npx</code> launcher). Note the console command it installs is
 One line changes, and every call afterwards is recorded and checked against the
 budget before it is sent.</p>
 <pre><code>pip install "aiagentscity-ledger[wrapper]"
-agent-ledger init --agent my-agent      # prints agent_secret ONCE and writes .env
+agent-ledger init --agent YOUR_AGENT_ID      # prints agent_secret ONCE and writes .env
 
 import agentledger
 from openai import OpenAI
 
-client = agentledger.wrap(OpenAI(), agent_id="my-agent",
+client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID",
                           agent_secret="as_...")   # from .env / the init output
 
 client.chat.completions.create(model="gpt-4o",

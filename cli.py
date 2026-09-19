@@ -10,7 +10,7 @@ or wrong data again:
     deployed instance over HTTP instead. This is what you want when checking
     the actual production ledger.
 """
-import argparse, json, os, sys, urllib.request, urllib.error
+import argparse, json, os, sys, urllib.request, urllib.error, uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -52,6 +52,15 @@ def _required_base(args) -> str:
 def cmd_init(args):
     """Zero to a metered, guarded agent in one command."""
     import re
+    # A default agent_id is generated rather than required (2026-09-18, D-1382).
+    # Two reasons, and the second is the one that bit us:
+    #   1. `agent_id` is a GLOBAL namespace, so ANY fixed string published in
+    #      docs gets claimed by the first person who pastes it — after which
+    #      every later customer following the same docs gets 401
+    #      agent_secret_mismatch. A generated id cannot be claimed out from
+    #      under the next user.
+    #   2. Requiring the flag made the documented one-liner need a typed value.
+    agent = args.agent or f"agent-{uuid.uuid4().hex[:8]}"
     base = _required_base(args)
     print(f"[init against {base}]", file=sys.stderr)
 
@@ -68,7 +77,7 @@ def cmd_init(args):
 
     # 2. Claim an agent_id with a zero-amount first write, which mints its
     #    secret. Re-using an existing agent_id needs the secret instead.
-    body = {"agent_id": args.agent, "rail": "manual", "amount_cents": 0,
+    body = {"agent_id": agent, "rail": "manual", "amount_cents": 0,
             "service": "agent-ledger-init", "workspace_key": workspace_key}
     if args.agent_secret:
         body.pop("workspace_key")
@@ -84,7 +93,7 @@ def cmd_init(args):
         "# AgentLedger — created by `agent-ledger init`",
         f"AGENT_LEDGER_API_BASE={base}",
         f"AGENT_LEDGER_WORKSPACE_KEY={workspace_key}",
-        f"AGENT_LEDGER_AGENT_ID={args.agent}",
+        f"AGENT_LEDGER_AGENT_ID={agent}",
         f"AGENT_LEDGER_AGENT_SECRET={agent_secret}",
         "",
     ]
@@ -102,7 +111,7 @@ def cmd_init(args):
     print(f"""
 workspace_key and agent_secret are shown ONCE — save them.
 
-    agent  {args.agent}
+    agent  {agent}
     secret {agent_secret}
     key    {workspace_key}
 
@@ -111,16 +120,16 @@ Now point a client at the proxy (that is what makes the cap stop money):
     from openai import OpenAI
     import agentledger
     client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
-                              agent_id="{args.agent}", agent_secret="<secret>")
+                              agent_id="{agent}", agent_secret="<secret>")
 
 Or by hand, if you would rather not add a package:
 
     base_url = "{base}/proxy/openai/v1/"
-    default_headers = {{"X-AL-Agent": "{args.agent}", "X-AL-Secret": "<secret>"}}
+    default_headers = {{"X-AL-Agent": "{agent}", "X-AL-Secret": "<secret>"}}
 
 Then set a cap, and watch it block: 
 
-    agent-ledger --api-base {base} set-budget --agent-id {args.agent} \
+    agent-ledger --api-base {base} set-budget --agent-id {agent} \
         --agent-secret <secret> --monthly-cents 5000
 """)
 
@@ -317,7 +326,8 @@ def main():
     l.set_defaults(fn=cmd_list)
 
     i = sub.add_parser("init", help="mint a workspace + agent and write a .env (one command to metered)")
-    i.add_argument("--agent", required=True, help="the agent_id to create")
+    i.add_argument("--agent", help="the agent_id to create (default: a unique one, so the "
+                                   "command needs no typing and cannot collide)")
     i.add_argument("--agent-secret", help="reuse an existing agent_id instead of claiming a new one")
     i.add_argument("--env-file", default=".env", help="where to write the credentials ('' to skip)")
     i.set_defaults(fn=cmd_init)

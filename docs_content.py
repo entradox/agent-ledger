@@ -46,8 +46,8 @@ rejected with 400 `version_header`.
 curl -X POST {BASE_URL}/v1/track \\
   -H "Content-Type: application/json" \\
   -H "AL-API-Version: {AL_API_VERSION}" \\
-  -H "Idempotency-Key: my-agent-track-2026-09-09-001" \\
-  -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query"}}'
+  -H "Idempotency-Key: YOUR_AGENT_ID-track-2026-09-09-001" \\
+  -d '{{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search_query"}}'
 ```
 
 Claiming a NEW `agent_id` requires a `workspace_key` in that first write's

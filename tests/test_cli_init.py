@@ -11,13 +11,16 @@ launch-window slot. Testing it on the live instance would add exactly the junk
 data that had to be purged from there earlier the same day.
 """
 import importlib
+import json
 import os
+import re
 import shutil
 import socket
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -208,3 +211,118 @@ def test_share_uses_the_workspace_key_too(live, tmp_path):
         _run_cli(["--api-base", base, "share", "--agent-id", "ws-share",
                   "--workspace-key", values["AGENT_LEDGER_WORKSPACE_KEY"]])
     assert "?t=" in buf.getvalue()
+
+
+# ── our published instructions must actually work (D-1382) ────────────────
+# These exist because the product shipped a copy-paste command that returned
+# 401 to every customer but the first. The gap was structural: every existing
+# test walked the AGENT path (discovery -> MCP -> tools -> paywall) and none
+# executed the HUMAN onboarding example. So the suite was green while the
+# documented first step was broken.
+
+def test_two_customers_can_both_follow_the_documented_first_step(live):
+    """The one that would have caught it — and the shape matters.
+
+    A single customer cannot reproduce the defect: whoever pastes first
+    succeeds, whatever id the docs use. It only breaks for the SECOND customer,
+    who follows the identical published instruction and is told the agent is
+    already claimed. So this mints two workspaces and executes the command each
+    customer is actually shown, verbatim.
+
+    `agent_id` is a GLOBAL namespace. That means the invariant is not "the docs
+    contain a valid id" — it is "the id handed to customer N is not the one
+    handed to customer N-1". Any fixed constant fails the second assert.
+    """
+    base, _ = live
+
+    def mint_and_read_the_published_command(name):
+        req = urllib.request.Request(f"{base}/start", data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            page = resp.read().decode()
+        agent_id = re.search(r'"agent_id":"([^"]+)"', page)
+        key = re.search(r"wk_live_[A-Za-z0-9_\-]+", page)
+        assert agent_id and key, f"{name}: the /start page no longer shows a paste-ready command"
+        return agent_id.group(1), key.group(0)
+
+    def paste_the_command(agent_id, workspace_key):
+        body = json.dumps({"agent_id": agent_id, "rail": "manual", "amount_cents": 100,
+                           "service": "test", "workspace_key": workspace_key}).encode()
+        req = urllib.request.Request(
+            f"{base}/v1/track", data=body, method="POST",
+            headers={"Content-Type": "application/json", "AL-API-Version": "2026-09-01"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    first_id, first_key = mint_and_read_the_published_command("customer 1")
+    second_id, second_key = mint_and_read_the_published_command("customer 2")
+
+    assert first_id != second_id, (
+        "both customers were handed the same agent_id — agent_id is a GLOBAL "
+        "namespace, so customer 2's first instruction must fail")
+
+    assert paste_the_command(first_id, first_key) == 200, "customer 1 was blocked"
+    assert paste_the_command(second_id, second_key) == 200, (
+        "customer 2 was blocked. This is the live defect: our published first "
+        "step used a fixed agent_id, which the first customer to paste it "
+        "claimed permanently, so every later customer got 401 "
+        "agent_secret_mismatch on the very first instruction.")
+
+
+def test_init_needs_no_typed_agent_id(live, tmp_path):
+    """The documented one-liner is `agent-ledger init` with nothing after it.
+
+    Requiring --agent made the zero-friction path need a typed value, and
+    whatever the customer invents is theirs alone — which is why the default is
+    generated rather than a published constant.
+    """
+    base, _ = live
+    env_file = tmp_path / ".env"
+    _run_cli(["--api-base", base, "init", "--env-file", str(env_file)])
+    values = dict(line.split("=", 1) for line in env_file.read_text().splitlines()
+                  if "=" in line and not line.startswith("#"))
+    agent_id = values["AGENT_LEDGER_AGENT_ID"]
+    assert agent_id, "init minted no agent_id"
+    assert agent_id.islower() and " " not in agent_id
+    req = urllib.request.Request(f"{base}/v1/report/{agent_id}",
+                                 headers={"X-Agent-Secret": values["AGENT_LEDGER_AGENT_SECRET"]})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+
+def test_no_published_surface_hands_out_a_claimable_constant():
+    """A repo-wide guard, because the same string lived in eight files.
+
+    Fixing one surface is how this class of defect comes back: the constant was
+    in /start, the CLI help, README, npm/README, status.html, the OpenAPI
+    x-guidance, the MCP docs and the onboarding email. Any one left behind
+    re-breaks the funnel for the customer who reads that surface.
+
+    Note what is NOT asserted: a surface need not contain a literal placeholder
+    token. `REST_ENDPOINTS_MD` legitimately writes `{agent_id}` in an endpoint
+    table, so requiring a specific placeholder string here would fail correct
+    content. The invariant is narrower and real: no shipped surface may publish
+    a constant that a customer could claim out from under the next one.
+    """
+    import docs_content
+    import api_server
+    surfaces = {
+        "docs_content.QUICKSTART_MD": docs_content.QUICKSTART_MD,
+        "docs_content.REST_ENDPOINTS_MD": docs_content.REST_ENDPOINTS_MD,
+        "docs_content.MCP_TOOLS_MD": docs_content.MCP_TOOLS_MD,
+        "api_server.LLMS_TXT": api_server.LLMS_TXT,
+    }
+    for name, text in surfaces.items():
+        assert "my-agent" not in text, (
+            f"{name} still hands out 'my-agent' — a GLOBAL agent_id already "
+            f"claimed by our own init probe, so it 401s for every customer")
+
+    # The copy-paste example is the one that actually gets pasted, so it must
+    # show the customer something to substitute rather than a fixed value.
+    quickstart = docs_content.QUICKSTART_MD
+    assert "YOUR_AGENT_ID" in quickstart, (
+        "the quickstart curl no longer shows a placeholder agent_id — the "
+        "customer has nothing to substitute and will paste a shared id")
+

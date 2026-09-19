@@ -158,6 +158,14 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
 
 <div id="app" style="display:none">
   <div class="kpis" id="kpis"></div>
+  <div class="card" id="planbox">
+    <p style="margin-top:0"><b>Plan: <span id="plantier">free</span></b>
+       <span class="muted">— free tier is 3 agents per workspace.</span></p>
+    <p class="muted" id="planhint" style="margin-bottom:8px">Need more? $19/mo removes the
+       agent limit on this workspace. No migration, same key.</p>
+    <p><button id="upgrade">Upgrade to Pro — $19/mo</button>
+       <span class="muted" id="upmsg"></span></p>
+  </div>
   <p><button class="ghost" id="csv">Download CSV</button>
      <button class="ghost" id="forget">Forget key</button></p>
   <h2>Daily spend (30 days)</h2>
@@ -307,6 +315,41 @@ document.getElementById('csv').onclick = function(){
 };
 var existing = recall();
 if (existing) load(existing);
+
+// ── the pay door ───────────────────────────────────────────────────────────
+// WHY THIS EXISTS (2026-09-18, D-1382). The checkout endpoint worked and the
+// success screen linked to it — but that screen is shown ONCE, at mint, labelled
+// "Optional, and not needed today." The thing that triggers a purchase is the
+// 3-agent cap, and that happens LATER, after integration, on THIS page. At that
+// moment there was no upgrade control here and /upgrade and /pricing were both
+// 404, so the customer who had just hit the exact limit we charge for had no
+// door to walk through. Same defect class as the webhooks surface below: the
+// endpoint existed and no page linked to it.
+document.getElementById('upgrade').onclick = function(){
+  if(!KEY) return;
+  var btn = this, msg = document.getElementById('upmsg');
+  btn.disabled = true; msg.textContent = 'Creating your checkout…';
+  msg.style.color = '#8b949e';
+  fetch('/v1/billing/checkout', {
+    method:'POST',
+    headers:{'X-Workspace-Key':KEY, 'X-Workspace-Id':WSID || '', 'Content-Type':'application/json'},
+    body:'{}'
+  })
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      var url = res.body && res.body.checkout_url;
+      if (url) { msg.textContent = 'Opening secure checkout…'; location.href = url; return; }
+      btn.disabled = false;
+      msg.textContent = (res.body && res.body.error && res.body.error.message) ||
+                        'Could not start checkout — email entradox@icloud.com and we will sort it.';
+      msg.style.color = '#f85149';
+    })
+    .catch(function(){
+      btn.disabled = false;
+      msg.textContent = 'Network error — try again.';
+      msg.style.color = '#f85149';
+    });
+};
 
 // ── webhooks ───────────────────────────────────────────────────────────────
 // The endpoint existed and the marketing copy promised pushed alerts, but no

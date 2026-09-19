@@ -169,11 +169,11 @@ workspace key is shown once, on the spot.</p>
 }</pre>
   <p><b>Or the Python wrapper</b> — one line, every call metered and capped:</p>
   <pre class="cmd">pip install "aiagentscity-ledger[wrapper]"
-client = agentledger.wrap(OpenAI(), agent_id="my-agent", agent_secret="as_...")</pre>
+client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID", agent_secret="as_...")</pre>
   <p class="mut" style="border:0;padding:0;margin-top:6px">Published on PyPI as
   <code>aiagentscity-ledger</code> — the umbrella namespace, which nobody else can
   register because it is our domain. <code>agent_secret</code> comes from
-  <code>agent-ledger init --agent my-agent</code> (printed once, also written to
+  <code>agent-ledger init --agent YOUR_AGENT_ID</code> (printed once, also written to
   <code>.env</code>), or from the response to a first <code>POST /v1/track</code>
   that carries your <code>workspace_key</code> in the body.</p>
   <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
@@ -215,7 +215,7 @@ client = agentledger.wrap(OpenAI(), agent_id="my-agent", agent_secret="as_...")<
   <pre class="cmd">curl -sL --post301 -X POST https://aiagentscity.com/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
+  -d '{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search","tokens_in":4500,"tokens_out":1200,"model":"gpt-4o","workspace_key":"YOUR_WORKSPACE_KEY"}'</pre>
   <p><b>A key claims, a secret writes:</b> the first call for a new <code>agent_id</code> must carry <code>"workspace_key":"wk_live_..."</code> in the body — that claims it into your workspace — and returns that agent's <code>agent_secret</code>. Save the secret: every later write to the same <code>agent_id</code> sends <code>"agent_secret":"..."</code> instead and needs no workspace_key. Reads (report/tokens/alerts) require an <code>X-Agent-Secret</code> or <code>X-Workspace-Key</code> header — over REST and MCP alike.</p>
   <p><b>The <code>AL-API-Version</code> header is required on writes.</b> Omit it and the call is
   rejected — that is deliberate, so a future breaking change cannot silently alter what your
@@ -224,12 +224,12 @@ client = agentledger.wrap(OpenAI(), agent_id="my-agent", agent_secret="as_...")<
   <pre class="cmd">curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
+  -d '{"agent_id":"YOUR_AGENT_ID","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'</pre>
   <p><b>4. Pull the P&amp;L</b> — totals, by rail, by service, budget status and anomalies:</p>
-  <pre class="cmd">curl "https://aiagentscity.com/v1/report/my-agent?days=30" \
+  <pre class="cmd">curl "https://aiagentscity.com/v1/report/YOUR_AGENT_ID?days=30" \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"</pre>
-  <p>Token burn: <code>/v1/tokens/my-agent</code>. CSV: <code>/v1/report/my-agent/csv</code>.
-  Browser view: <code>/v1/report/my-agent/html</code>. Everything at once:
+  <p>Token burn: <code>/v1/tokens/YOUR_AGENT_ID</code>. CSV: <code>/v1/report/YOUR_AGENT_ID/csv</code>.
+  Browser view: <code>/v1/report/YOUR_AGENT_ID/html</code>. Everything at once:
   <a class="plain" href="/dashboard">/dashboard</a>.</p>
 </div>
 

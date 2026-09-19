@@ -9,7 +9,7 @@ That is enough friction that most people would never get there.
     from openai import OpenAI
     import agentledger
 
-    client = agentledger.wrap(OpenAI(api_key=KEY), agent_id="my-agent",
+    client = agentledger.wrap(OpenAI(api_key=KEY), agent_id="YOUR_AGENT_ID",
                               agent_secret="as_...")
 
 After that line the client talks to AgentLedger instead of the provider, and
