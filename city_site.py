@@ -252,10 +252,10 @@ PAGE_HOME = """<div class="human-surface">
     <div class="links"><a href="/products">How it works →</a><a href="/demo">Live demo →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div>
   </div>
   <div class="grid2">
-    <div class="card"><div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 6 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div>
-    <div class="card"><div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 4 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div>
-    <div class="card"><div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 2 tools · MCP</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a></div></div>
-    <div class="card"><div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 7 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
+    <div class="card"><div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div>
+    <div class="card"><div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div>
+    <div class="card"><div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div>
+    <div class="card"><div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
   </div>
 
   <div class="kicker"><span class="rh">// human-readable</span> · proof</div>
