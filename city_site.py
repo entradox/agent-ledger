@@ -374,6 +374,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="cta-row">
     <a class="btn btn-human" href="/products">Explore the stack</a>
     <a class="btn btn-ghost" href="/start">Start free</a>
+    <a class="btn btn-ghost" href="/demo">Try the live demo →</a>
   </div>
   <div class="pills">
     <span class="pill on">MCP · tool protocol</span>

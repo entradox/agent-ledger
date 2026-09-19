@@ -170,6 +170,11 @@ app.include_router(workspace_router)
 from routes_proxy import router as proxy_router
 app.include_router(proxy_router)
 
+# Human-facing JSON bridges to the satellite products (forms on /agent-watch
+# and /trust-scan). Read-only, no auth, rate-limited per IP.
+from routes_satellite import router as satellite_router
+app.include_router(satellite_router)
+
 @app.exception_handler(HTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
     """Single source for the typed error envelope on every REST error path

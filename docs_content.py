@@ -61,7 +61,7 @@ Without a workspace_key, a new claim is rejected with 401
 
 That first write mints an `agent_secret` in the response — save it, every
 later write to that `agent_id` must include it as `"agent_secret"` and needs
-no `workspace_key` again. Reads: `GET /v1/report`, `GET /v1/tokens`, and
+no `workspace_key` again. Reads: `GET /v1/report/{agent_id}`, `GET /v1/tokens`, and
 `GET /v1/alerts` all require an `X-Agent-Secret` or `X-Workspace-Key` header
 (either credential proving access to that `agent_id`). The MCP read tools
 take the same two credentials as parameters — there is no unauthenticated
@@ -281,7 +281,7 @@ neither:
 
 - `monthly_cents` / `daily_cents` — dollar caps. Enforced against every
   non-`tokens` rail (`mpp`, `x402`, `api_key`, `manual`): a `POST /v1/track`
-  write that would cross the cap is blocked with 402 `budget_exceeded`
+  write that would cross the cap is blocked with 402 `budget_error`
   **before** it's recorded.
 - `monthly_tokens` / `daily_tokens` — token-volume caps. Enforced only
   against `rail="tokens"` bookkeeping rows (the `tokens_in`/`tokens_out`
