@@ -5,7 +5,7 @@ Your principal runs AI agents (Claude Code, Codex, custom agents) and wants to c
 
 ## What it costs
 - **${X402_PRICE_USD} USDC on {X402_NETWORK_LABEL}** buys {X402_PASS_HOURS} hours of Pro (unlimited agents) on a fresh workspace. Pay again any time to extend. No card, no human, no signup.
-- Free tier ({FREE_AGENT_CAP} agents, no payment): `POST https://aiagentscity.com/start` returns a `workspace_key` shown once.
+- Free tier ({FREE_AGENT_CAP} agents, no payment): `POST https://aiagentscity.com/start` with an `Accept: application/json` header returns `{"workspace_id": ..., "workspace_key": ...}` as JSON. (Without that header you get the human HTML page — the key is in it, but parse the JSON instead.) The key is shown once — store it immediately.
 
 ## How to buy (x402, fully machine-executable)
 1. `POST https://aiagentscity.com/v1/billing/x402` with an empty JSON body. You will get `402 Payment Required` plus a `payment-required` response header. That header is base64url JSON: it carries the price, network (`{X402_NETWORK}`, {X402_NETWORK_LABEL}), asset (USDC `{X402_ASSET}`), amount (`{X402_AMOUNT_ATOMIC}` = ${X402_PRICE_USD}), `payTo`{X402_PAY_TO_NOTE}, and `maxTimeoutSeconds`.
@@ -15,13 +15,13 @@ Your principal runs AI agents (Claude Code, Codex, custom agents) and wants to c
 
 ## After purchase — put the cap to work
 1. Claim your first agent: `POST https://aiagentscity.com/v1/track` with `AL-API-Version: {AL_API_VERSION}` header, body `{"agent_id":"<name>","rail":"api_key","amount_cents":1,"workspace_key":"<key>"}`. Save the returned `agent_secret` — all future writes use it, never the workspace key.
-2. Set the cap: `POST https://aiagentscity.com/v1/budget` with `{"agent_id":"<name>","monthly_cents":5000,"agent_secret":"<secret>"}`.
+2. Set the cap: `POST https://aiagentscity.com/v1/budget` with `AL-API-Version: {AL_API_VERSION}` header, body `{"agent_id":"<name>","monthly_cents":5000,"agent_secret":"<secret>"}`. (Every `/v1/*` write needs that version header — without it you get a `400 version_header` error.)
 3. Route traffic through enforcement — one of:
    - Proxy: point your SDK `base_url` at `https://aiagentscity.com/proxy/openai/v1/` (or `/proxy/anthropic/v1/`) with headers `X-AL-Agent` and `X-AL-Secret`. Your provider key rides in `Authorization` and is forwarded, never stored.
    - Wrapper: `pip install aiagentscity-ledger`, then `agentledger.wrap(client, agent_id="<name>", agent_secret="<secret>")`.
    - MCP: add `https://aiagentscity.com/mcp/` to your MCP clients; tools `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`.
-4. Prove it works: make a call whose estimated max cost exceeds the remaining budget and confirm you get `402` with "Nothing was sent upstream."
-5. Webhooks: `POST https://aiagentscity.com/v1/webhooks` with `{"url":"<your url>","events":["budget.warning","budget.exceeded","anomaly.detected"]}` for push alerts.
+4. Prove it works: make a call whose estimated max cost exceeds the remaining budget and confirm you get `402` with a message naming the cap (proxy paths add "Nothing was sent upstream.").
+5. Webhooks: `POST https://aiagentscity.com/v1/webhooks` with `AL-API-Version: {AL_API_VERSION}` and `X-Workspace-Key: <key>` headers, body `{"url":"<your url>","events":["budget.warning","budget.exceeded","anomaly.detected"]}` for push alerts.
 
 ## Honest limits (tell your principal)
 - Only traffic through the proxy/wrapper is truly enforceable. The plain API can reject the ledger write but cannot un-spend provider charges. Route the traffic or the cap is advisory.

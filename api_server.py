@@ -1866,6 +1866,17 @@ def start_mint(request: Request):
     except Exception:
         pass
     checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
+    # Machine clients (agents following /skill.md) ask for JSON with
+    # Accept: application/json and get the key as data instead of HTML.
+    # Without it, humans get the one-time-reveal page as before.
+    if "application/json" in (request.headers.get("accept") or "").lower():
+        import x402_verify
+        return JSONResponse({"workspace_id": workspace_id,
+                             "workspace_key": raw_key,
+                             "plan": "free",
+                             "agents_included": BETA_AGENT_CAP,
+                             "upgrade": f"POST /v1/billing/x402 for a {round(x402_verify.X402_PRO_PASS_SECONDS / 3600)}h Pro pass"},
+                            headers={"Cache-Control": "no-store"})
     # no-store: the key is shown exactly once and can never be re-revealed, so
     # a cache (or a browser's back-forward cache) holding this response would
     # strand a credential we cannot reissue. no-referrer keeps the key out of
