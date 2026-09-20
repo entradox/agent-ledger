@@ -298,7 +298,6 @@ TABS = [
     ("/developers", "/developers", None),
     ("/compare", "/compare", None),
     ("/changelog", "/changelog", None),
-    ("/spec", "/spec — founder gaps", 'color:var(--agent)'),
 ]
 
 
@@ -623,159 +622,10 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
 </div>"""
 
-PAGE_SPEC = """<div class="agent-surface">
-  <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /spec</div>
-  <div class="term"><div class="thead">$ agent-view /spec</div><pre>
-<span class="k">gaps:</span>
-  P0: [metrics-with-receipts-hero, agent-wall, homepage-onboarding-strip]
-  P1: [agent-economy-index, human-billing, key-management, skeptic-faq, docs-hub]
-  P2: [blog, discord, status-in-nav]
-<span class="k">per_product:</span>
-  agent-ledger: [ts-sdk, budget-templates, slack-alerts, bypass-detection]
-  agent-watch: [connect-page, identity-cards, email-digest]
-  perimeter-watch: [pdf-reports, scan-history, hosted-dashboard]
-  trustscan: [public-scan-page, trust-badge, pre-tx-api]
-  cited: [shareable-links, visibility-trends, fix-list]
-<span class="k">method:</span> benchmarked vs openrouter.ai, typesafe.ai, skyfire.xyz (2026-09-18)
-</pre></div>
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
-</div>
-
-<div class="human-surface">
-  <div class="kicker"><span class="ra">// founder spec</span> · read as a founder, written as a build list</div>
-  <h1>What we're missing.</h1>
-  <p class="lede">I read <b>OpenRouter</b>, <b>TypeSafe AI</b>, and <b>Skyfire</b> the way a founder reads competition: not for ideas to copy, but for <b>table stakes we're not meeting</b>. Everything below is something they ship that we don't — written as a spec, prioritized. P0 = this week. P1 = this month. P2 = next.</p>
-
-  <div class="kicker"><span class="rh">// human-readable</span> · site-wide gaps</div>
-
-  <div class="card">
-    <div class="stacknum"><b>P0</b> · they lead with proof, we lead with prose</div>
-    <h3>Metrics-with-receipts hero</h3>
-    <p><b>TypeSafe</b> opens with "193.6x faster, 444.6x cheaper" <i>with a (proof) link</i> and a side-by-side video. <b>OpenRouter</b> opens with 400T+ tokens, 10M+ users. We open with a paragraph. <b>Spec:</b> the "Live, not slides" strip becomes three metrics, each linking its receipt — x402 settlement → BaseScan tx hash; 402 enforcement → dated live-test output; 7.4× pricing → the real session data. No claim without a receipt link.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P0</b> · they show who's built on them, we show nobody</div>
-    <h3>"Built on AI Agent City" — the agent wall</h3>
-    <p><b>OpenRouter</b> ships "Featured Agents": 250k+ apps, 4.2M users — Replit, Kilo Code, and notably <b>Hermes Agent</b>. Our own agent is featured on <i>their</i> wall and absent from ours. <b>Spec:</b> an ecosystem wall on the homepage — start with agents we run ourselves (Hermes), then open submissions: name, what it does, which products it uses. For an agent-native company this wall <i>is</i> the social proof.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P0</b> · their onboarding is 3 steps on the homepage, ours is a page away</div>
-    <h3>Homepage onboarding strip</h3>
-    <p><b>OpenRouter</b>: Signup → Buy credits → Get API key, right on the homepage with a masked key visual. <b>Spec:</b> homepage strip — <b>1.</b> Get a workspace key (one press, shown once) → <b>2.</b> Connect via MCP (copy-paste) → <b>3.</b> Set a cap (one number). Each step copy-pasteable in place.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P1</b> · they rank the ecosystem, we hide our data</div>
-    <h3>The Agent Economy Index</h3>
-    <p><b>OpenRouter's</b> model rankings — tokens per model with weekly trends — are a destination in themselves. Nobody ranks the <i>agent</i> economy. <b>Spec:</b> a public, anonymized index at /index — agents tracked, USDC settled via x402, median cost per 1k agent calls, week-over-week trends. Updated daily. This is the page only we can build, and it markets every product at once.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P1</b> · they sell credits to humans, we only sell to agents</div>
-    <h3>Human billing page</h3>
-    <p><b>OpenRouter</b>: buy credits, credits work everywhere. Our x402 rail sells to agents beautifully; humans get an API call to a Stripe checkout. <b>Spec:</b> /billing — card checkout for Pro ($19/mo), invoices, credit balance, cancel in one click. The agent rail stays; the human rail stops being embarrassing.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P1</b> · their keys are managed, ours are shown once and prayed over</div>
-    <h3>Key management UI</h3>
-    <p><b>OpenRouter</b> shows masked keys with copy, per-key limits and labels. Our workspace key is shown once at /start and pasted into the dashboard from memory. <b>Spec:</b> dashboard → Keys: list, label, rotate, revoke. Losing a key stops being a support ticket.</p>
-  </div>
-
-  <div class="card">
-    <div class="stacknum"><b>P1</b> · they answer skeptics, we hope nobody asks</div>
-    <h3>Skeptic-grade FAQ per product</h3>
-    <p><b>TypeSafe's</b> FAQ is a masterclass: "Are these prices temporary?", "Can Jev still get things wrong?", "How is this different from JSON mode?" — every objection a buyer has, answered before it's asked. <b>Spec:</b> a real FAQ on /agent-ledger and each product page: "What if my agent bypasses the proxy?" (answered: then it's not enforced — we say so), "Is the $0.01 x402 price subsidized?", "What do you store about my prompts?" (nothing — and here's the test that proves it).</p>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="stacknum"><b>P1</b> · docs hub</div>
-      <h3>/docs, not just llms.txt</h3>
-      <p><b>OpenRouter</b> has human docs with code in every language. Our machine docs are excellent; our human docs are a quickstart page. <b>Spec:</b> /docs — Python + TypeScript + curl quickstarts per product, data policy, rate limits, uptime.</p>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>P2</b> · build in public</div>
-      <h3>/blog with a pulse</h3>
-      <p><b>OpenRouter's</b> blog has posts dated <i>this week</i> — it signals a living company. <b>Spec:</b> weekly ship notes, benchmark posts ("we measured flat-rate pricing at 7.4× wrong — here's the data"), agent-economy analysis from our own index. The changelog is the log; the blog is the story.</p>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>P2</b> · community</div>
-      <h3>Where the builders gather</h3>
-      <p><b>TypeSafe</b> launched with waitlist + Discord + hiring in one breath. <b>Spec:</b> an agent-developer Discord, featured-agent submission flow feeding the homepage wall, monthly "what agents built" roundup.</p>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>P2</b> · status in the open</div>
-      <h3>/status in the nav</h3>
-      <p><b>OpenRouter</b> links uptime next to pricing. We <i>have</i> /status — it's just invisible. <b>Spec:</b> footer + developers page link it; add per-product uptime. Thirty minutes of work.</p>
-    </div>
-  </div>
-
-  <div class="kicker"><span class="rh">// human-readable</span> · per-product gaps</div>
-
-  <div class="card hl">
-    <div class="stacknum"><b>01</b> — AGENTLEDGER <span class="ver">vs OpenRouter · Skyfire budgets</span></div>
-    <h3>What it's missing</h3>
-    <ul class="feat">
-      <li><b>TypeScript SDK</b> — the wrapper is Python-only; OpenRouter is "fully OpenAI compatible" in every language. Ship <span style="font-family:var(--mono);font-size:13px">aiagentscity-ledger</span> for TS.</li>
-      <li><b>Budget templates</b> — one-click packs ("Researcher: $50/mo", "Support triage: $200/mo") instead of a blank number field.</li>
-      <li><b>Native Slack/Discord alerts</b> — webhooks exist; one-click integrations don't. Humans live in Slack.</li>
-      <li><b>Bypass detection</b> — warn when an agent's traffic stops hitting the proxy ("your cap is blind right now"). Nobody else does this; it's the honest feature only we can claim.</li>
-    </ul>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="stacknum"><b>02</b> — AGENT WATCH <span class="ver">vs Skyfire KYA</span></div>
-      <h3>What it's missing</h3>
-      <ul class="feat">
-        <li><b>The connect page it promises</b> — "launching soon" has expired. Ship it.</li>
-        <li><b>Agent identity cards</b> — Skyfire's KYA gives every agent a verifiable identity; our "new agent" alerts should name <i>who</i>, with a portable identity card per caller.</li>
-        <li><b>Weekly email digest</b> — the MCP brief is great; an email version reaches the humans who pay.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>03</b> — PERIMETER WATCH</div>
-      <h3>What it's missing</h3>
-      <ul class="feat">
-        <li><b>Client-ready PDF reports</b> — agencies don't buy scanners, they buy <i>deliverables</i>. One-click "send the client a report" is the feature that closes deals.</li>
-        <li><b>Scheduled scans + history</b> — trending over time ("3 issues fixed, 1 new this month") beats a point-in-time scan.</li>
-        <li><b>Hosted dashboard</b> — MCP-only today; a URL the agency owner can open without an agent.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>04</b> — TRUSTSCAN</div>
-      <h3>What it's missing</h3>
-      <ul class="feat">
-        <li><b>A public scan page</b> — paste a domain or agent ID, get a verdict with evidence. Trust you can't demo doesn't exist.</li>
-        <li><b>Embeddable trust badge</b> — "Scanned by TrustScan" for marketplaces and agent directories.</li>
-        <li><b>Pre-transaction API</b> — one call, <span style="font-family:var(--mono);font-size:13px">verdict + evidence</span>, built to gate x402 payments.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="stacknum"><b>05</b> — CITED <span class="ver">vs OpenRouter rankings</span></div>
-      <h3>What it's missing</h3>
-      <ul class="feat">
-        <li><b>Shareable report links</b> — AgentLedger has signed, expiring links; Cited's best asset (verbatim evidence) can't be texted to anyone.</li>
-        <li><b>Visibility over time</b> — OpenRouter-style trend charts: "your AI visibility is +18% this month." A single scan is a novelty; a trend is a subscription.</li>
-        <li><b>The fix list</b> — don't just show what models say; show the three actions that change it. Diagnosis without prescription doesn't retain.</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="pull">None of this is exotic. It's the table stakes the best agent-native startups already ship — applied to a stack that's already live. P0 this week, P1 this month, P2 next.</div>
-
-  <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
-</div>"""
-
-
 PAGES_META = {
     "/": ("PAGE_HOME", "AI Agent City", "AI Agent City is the operations layer for the agent economy: spending limits, monitoring, security, trust, and discovery for AI agents. Human-readable and machine-readable."),
     "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Five products, one thesis: the agent economy needs operations. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, and Cited — each live, independently usable, and agent-callable."),
     "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for all five products."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),
     "/changelog": ("PAGE_CHANGELOG", "Changelog — AI Agent City", "External-facing product releases across the AI Agent City suite. Human-readable and machine-readable."),
-    "/spec": ("PAGE_SPEC", "Founder gap spec — AI Agent City", "What the site and each product are still missing, written like a founder. Prioritized P0/P1/P2."),
 }

@@ -221,7 +221,6 @@ REACH_EXEMPT = {
     "/products": "umbrella stack page, reached mid-funnel, not a funnel entry",
     "/developers": "machine-readable surfaces index, not a funnel entry",
     "/changelog": "informational release log, not a funnel entry",
-    "/spec": "internal-facing founder spec, not a funnel entry",
 }
 
 
@@ -1450,7 +1449,6 @@ def sitemap_xml():
         ("/developers",   "0.8", "weekly"),
         ("/compare",      "0.8", "weekly"),
         ("/changelog",    "0.7", "weekly"),
-        ("/spec",         "0.5", "weekly"),
         ("/agent-ledger", "0.9", "weekly"),
         ("/start",        "0.8", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
@@ -1508,12 +1506,6 @@ def city_developers():
 def city_changelog():
     """External-facing product releases only (two surfaces)."""
     return _city_response("/changelog")
-
-
-@app.get("/spec", response_class=HTMLResponse)
-def city_spec():
-    """Founder gap spec: what the site and each product are still missing."""
-    return _city_response("/spec")
 
 
 @app.get("/agent-ledger", response_class=HTMLResponse)
