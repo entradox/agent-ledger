@@ -370,6 +370,55 @@ def check_public_surfaces(c: Ctx) -> None:
             c.add(f"surface{path}", FAIL, f"{path} -> {st}", (txt or "")[:160])
 
 
+def check_benefits(c: Ctx) -> None:
+    """10. Benefits City (/benefits) — a satellite SITE served through the city proxy.
+
+    This is the only check here that guards a reverse-proxied surface rather than a route in
+    this app, so it fails for a different class of reason: the upstream service being down,
+    the /benefits entry being dropped from the satellite proxy map, or BASE_PATH breaking.
+    Without it, the whole /benefits surface could 404 in production and this sweep — the
+    harness that exists to catch exactly that — would still report green.
+    """
+    st, txt = c.http("/benefits/healthz")
+    if st is None:
+        c.add("benefits.healthz", UNKNOWN, "transport failure")
+    elif st == 200 and "benefits-city" in (txt or ""):
+        c.add("benefits.healthz", PASS, f"/benefits/healthz 200 ({txt or ''})"[:120])
+    else:
+        c.add("benefits.healthz", FAIL,
+              f"/benefits/healthz -> {st} (proxy or upstream broken)", (txt or "")[:160])
+
+    st, txt = c.http("/benefits/api/stats")
+    if st == 200 and "total_offers" in (txt or ""):
+        c.add("benefits.feed", PASS, "/benefits/api/stats 200 (JSON feed present)")
+    else:
+        c.add("benefits.feed", FAIL, f"/benefits/api/stats -> {st}", (txt or "")[:160])
+
+    # The MCP endpoint is POST-only; a GET returning 405 is correct, so POST a real
+    # initialize handshake and require the server to name itself.
+    st, txt = c.http("/benefits/", method="GET")
+    if st != 200:
+        c.add("benefits.landing", FAIL, f"/benefits/ -> {st}", (txt or "")[:160])
+    else:
+        c.add("benefits.landing", PASS, f"/benefits/ 200 ({len(txt or '')}B)")
+
+    try:
+        st, txt = c.http("/benefits/mcp", method="POST",
+                         body={"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                               "params": {"protocolVersion": "2025-06-18",
+                                          "capabilities": {},
+                                          "clientInfo": {"name": "journey-sweep",
+                                                         "version": "1.0"}}},
+                         headers={"Accept": "application/json, text/event-stream"})
+        if st == 200 and "benefits-city" in (txt or ""):
+            c.add("benefits.mcp", PASS, "benefits MCP initialize -> benefits-city")
+        else:
+            c.add("benefits.mcp", FAIL, f"/benefits/mcp initialize -> {st}",
+                  (txt or "")[:160])
+    except Exception as exc:  # never let one probe abort the sweep
+        c.add("benefits.mcp", UNKNOWN, f"probe error: {type(exc).__name__}")
+
+
 def check_dashboard(c: Ctx, creds: dict | None) -> None:
     """9. Dashboard renders for a real customer; free of insider state."""
     st, txt = c.http("/dashboard")
@@ -443,6 +492,7 @@ def main() -> int:
     check_auth_boundary(c)
     check_mcp(c)
     check_public_surfaces(c)
+    check_benefits(c)
     check_dashboard(c, creds)
 
     n = {PASS: 0, FAIL: 0, UNKNOWN: 0}
