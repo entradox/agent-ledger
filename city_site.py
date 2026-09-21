@@ -322,6 +322,33 @@ def nav(active: str) -> str:
 
 
 def render(active: str, title: str, desc: str, body: str) -> str:
+    """Render a city page, with the x402 network DERIVED from config.
+
+    Hardcoding "Base mainnet" in these literals is what let the site contradict
+    production: the network is set by X402_NETWORK, so a literal goes stale the
+    moment that value changes — and it did. Production runs __NETWORK__ while the
+    code default is __NETWORK__2. Substituting here, once, for every city page and
+    on every request, means no page under this module can disagree with the
+    deployment again.
+
+    Tokens (deliberately __-delimited, not {}: these literals contain CSS braces):
+      __NETWORK__       __NETWORK__ or __NETWORK__2
+      __NETWORK_LABEL__ ""Base mainnet" or "Base Sepolia testnet"
+      __NETWORK_PROSE__ full settlement sentence for the live mode
+    """
+    import x402_verify
+    label = "Base mainnet" if x402_verify.X402_NETWORK in getattr(
+        x402_verify, "_MAINNET_NETWORKS", set()) else "Base Sepolia testnet"
+    try:
+        import api_server as _api
+        prose = _api._x402_settlement_span()
+    except Exception:
+        prose = ""
+    body = (body
+            .replace("__NETWORK_LABEL__", label)
+            .replace("__NETWORK__", x402_verify.X402_NETWORK)
+            .replace("__NETWORK_PROSE__", prose))
+
     html = SHELL
     html = html.replace("__TITLE__", title)
     html = html.replace("__DESC__", desc)
@@ -341,7 +368,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="term">
     <div class="bar"><i></i><i></i><i></i><span>agent session</span><span class="live">live</span></div>
     <div class="rows">
-      <div class="step"><span class="t">discover</span><span class="c">GET /.well-known/x402.json</span><span class="r"><b>200</b> · mainnet eip155:8453 · accepts USDC</span></div>
+      <div class="step"><span class="t">discover</span><span class="c">GET /.well-known/x402.json</span><span class="r"><b>200</b> · mainnet __NETWORK__ · accepts USDC</span></div>
       <div class="step"><span class="t">connect</span><span class="c">mcp add agent-ledger https://aiagentscity.com/mcp/</span><span class="r"><b>12 tools</b> · ledger_track · ledger_set_budget …</span></div>
       <div class="step"><span class="t">transact</span><span class="c">POST /v1/billing/x402 · X-PAYMENT: &lt;signed&gt;</span><span class="r"><b>200</b> · 24h Pro · $0.01 USDC settled</span></div>
       <div class="step"><span class="t">enforce</span><span class="c">ledger_set_budget {agent:"researcher", monthly:$50}</span><span class="r">cap armed · over-budget calls → <b>402</b> pre-provider<span class="cursor"></span></span></div>
@@ -351,7 +378,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// connect</span> · one command per product</div>
   <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">12 tools</span><span class="url">claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for cited">copy</button></div></div>
   <div class="buy">
-    <span class="lbl">x402 · Base mainnet</span>
+    <span class="lbl">x402 · __NETWORK_LABEL__</span>
     <p><b>$0.01 · zero clicks.</b><br>POST /v1/billing/x402 + X-PAYMENT header → 24h AgentLedger Pro on the workspace your wallet resolves to. No signup flow, no card form, no human.</p>
   </div>
 </section>
@@ -378,7 +405,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="pills">
     <span class="pill on">MCP · tool protocol</span>
     <span class="pill on">x402 · payment protocol</span>
-    <span class="pill">Base · eip155:8453</span>
+    <span class="pill">Base · __NETWORK__</span>
     <span class="pill">USDC · settlement</span>
     <span class="pill">llms.txt · discovery</span>
   </div>
@@ -402,7 +429,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · proof</div>
   <h2>Live, not slides.</h2>
   <div class="grid3" style="margin-top:16px">
-    <div class="card"><h3>$0.01, zero clicks</h3><p>An agent bought 24h of AgentLedger Pro over x402 on Base mainnet — real USDC, no human in the loop.</p></div>
+    <div class="card"><h3>$0.01, zero clicks</h3><p>An agent bought 24h of AgentLedger Pro over x402 on __NETWORK_LABEL__ — real USDC, no human in the loop.</p></div>
     <div class="card"><h3>402, not a dashboard</h3><p>Trace viewers report after you've paid. AgentLedger refuses the over-budget call <b>before the provider sees it</b>.</p></div>
     <div class="card"><h3>Priced honestly</h3><p>Flat-rate token pricing was 7.4× wrong on a real session. AgentLedger prices cache-aware.</p></div>
   </div>
@@ -413,7 +440,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="chlog" style="margin-top:14px">
     <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP verified end-to-end.</b> Handshake and <span class="ver">tools/list</span> confirmed for all five products — 12, 8, 6, 4 and 9 tools. The stale "dispatch needs repair" warnings were retired from every product page. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted.</b> <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> resolve instead of 404ing. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on __NETWORK_LABEL__.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks. <span class="ver">agent-ledger</span></div></div>
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/changelog">Full changelog →</a></div>
   <footer class="site">
@@ -453,7 +480,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <ul class="feat">
       <li><b>Pre-provider enforcement</b> — the proxy estimates max cost and returns <b>402</b>. The provider never sees the request; the money is never spent.</li>
       <li><b>Cache-aware pricing</b> — real tokens × real model rates. Flat-rate was 7.4× wrong on a real session.</li>
-      <li><b>Agents buy their own Pro</b> — $0.01 x402 on Base mainnet, 24h, zero human clicks.</li>
+      <li><b>Agents buy their own Pro</b> — $0.01 x402 on __NETWORK_LABEL__, 24h, zero human clicks.</li>
       <li><b>Push alerts + shareable reports</b> — webhooks with retries; signed, expiring report links.</li>
     </ul>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>HTTP/1.1 <span class="k">402</span> Payment Required
@@ -512,7 +539,7 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
   trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
 <span class="k">purchase:</span>
   POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
-  price: $0.01 USDC · chain: eip155:8453 · grants: 24h Pro
+  price: $0.01 USDC · chain: __NETWORK__ · grants: 24h Pro
 <span class="k">rest:</span> /openapi.json · /server.json · AL-API-Version: 2026-09-01 (required on writes)
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
@@ -542,8 +569,8 @@ claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</pre>
 
   <h2>Checkout without humans</h2>
   <div class="card" style="border-color:var(--agent-dim)">
-    <h3>$0.01. Base mainnet. Zero clicks.</h3>
-    <p>An agent with a wallet buys 24h of AgentLedger Pro — unlimited agents — on the workspace its wallet resolves to. Real USDC on <b>eip155:8453</b>. No signup flow, no card form, no human.</p>
+    <h3>$0.01. __NETWORK_LABEL__. Zero clicks.</h3>
+    <p>An agent with a wallet buys 24h of AgentLedger Pro — unlimited agents — on the workspace its wallet resolves to. Real USDC on <b>__NETWORK__</b>. No signup flow, no card form, no human.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>POST /v1/billing/x402
 Header: <span class="s">X-PAYMENT: &lt;signed-payload&gt;</span>
 <span class="c"># → 24h Pro. That's the whole checkout.</span></pre>
@@ -610,7 +637,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   - 2026-09-19: satellite tool calls execute via the city gateway (MCP tools/call
     translated to each product's documented REST API); watch (8 tools),
     perimeter (6), cited (9) all callable
-  - 2026-09-16: x402 live on eip155:8453 ($0.01 USDC = 24h Pro, zero-click)
+  - 2026-09-16: x402 live on __NETWORK__ ($0.01 USDC = 24h Pro, zero-click)
   - 2026-09-16: agent-ledger fixes (agent_secret format, model alias pricing,
     dashboard webhooks, typed payment_required errors)
   - 2026-09-16: per-product releases (39 MCP tools: ledger 12, watch 8, perimeter 6, cited 9, trustscan 4)
@@ -626,7 +653,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="chlog">
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly via the city gateway. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on __NETWORK_LABEL__.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Four fixes from live testing.</b> Real <span class="ver">agent_secret="as_…"</span> format in the docs, SDK model IDs auto-priced as aliases, webhooks section on the dashboard, typed <span class="ver">payment_required</span> errors on the x402 endpoint. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>Per-product releases.</b> AgentLedger <span class="ver">v0.4.1</span> (12 MCP tools) · Agent Watch <span class="ver">v1.30.0</span> (8) · Perimeter Watch <span class="ver">v1.30.0</span> (6) · Cited <span class="ver">v1.30.0</span> (9) · TrustScan <span class="ver">v4.0.3</span> (4). 39 MCP tools across five products. <span class="ver">platform</span></div></div>
   </div>
