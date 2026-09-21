@@ -114,7 +114,8 @@ def get_workspace_by_wallet(wallet_address: str) -> Optional[dict]:
 def create_workspace(*, owner_email: Optional[str] = None,
                       google_sub: Optional[str] = None,
                       wallet_address: Optional[str] = None,
-                      grant_scarcity: bool = True
+                      grant_scarcity: bool = True,
+                      is_demo: bool = False,
                       ) -> tuple[str, Optional[str]]:
     """Idempotent per identity dimension: calling again with the same
     google_sub or wallet_address returns the SAME workspace (no duplicate
@@ -162,6 +163,11 @@ def create_workspace(*, owner_email: Optional[str] = None,
         "agent_cap": None if is_scarcity else WORKSPACE_FREE_AGENT_CAP,
         "created_at": time.time(),
         "pro_scarcity": is_scarcity,
+        # A workspace minted by `agent-ledger demo` (or ?demo=1) is a demonstration,
+        # not a customer. It is tagged so the onboarding funnel can exclude it —
+        # otherwise every demo run inflates the launch numbers we make decisions
+        # from.
+        "demo": bool(is_demo),
         # The scarcity window is "Pro free for a YEAR", not forever. Mirrors
         # the per-agent pro_until this replaced (ledger_engine's
         # SCARCITY_PRO_DURATION_SECONDS). A Stripe-paid workspace has no

@@ -103,12 +103,37 @@ _FORBIDDEN_ONBOARDING_FIELDS = ("ip_hash", "workspace_key", "agent_secret",
 def record_onboarding(step: str, workspace_id: str = "", **fields):
     """Record one onboarding step. Silently ignores an unknown step name so a
     typo can never widen the stream, and strips anything that could carry a
-    credential or an IP into an event log that is read by humans."""
+    credential or an IP into an event log that is read by humans.
+
+    Demo workspaces are excluded: `agent-ledger demo` mints a real workspace to
+    exercise real enforcement, and if that landed in the funnel the launch
+    numbers would count demonstrations as demand.
+    """
     if step not in ONBOARDING_STEPS:
+        return
+    if workspace_id and is_demo_workspace(workspace_id):
         return
     for bad in _FORBIDDEN_ONBOARDING_FIELDS:
         fields.pop(bad, None)
     record_event("onboarding", step=step, workspace_id=workspace_id or "", **fields)
+
+
+def is_demo_workspace(workspace_id: str) -> bool:
+    """True if this workspace was minted for demonstration, not by a customer.
+
+    Reads the workspace record directly rather than keeping a second list, so
+    the tag cannot drift from the workspace it describes. An unreadable or
+    missing record returns False — never silently hide a real workspace's
+    funnel events on a transient read error.
+    """
+    if not workspace_id:
+        return False
+    try:
+        import workspace_engine
+        rec = workspace_engine.get_workspace(workspace_id)
+    except Exception:
+        return False
+    return bool(rec and rec.get("demo"))
 
 
 def onboarding_funnel() -> dict:

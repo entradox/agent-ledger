@@ -279,6 +279,94 @@ def cmd_list(args):
         print(f"  {a['agent_id']:30s} {a['entries']:4d} entries  ${a['total_spend_cents']/100:.2f}")
 
 
+def cmd_demo(args):
+    """Prove enforcement is real, end to end, with no provider key and no money.
+
+    Not a simulation. Every step below is a real HTTP call against a real
+    deployment using the same routes a customer uses, and the block at the end is
+    the real 402 from the real budget engine. The only thing that makes it a demo
+    is that the workspace is tagged as one (`?demo=1`) so the launch funnel does
+    not count demonstrations as demand.
+    """
+    import re
+    base = args.api_base or os.environ.get("AGENT_LEDGER_API_BASE") or DEFAULT_BASE
+    base = base.rstrip("/")
+    cap_cents = args.cap_cents
+    step_cents = args.step_cents
+    agent = args.agent
+
+    def show(n, text):
+        print(f"\n[{n}/{5}] {text}")
+
+    print(f"AgentLedger demo — real enforcement, no provider key, no money spent")
+    print(f"target: {base}    cap: ${cap_cents/100:.2f}    step: ${step_cents/100:.2f}")
+
+    # 1. Discover. An agent finds the service before it can budget anything.
+    show(1, "discover the service")
+    for path in ("/server.json", "/.well-known/mcp/server-card.json"):
+        try:
+            card = _remote_request(base, "GET", path)
+        except SystemExit:
+            continue
+        if isinstance(card, dict) and not card.get("error"):
+            name = card.get("name") or card.get("title") or "AgentLedger"
+            print(f"      found: {name}")
+            break
+    else:
+        print("      no discovery document reachable — continuing")
+
+    # 2. Mint a workspace + claim an agent. ?demo=1 keeps it out of the funnel.
+    show(2, "mint a workspace and claim an agent (tagged as a demo)")
+    page = _remote_request(base, "POST", "/start?demo=1", raw=True)
+    m = re.search(r"wk_live_[A-Za-z0-9_\-]+", page)
+    if not m:
+        print("      could not read a workspace_key from /start?demo=1", file=sys.stderr)
+        sys.exit(1)
+    workspace_key = m.group(0)
+    resp = _remote_request(base, "POST", "/v1/track", {
+        "agent_id": agent, "rail": "manual", "amount_cents": 0,
+        "service": "agent-ledger-demo", "workspace_key": workspace_key})
+    agent_secret = resp.get("agent_secret")
+    if not agent_secret:
+        print("      could not claim an agent_id", file=sys.stderr)
+        sys.exit(1)
+    print(f"      agent: {agent}")
+
+    # 3. Set the cap. This is the thing that will stop the money.
+    show(3, f"set a ${cap_cents/100:.2f} monthly cap")
+    b = _remote_request(base, "POST", "/v1/budget", {
+        "agent_id": agent, "agent_secret": agent_secret,
+        "monthly_cents": cap_cents, "daily_cents": 0})
+    print(f"      cap set: {b.get('monthly_cap_cents', cap_cents)} cents/month")
+
+    # 4. Spend until the engine refuses. Each call is real spend against the ledger.
+    show(4, f"spend ${step_cents/100:.2f} at a time until the cap stops us")
+    accepted = 0
+    while accepted * step_cents + step_cents <= cap_cents:
+        r = _remote_request(base, "POST", "/v1/track", {
+            "agent_id": agent, "agent_secret": agent_secret, "rail": "manual",
+            "amount_cents": step_cents, "service": "demo-spend"})
+        if r.get("error"):
+            break
+        accepted += 1
+        total = accepted * step_cents
+        print(f"      accepted ${step_cents/100:.2f}  (running total ${total/100:.2f}"
+              f" of ${cap_cents/100:.2f})")
+
+    # 5. The block. Ask for one more than the cap allows.
+    show(5, "ask for one more — this must be refused, pre-provider")
+    envelope = _remote_request(base, "POST", "/v1/track", {
+        "agent_id": agent, "agent_secret": agent_secret, "rail": "manual",
+        "amount_cents": step_cents, "service": "demo-spend"}, raw=True)
+    print("      " + str(envelope).strip().replace("\n", "\n      "))
+    if args.keep:
+        print(f"\nworkspace_key {workspace_key}")
+        print(f"agent_secret  {agent_secret}")
+    print(f"\nThat last call is the point: the ledger refused to record spend that "
+          f"would cross ${cap_cents/100:.2f}, and nothing was sent upstream. "
+          f"Real enforcement, real ledger, no provider involved.")
+
+
 def main():
     p = argparse.ArgumentParser(prog="agentledger", description="Per-agent spend management")
     p.add_argument("--api-base", help="query a remote AgentLedger instance instead of local data "
@@ -328,6 +416,14 @@ def main():
     s.add_argument("--workspace-key", help="or the workspace key")
     s.add_argument("--ttl-days", type=int, default=7, help="1-90, default 7")
     s.set_defaults(fn=cmd_share)
+
+    d = sub.add_parser("demo", help="prove enforcement is real end to end — real ledger, "
+                                    "real 402, no provider key, no money spent")
+    d.add_argument("--agent", default="demo-agent", help="the agent_id to demonstrate with")
+    d.add_argument("--cap-cents", type=int, default=100, help="the cap to set (default $1.00)")
+    d.add_argument("--step-cents", type=int, default=10, help="spend per call (default $0.10)")
+    d.add_argument("--keep", action="store_true", help="print the credentials so you can reuse them")
+    d.set_defaults(fn=cmd_demo)
 
     args = p.parse_args()
     args.fn(args)

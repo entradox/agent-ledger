@@ -2066,7 +2066,12 @@ def start_mint(request: Request):
                   .replace("{X402_PASS_OFFER_HTML}", _x402_pass_offer_words()))
         return HTMLResponse(limited, status_code=429)
     import workspace_engine
-    workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False)
+    # ?demo=1 tags the workspace as a demonstration so the onboarding funnel can
+    # exclude it. `agent-ledger demo` uses this: it must exercise REAL enforcement
+    # without being counted as demand.
+    _demo = (request.query_params.get("demo") or "").strip() in ("1", "true", "yes")
+    workspace_id, raw_key = workspace_engine.create_workspace(grant_scarcity=False,
+                                                             is_demo=_demo)
     # Onboarding step 1/2 (D-1163). Workspace id only — never the key, never an IP.
     try:
         metrics.record_onboarding("workspace_minted", workspace_id,
