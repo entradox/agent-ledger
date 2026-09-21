@@ -43,6 +43,35 @@ def _link(*names: str) -> str:
     return ""
 
 
+# Tiers whose CTA must mint/identify a workspace BEFORE the payment link is shown,
+# because the webhook grants by ?client_reference_id.
+_WORKSPACE_FIRST = ("starter", "team")
+
+# Every checkout path except this page defaults to the live Starter link
+# (api_server.py:1873, routes_billing.py:672, ledger_engine.py:265). pricing.py had a
+# bare `return ""`, which is the whole reason the paid CTAs silently fell back to the
+# free door. Keep the same link in the same place as everywhere else.
+_DEFAULT_STARTER_LINK = "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e"
+
+# Only the Starter link has a live default. The Team link does not exist yet, so a
+# $79 button pointed at the Starter link would charge $19 while promising $79 — a
+# second lie on the same card. Tiers with no resolvable link route to the human door.
+_TIER_DEFAULT_LINKS = {"AL_STRIPE_PAYMENT_LINK": _DEFAULT_STARTER_LINK}
+
+
+def _paid_link(name: str) -> str:
+    """Resolve a paid tier's link, falling back only to a link that truly exists.
+
+    Returns "" when nothing can charge for this tier. Callers must treat "" as
+    'this tier cannot take money' and route to a human door — never to the free door,
+    which advertises a price the visitor cannot buy, and never to a cheaper tier's
+    link, which would charge the wrong amount.
+    """
+    if not name:
+        return ""
+    return _link(name) or _TIER_DEFAULT_LINKS.get(name, "")
+
+
 # ---------------------------------------------------------------------------
 # Tier catalog. price_mo/price_yr in dollars; price_yr is ~10x (2 months free).
 # kind: "sub" (monthly/annual toggle), "once" (one-time, no toggle),
@@ -186,7 +215,7 @@ PRODUCTS = {
                           "Everything in Free",
                           "Unlimited history",
                           "Push alerts via webhook"],
-             "cta": "Upgrade to Pro", "link": "AL_STRIPE_PAYMENT_LINK"},
+             "cta": "Upgrade to Starter", "link": "AL_STRIPE_PAYMENT_LINK"},
             {"name": "Team", "kind": "sub", "price_mo": 79, "price_yr": 790,
              "blurb": "For teams running many agents. $79/mo.",
              "features": ["Up to 50 agents per workspace",
@@ -256,12 +285,30 @@ function pzToggle(pid, annual){
 
 
 def _cta(tier: dict, free_entry: str) -> tuple:
-    """(href, label, configured). Never returns an empty href."""
+    """(href, label, configured). Never returns an empty href.
+
+    Paid tiers MUST send the visitor through the workspace-minting door, never to a
+    bare Stripe link. A bare link carries no ?client_reference_id, and the webhook
+    reads exactly that field to decide which workspace to grant
+    (routes_billing.py:120-124). Handing a visitor a bare link charges them and
+    credits nobody — a worse defect than the free door this is replacing.
+    """
+    kind = tier.get("kind")
+    slug = (tier.get("name") or "").strip().lower()
+    if kind == "sub" and slug in _WORKSPACE_FIRST:
+        configured = bool(_paid_link(tier.get("link", "")))
+        if configured:
+            # free_entry already understands ?plan= and appends client_reference_id
+            # to the real payment link (api_server.py:2083-2087).
+            return f"{free_entry}?plan={slug}", tier["cta"], True
+        # Nothing can be charged for this tier. Do not advertise a price we cannot
+        # take and cannot credit: route it to the human door instead.
+        return "/about", "Talk to us", False
     link = _link(tier.get("link", "")) if tier.get("link") else ""
     if link:
         return link, tier["cta"], True
     href = tier.get("href") or free_entry
-    if tier.get("kind") in ("free", "custom"):
+    if kind in ("free", "custom"):
         label = tier["cta"]
     else:
         label = "Start free"
