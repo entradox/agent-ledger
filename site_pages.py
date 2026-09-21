@@ -765,7 +765,7 @@ purpose-built agent-budget product.</li>
 </ul>
 <p class="mut">None of these are wrong tools — several are excellent at what
 they do. The distinction is unit of accounting (agent, not seat or key) and
-price (flat $19/workspace, not per-seat or usage-scaled).</p>
+price (flat $19/workspace per month, not per-seat or usage-scaled).</p>
 
 <h2>What we are not</h2>
 <p class="mut">We are not a trace viewer, an eval platform, or a prompt

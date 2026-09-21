@@ -508,8 +508,8 @@ unauthenticated read path, on REST or MCP.
 A free workspace is capped at 3 agents; a 4th new
 agent_id gets 402 with two upgrade paths in the error body: pay via x402{MPP_OR}
 yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
-or a human upgrades the workspace to Pro ($19/mo, unlimited, no expiry) via
-the Stripe link the same error returns. The cap is
+or a human upgrades the workspace to Pro ($19/mo Starter, up to 10 agents, no expiry)
+via the Stripe link the same error returns. The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
 must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would

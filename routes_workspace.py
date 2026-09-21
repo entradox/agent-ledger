@@ -174,7 +174,7 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
       </div>
       <div id="payactions" style="display:flex;gap:8px;flex-wrap:wrap">
         <a id="upgradelink" href="/upgrade" style="text-decoration:none">
-          <button>Upgrade to Pro — $19/mo</button></a>
+          <button>Upgrade to Starter — $19/mo</button></a>
         <a href="/pricing" style="text-decoration:none">
           <button class="ghost">See pricing</button></a>
       </div>
