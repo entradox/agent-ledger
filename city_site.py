@@ -411,7 +411,7 @@ PAGE_HOME = """<div class="agent-surface">
   <h2>Recent ships, dated.</h2>
   <p class="lede">The changelog is the proof the stack is alive — every entry is a shipped outcome, not a progress update.</p>
   <div class="chlog" style="margin-top:14px">
-    <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP verified end-to-end.</b> Handshake and <span class="ver">tools/list</span> confirmed for all five products — 12, 8, 6, 4 and 9 tools. Stale "dispatch being repaired" notes retired across the site. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP verified end-to-end.</b> Handshake and <span class="ver">tools/list</span> confirmed for all five products — 12, 8, 6, 4 and 9 tools. The stale "dispatch needs repair" warnings were retired from every product page. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted.</b> <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> resolve instead of 404ing. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on Base mainnet.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks. <span class="ver">agent-ledger</span></div></div>
   </div>

@@ -289,6 +289,21 @@ client = agentledger.wrap(OpenAI(), agent_id="my-agent", agent_secret="as_...")<
   </div>
 </div>
 <p style="font-size:12px;color:var(--m);margin-top:10px">Already have a workspace_key? Post it to <code>/v1/billing/checkout</code> (add <code>?plan=team</code> for Team) and the upgrade link is built for that workspace. Running as an agent with a wallet? <code>POST /v1/billing/x402</code> buys a 24h Pro pass for $0.01 — no human in the loop.</p>
+<p style="font-size:12px;color:var(--m);margin-top:8px">Prices in USD. Cancel any time — subscriptions end at the close of the billing period. Refund eligibility: first paid purchase refundable within 14 days — <a href="/terms#refunds">see the refund policy</a>.</p>
+<div style="border:1px solid var(--line,#e5e5e5);border-radius:10px;padding:14px 16px;margin-top:14px;font-size:13px;line-height:1.6">
+  <b>Buying for an agent?</b><br>
+  An agent with a Base wallet can purchase a 24-hour AgentLedger Pro pass for
+  <b>$0.01 USDC</b> through x402. No account, card form, or human checkout is
+  required — the paying wallet becomes the workspace identity. Human teams can
+  still use the standard monthly plans above.
+  <ul style="margin:8px 0 0 18px;padding:0">
+    <li><b>What it gets:</b> full Pro access — <b>unlimited agents</b> on the workspace the wallet resolves to.</li>
+    <li><b>How long:</b> 24 hours from settlement.</li>
+    <li><b>Network and token:</b> the <b>Base</b> network (<code>__X402_NETWORK__</code>), paid in <b>USDC</b>.</li>
+    <li><b>Renewal:</b> it does <b>not</b> renew automatically — continued access requires another payment.</li>
+    <li><b>Format:</b> see <a href="/.well-known/x402.json">/.well-known/x402.json</a> for the request and response shape.</li>
+  </ul>
+</div>
 <script>
 function pzAL(annual){
   document.querySelectorAll('.pz-amt').forEach(function(el){el.textContent = annual ? el.dataset.yr : el.dataset.mo;});

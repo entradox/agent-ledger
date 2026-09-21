@@ -1407,8 +1407,10 @@ def _status_html() -> str:
     template is static but the substitution runs per request, so the words always
     follow the live configuration.
     """
+    import x402_verify
     return (_status_html_template()
-            .replace("{X402_SETTLEMENT_SPAN}", _x402_settlement_span()))
+            .replace("{X402_SETTLEMENT_SPAN}", _x402_settlement_span())
+            .replace("__X402_NETWORK__", x402_verify.X402_NETWORK))
 
 
 def _status_html_template() -> str:
