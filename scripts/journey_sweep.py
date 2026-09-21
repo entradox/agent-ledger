@@ -578,4 +578,31 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # EXIT CODE 1 IS OVERLOADED — and that matters for a shipping gate.
+    #
+    # `main()` returns 1 to mean "a check FAILED". But Python ALSO exits 1 on an uncaught
+    # exception, so a crash anywhere in the sweep — a socket timeout, a malformed upstream
+    # response, a bug in a check — produces the identical signal. A gate that reads $? then
+    # cannot distinguish "the product is broken" from "the harness is broken", and the two
+    # demand completely different responses: one is a product incident, the other is a tool
+    # incident that says NOTHING about the product.
+    #
+    # Observed in practice: a run reported exit=1 with stdout discarded, and it was
+    # impossible to tell whether a check had failed or the sweep had died. Both fail safe
+    # (non-zero), so this is a diagnostic defect rather than a safety one — but it makes
+    # "exit 1 == FAIL" as documented above a claim the script does not actually honour.
+    #
+    # So: 0 = PASS, 1 = a check FAILED (product), 2 = the harness itself crashed (tool),
+    # 3 = UNKNOWN present. Read .verdict in the JSON for the authoritative call.
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 — deliberate: any crash is a harness error
+        import traceback
+        traceback.print_exc()
+        print(f"\nHARNESS ERROR: the sweep crashed before producing a verdict: "
+              f"{type(exc).__name__}: {exc}")
+        print("This is exit 2 — a TOOL failure, not a product failure. It says nothing "
+              "about whether the site is healthy.")
+        sys.exit(2)
