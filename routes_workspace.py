@@ -157,6 +157,30 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
 </div>
 
 <div id="app" style="display:none">
+  <!-- D-1404 / item 3.5 — the pay door, where the need actually arises.
+       The only pay link used to be on /start, shown ONCE right after minting, and
+       labelled "Optional, and not needed today". But the pay trigger is "past 3 agents",
+       a condition that becomes true only AFTER the customer has integrated and used the
+       product — at which point that screen is long gone, /upgrade and /pricing 404'd, and
+       the cap error pointed at minting ANOTHER free workspace. The till worked; there was
+       no door from where the need arises. This block is that door: persistent, next to the
+       agent count the cap is measured against, and built from the same checkout route the
+       product already ships (no Stripe config, no new secret, no payment). -->
+  <div id="planbar" class="card" style="margin:16px 0;display:none">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="flex:1 1 260px">
+        <b id="planline">Free plan</b>
+        <div class="muted" id="capline"></div>
+      </div>
+      <div id="payactions" style="display:flex;gap:8px;flex-wrap:wrap">
+        <a id="upgradelink" href="/upgrade" style="text-decoration:none">
+          <button>Upgrade to Pro — $19/mo</button></a>
+        <a href="/pricing" style="text-decoration:none">
+          <button class="ghost">See pricing</button></a>
+      </div>
+    </div>
+    <p id="payerr" class="muted" style="color:#f85149;margin:8px 0 0"></p>
+  </div>
   <div class="kpis" id="kpis"></div>
   <p><button class="ghost" id="csv">Download CSV</button>
      <button class="ghost" id="forget">Forget key</button></p>
@@ -229,6 +253,7 @@ function render(d){
     kpi('30-day tokens', kfmt(t.tokens_in_30d||0)+' in / '+kfmt(t.tokens_out_30d||0)+' out') +
     kpi('agents tracked', String(agents.length)) +
     kpi('alerts', String((d.alerts||[]).length));
+  renderPlanBar(d, KEY);
   document.getElementById('chart').innerHTML = svgChart(d.daily_series||[]);
   // Event checkboxes: all ticked by default, matching the API's own default
   // (omit `events` to receive every one).
@@ -270,6 +295,53 @@ function render(d){
 }
 function kpi(k,v){ return '<div class="card kpi"><div class="k">'+esc(k)+
   '</div><div class="v">'+esc(v)+'</div></div>'; }
+
+// D-1404 / item 3.5. The pay door. Renders the plan + agent count against the free cap
+// and points the upgrade button at the EXISTING checkout route so the link carries this
+// workspace's id (client_reference_id), exactly as /start's link did. No Stripe config is
+// read or changed here, no secret, no payment — this only builds a URL the product
+// already knew how to build. Failures are shown, never silently swallowed: a dead pay
+// link that looks fine is the defect this block exists to fix.
+function renderPlanBar(d, key){
+  var agents=(d.agents||[]), n=agents.length;
+  var tiers=agents.map(function(a){return a.tier;});
+  var anyPro=tiers.indexOf('pro')>=0 || tiers.indexOf('team')>=0;
+  var bar=document.getElementById('planbar');
+  var cap=3;  // WORKSPACE_FREE_AGENT_CAP
+  document.getElementById('planline').textContent = anyPro ? 'Paid plan' : 'Free plan';
+  var line;
+  if(anyPro){
+    line='Unlimited tracked agents. Thanks.';
+  } else if(n>=cap){
+    line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused; this is the moment to upgrade.';
+  } else {
+    line=n+' of '+cap+' free agents used. The cap bites at '+cap+'; upgrading lifts it.';
+  }
+  document.getElementById('capline').textContent=line;
+  bar.style.display='block';
+  // The /demo page renders this same function with no workspace key. There is no
+  // workspace to check out, so do not attempt a checkout call there — show the static
+  // pricing link instead and leave the error line empty.
+  if(!key){
+    document.getElementById('upgradelink').href='/pricing';
+    return;
+  }
+  // Point the button at the real checkout for THIS workspace.
+  fetch('/v1/billing/checkout', {method:'POST',
+      headers:{'X-Workspace-Id':(d.workspace_id||''),'X-Workspace-Key':key}})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(j){
+      if(j && j.checkout_url){
+        document.getElementById('upgradelink').href=j.checkout_url;
+        document.getElementById('upgradelink').setAttribute('rel','nofollow noopener');
+      }
+    })
+    .catch(function(e){
+      // Keep /upgrade as the href — it is a real page now — and say what happened.
+      document.getElementById('payerr').textContent =
+        'Could not build a direct checkout link ('+esc(e.message)+'). Use Upgrade to Pro.';
+    });
+}
 
 function load(key){
   fetch('/v1/workspace/summary?days=30', {headers:{'X-Workspace-Key':key}})

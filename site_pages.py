@@ -847,3 +847,107 @@ try:
 except Exception:
     # Pricing is decorative; a failure here must never break the pages.
     pass
+
+
+# ── /pricing and /upgrade (D-1404 / item 3.5) ──────────────────────────────
+# Both URLs 404'd. The E2E walk of 2026-09-18 established why that mattered: the only pay
+# link in the product lived on the post-mint screen, shown once and labelled "optional,
+# not needed today", while the trigger that creates the desire to pay ("past 3 agents")
+# only becomes true after the customer has integrated and used it. The till worked; there
+# was no door from where the need arises.
+#
+# /pricing renders from pricing.PRODUCTS so it cannot disagree with the checkout route or
+# the Terms. /upgrade calls the EXISTING POST /v1/billing/checkout from the browser with the
+# customer's own workspace key — the same pattern the dashboard already uses. Neither page
+# reads or changes Stripe config, and neither claims a payment completes.
+
+_UPGRADE_PAGE_BODY = """
+<h1>Lift the 3-agent cap</h1>
+<p>The Free plan tracks up to <b>3 agents per workspace</b>. Past that, a 4th new agent is
+refused — and that refusal is usually the first time this matters, because it happens
+<i>after</i> you have wired the product in. Upgrade here, from wherever you are.</p>
+
+<div class="card" id="keybox">
+  <p><b>Paste this workspace's key</b> to build its upgrade link.</p>
+  <p class="muted">It starts <code>wk_live_</code>. It is sent only to this site, as a
+  request header, to build the link — it is not stored on the server.</p>
+  <p><input id="wk" type="password" autocomplete="off" spellcheck="false"
+            placeholder="wk_live_..."></p>
+  <p><button id="go">Continue to checkout</button></p>
+  <p id="err" class="muted" style="color:#B91C1C"></p>
+</div>
+
+<h2>Plans</h2>
+{PRICING_AGENT_LEDGER}
+
+<p class="muted">Billed through Stripe. Cancel any time. Agents can also buy a 24-hour
+AgentLedger Pro pass for <b>$0.01 USDC</b> over x402 on the Base network
+(<code>{X402_NETWORK}</code>) with no human in the loop — see
+<a href="/agent-ledger#pricing">the AgentLedger page</a>.</p>
+
+<script>
+document.getElementById('go').addEventListener('click', function(){
+  var k=document.getElementById('wk').value.trim();
+  var e=document.getElementById('err');
+  if(!k){ e.textContent='Paste the workspace key first.'; return; }
+  e.textContent='';
+  // Ask the API which workspace this key belongs to, then let the API build the
+  // checkout URL. Both calls are the product's own existing routes.
+  fetch('/v1/workspace/summary?days=1', {headers:{'X-Workspace-Key':k}})
+    .then(function(r){ if(!r.ok) throw new Error(r.status===401?'That key was not accepted.':'HTTP '+r.status); return r.json(); })
+    .then(function(d){
+      return fetch('/v1/billing/checkout', {method:'POST',
+        headers:{'X-Workspace-Id':d.workspace_id||'','X-Workspace-Key':k}})
+        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+    })
+    .then(function(j){
+      if(j && j.checkout_url){ window.location.href=j.checkout_url; }
+      else { e.textContent='No checkout link was returned for this workspace.'; }
+    })
+    .catch(function(ex){ e.textContent='Could not start checkout ('+ex.message+').'; });
+});
+</script>
+"""
+
+
+def _render_upgrade() -> str:
+    """The durable upgrade door. Renders the real plan cards from pricing.PRODUCTS and
+    wires the button to the existing checkout route; refuses to invent a price."""
+    try:
+        import pricing as _p
+        cards = _p.pricing_section("agent-ledger")
+    except Exception:
+        # Never let a missing price table produce a blank pay page — say so plainly
+        # instead, so the page cannot silently look fine while offering nothing.
+        cards = ("<p class='muted'>The plan table could not be loaded. "
+                 "Use <a href=\"/start\">/start</a> to get a workspace, or email us.</p>")
+    return _UPGRADE_PAGE_BODY.replace("{PRICING_AGENT_LEDGER}", cards)
+
+
+_PRICING_PAGE_BODY = """
+<h1>Pricing</h1>
+<p>One workspace, every rail. The free tier is real — 3 agents, no expiry, no card.</p>
+{PRICING_AGENT_LEDGER}
+<h2>Which plan do I need?</h2>
+<p>Most people need Starter the day a 4th agent shows up. If you are running agents across
+a team, or tracking more than ten, Team. Nothing is gated behind a sales call.</p>
+<p><a href="/upgrade">Upgrade an existing workspace →</a> ·
+   <a href="/start">Get a workspace — no signup, no card</a></p>
+<p class="muted">Prices in USD. Billed through Stripe; cancel any time. An agent with a Base
+wallet can buy a 24-hour Pro pass for $0.01 USDC over x402
+(<code>{X402_NETWORK}</code>) with no human in the loop. Refund policy:
+<a href="/terms#refunds">14 days on a first paid purchase</a>.</p>
+"""
+
+
+def _render_pricing() -> str:
+    """The canonical /pricing page, rendered from pricing.PRODUCTS so it cannot drift from
+    the checkout route, the Terms, or any product's own pricing section."""
+    try:
+        import pricing as _p
+        cards = _p.pricing_section("agent-ledger")
+    except Exception:
+        cards = ("<p class='muted'>The plan table could not be loaded. "
+                 "Use <a href=\"/start\">/start</a> to get a workspace, or email us.</p>")
+    return _PRICING_PAGE_BODY.replace("{PRICING_AGENT_LEDGER}", cards)
+

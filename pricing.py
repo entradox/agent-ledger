@@ -163,6 +163,43 @@ PRODUCTS = {
              "link_annual": "CT_STRIPE_MONITOR_ANNUAL"},
         ],
     },
+    # D-1404 / item 3.5. AgentLedger had no catalog entry, so /pricing could not be built
+    # from the same source as every other product's pricing section. Prices and limits here
+    # are NOT invented: they are the exact values already committed in the Terms
+    # (api_server.py "Plans and payment") and in routes_billing.create_checkout, which
+    # reads AL_STRIPE_PAYMENT_LINK ($19 Starter) and AL_STRIPE_TEAM_LINK ($79 Team) and
+    # appends client_reference_id so the webhook marks the right workspace Pro.
+    "agent-ledger": {
+        "name": "AgentLedger",
+        "free_entry": "/start",
+        "tiers": [
+            {"name": "Free", "kind": "free", "price_mo": 0,
+             "blurb": "Up to 3 agents per workspace, every rail, no expiry.",
+             "features": ["3 tracked agents per workspace",
+                          "Every rail: mcp, x402, api_key, manual",
+                          "Budget caps, enforced pre-provider",
+                          "Full ledger + CSV export"],
+             "cta": "Get a workspace — no signup, no card", "href": "/start"},
+            {"name": "Starter", "kind": "sub", "price_mo": 19, "price_yr": 190,
+             "blurb": "Lift the 3-agent cap. $19/mo.",
+             "features": ["Up to 10 agents per workspace",
+                          "Everything in Free",
+                          "Unlimited history",
+                          "Push alerts via webhook"],
+             "cta": "Upgrade to Pro", "link": "AL_STRIPE_PAYMENT_LINK"},
+            {"name": "Team", "kind": "sub", "price_mo": 79, "price_yr": 790,
+             "blurb": "For teams running many agents. $79/mo.",
+             "features": ["Up to 50 agents per workspace",
+                          "Everything in Starter",
+                          "Shared dashboard across agents"],
+             "cta": "Get Team", "link": "AL_STRIPE_TEAM_LINK"},
+            {"name": "Enterprise", "kind": "custom", "price_mo": 0,
+             "blurb": "Custom limits and terms.",
+             "features": ["Custom agent limits",
+                          "Custom terms"],
+             "cta": "Talk to us", "href": "/about"},
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------

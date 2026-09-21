@@ -224,6 +224,14 @@ REACH_EXEMPT = {
     "/changelog": "informational release log, not a funnel entry",
 }
 
+# D-1404 / item 3.5. /pricing and /upgrade are ADDED to REACH_PATHS, not exempted.
+# They are funnel entries by construction: /upgrade exists precisely to convert a
+# capped workspace, and /pricing is the page a comparing buyer reads before paying.
+# Exempting them would have hidden the newest pay surfaces from the funnel counter —
+# the reach guard exists to stop exactly that kind of silent gap, so the honest fix
+# is to track them.
+REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade"}
+
 
 def _ip_hash(request: "Request") -> Optional[str]:
     """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs.
@@ -1731,6 +1739,47 @@ def dashboard_image():
         return JSONResponse({"error": {"type": "not_found"}}, status_code=404)
     return FileResponse(p, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/pricing", response_class=HTMLResponse)
+def pricing_page():
+    """A real pricing page at the canonical URL.
+
+    D-1404 / item 3.5. This URL and /upgrade both 404'd, and the E2E walk of 2026-09-18
+    found that the ONLY pay link in the product sat on the post-mint screen — shown once,
+    labelled "optional, not needed today" — while the trigger that makes someone want to
+    pay ("past 3 agents") only becomes true after they have integrated and used it. So the
+    one moment the decision happens had no door, and /pricing 404'd besides.
+
+    Facts stated here are the ones already committed in the Terms and the checkout route:
+    Free = 3 agents, Starter $19/mo, Team $79/mo, Enterprise custom, plus the $0.01 x402
+    24-hour Pro pass. No price is invented and nothing is promised that the product cannot
+    serve: the copy says a purchase is available, not that it completes.
+    """
+    import site_pages
+    import x402_verify
+    return HTMLResponse(site_pages.page(
+        "Pricing — AgentLedger",
+        "Free for up to 3 agents. Starter $19/mo, Team $79/mo, or a $0.01 x402 pass bought by an agent itself.",
+        site_pages._render_pricing().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
+
+
+@app.get("/upgrade", response_class=HTMLResponse)
+def upgrade_page():
+    """The durable upgrade door, reachable from anywhere — including the dashboard.
+
+    D-1404 / item 3.5. Deliberately NOT a second checkout implementation: it takes the
+    workspace key in the browser and calls the EXISTING POST /v1/billing/checkout, which
+    already appends client_reference_id so the Stripe webhook can mark the right workspace
+    Pro. No Stripe config is read or changed here and no credential is stored server-side;
+    the same "paste your key, it stays in this tab" pattern the dashboard already uses.
+    """
+    import site_pages
+    import x402_verify
+    return HTMLResponse(site_pages.page(
+        "Upgrade to Pro — AgentLedger",
+        "Lift the 3-agent cap on this workspace: $19/mo Starter or $79/mo Team.",
+        site_pages._render_upgrade().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
 @app.get("/about", response_class=HTMLResponse)
