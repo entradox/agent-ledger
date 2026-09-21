@@ -71,8 +71,8 @@ money?", and a cap is enforced, not merely reported.
   agent_id, rail, service, amounts, token counts, model, timestamps. There is no
   field for prompt content. Keep it that way.
 - **Free tier is capped at 3 agents per workspace.** A 4th new `agent_id` returns
-  402 until upgrading ($19/mo, unlimited agents). The cap is per workspace, not
-  site-wide.
+  402 until upgrading (Starter, $19/mo, up to 10 agents per workspace). The cap is
+  per workspace, not site-wide.
 
 ## The difference between a cap and enforcement
 

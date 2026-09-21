@@ -269,7 +269,7 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 "a workspace bound to your wallet, which is a DIFFERENT workspace from this "
                 "one if this one wasn't created that way — the agents already on this "
                 "workspace stay here; "
-                "(2) upgrade THIS workspace to Pro ($19/mo, unlimited agents, no expiry): "
+                "(2) upgrade THIS workspace to Starter ($19/mo, up to 10 agents, no expiry): "
                 f"{_link}?client_reference_id={workspace_id} "
                 "(or POST /v1/billing/checkout with this workspace's credentials to get "
                 "that link programmatically — needs client_reference_id or the payment "

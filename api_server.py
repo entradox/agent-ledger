@@ -210,6 +210,7 @@ REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
 REACH_EXEMPT = {
     "/privacy": "legal boilerplate, not a product surface with a CTA",
     "/terms": "legal boilerplate, not a product surface with a CTA",
+    "/about": "company/contact page, reached from footers, not a funnel entry",
     "/security": "informational, reached from footers, not a funnel entry",
     "/reliability": "informational, reached from footers, not a funnel entry",
     "/compare": "comparison page reached mid-funnel, not a funnel entry",
@@ -691,8 +692,11 @@ not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
-Pricing is as described above (free tier = 3 agents per workspace; Pro =
-$19/mo, unlimited agents).
+Pricing is as described above (Free = up to 3 agents per workspace; Starter =
+$19/mo, up to 10 agents; Team = $79/mo, up to 50 agents; Enterprise = custom).
+An agent with a Base wallet can instead buy a 24-hour Pro pass over x402 —
+unlimited agents on the workspace its wallet resolves to, no signup or card.
+It does not auto-renew.
 Contact: entradox@icloud.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
@@ -1632,8 +1636,25 @@ without agreement. Per-entry amounts are capped, and rate and storage limits are
 the service available for everyone.</p>
 
 <h2>Plans and payment</h2>
-<p>The free tier covers 3 agents per workspace. Pro is $19/month for unlimited agents on the same
-workspace, billed by Stripe, cancellable at any time.</p>
+<p>The Free plan supports up to 3 agents per workspace. Starter is $19 per month for up to 10
+agents per workspace. Team is $79 per month for up to 50 agents per workspace. Enterprise pricing
+is custom. Paid plans are billed through Stripe and may be canceled at any time. The current plan
+features and limits shown on the
+<a href="/agent-ledger#pricing">AgentLedger pricing page</a> form part of these Terms, and any
+future change to plans, prices or limits will be reflected in both places at the same time.</p>
+
+<p>Agents may also buy a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
+Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the workspace the
+paying wallet resolves to, and expires 24 hours after purchase. It does not renew automatically;
+continued access requires another payment.</p>
+
+<h2 id="refunds">Refunds</h2>
+<p>You may cancel at any time to prevent future renewals. If this is your first paid purchase, you
+may request a refund within 14 days of purchase by emailing
+<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>. Refunds after that period are
+considered only for duplicate charges or service failures. Approved refunds are returned to the
+original payment method.</p>
+<p>The $0.01 x402 Pro pass is a single micro-payment and is non-refundable.</p>
 
 <h2>Availability and liability</h2>
 <p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
@@ -1710,11 +1731,21 @@ def dashboard_image():
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.get("/about")
+@app.get("/about", response_class=HTMLResponse)
 def about_page():
-    """D-1239: /about folded into the umbrella index at "/" — that IS the
-    product list now, so this is a redirect rather than a second copy."""
-    return RedirectResponse(url="/", status_code=301)
+    """A real About page.
+
+    Before this, /about 301'd to "/" — so every footer link labelled
+    "An AI Agent City product" and "About" landed on the homepage, and a
+    cautious buyer could not answer "who built this?" anywhere on the site.
+    The operator is Parmanand LLC; the founder is named here.
+    """
+    import site_pages
+    import x402_verify
+    return HTMLResponse(site_pages.page(
+        "About — AI Agent City",
+        "Who builds AI Agent City, why, and how to reach us.",
+        site_pages._render_about().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
 @app.get("/security", response_class=HTMLResponse)
@@ -1766,7 +1797,12 @@ def reliability_page():
 
 @app.get("/terms", response_class=HTMLResponse)
 def terms_page():
-    return _LEGAL_SHELL.format(title="Terms", body=TERMS_BODY)
+    """Terms, with the x402 network derived rather than hardcoded — the page
+    must not name mainnet while the deployment is configured for a testnet."""
+    import x402_verify
+    return _LEGAL_SHELL.format(
+        title="Terms",
+        body=TERMS_BODY.replace("{X402_NETWORK}", x402_verify.X402_NETWORK))
 
 
 PAYMENT_LINK = os.environ.get(

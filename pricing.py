@@ -276,10 +276,28 @@ def pricing_section(product_id: str) -> str:
                   f'<button data-per="yr" onclick="pzToggle(\'{product_id}\',true)">'
                   f'Annual</button><span class="pz-save" style="display:none">'
                   f'· 2 months free</span></div>')
+    x402_block = ""
+    if product_id == "agent-ledger":
+        x402_block = (
+            '<div class="pz-note" style="margin-top:14px">'
+            '<b>Buying for an agent?</b> An agent with a Base wallet can purchase a '
+            '24-hour AgentLedger Pro pass for $0.01 USDC through x402. No account, '
+            'card form, or human checkout is required. Human teams can still use the '
+            'standard monthly plans above.<br>'
+            'What the agent gets: full Pro access, <b>unlimited agents</b> on the '
+            'workspace its wallet resolves to, for 24 hours from settlement. Network '
+            'and token: the <b>Base</b> network (<code>{X402_NETWORK}</code>), <b>USDC</b>. '
+            'It does <b>not</b> renew automatically — continued access requires '
+            'another payment. Request and response format: '
+            '<a href="/.well-known/x402.json">/.well-known/x402.json</a> · '
+            '<a href="/agent-ledger">buying guide</a>.'
+            '</div>')
     return (
         f'<div class="pz-wrap" id="pz-{product_id}">'
         f'<div class="pz-head" id="pricing"><h2>Pricing</h2>{toggle}</div>'
         f'<div class="pz-grid">{"".join(cards)}</div>'
         f'<p class="pz-note">Prices in USD. Cancel any time — subscriptions '
-        f'end at the close of the billing period, no questions, no retention flow.'
-        f'</p></div>' + _TOGGLE_JS)
+        f'end at the close of the billing period, no questions, no retention flow. '
+        f'Refund eligibility: first paid purchase refundable within 14 days — '
+        f'<a href="/terms#refunds">see the refund policy</a>.'
+        f'</p>{x402_block}</div>' + _TOGGLE_JS)

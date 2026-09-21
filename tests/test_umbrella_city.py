@@ -50,10 +50,18 @@ def test_each_product_has_its_own_page(page):
         assert r.status_code == 200, f"{route} did not return 200"
 
 
-def test_about_redirects_to_root(page):
+def test_about_serves_a_page_that_names_the_operator(page):
+    """The fix list required a real About page.
+
+    Before this, /about 301'd to "/" — every footer link labelled "An AI Agent
+    City product" landed on the homepage, so a buyer could not answer "who built
+    this?" anywhere on the site. The page must name the legal operator.
+    """
     r = page.get("/about", follow_redirects=False)
-    assert r.status_code == 301
-    assert r.headers["location"] == "/"
+    assert r.status_code == 200, f"/about should serve a page, got {r.status_code}"
+    body = r.text
+    assert "Parmanand LLC" in body, "/about must name the legal operator"
+    assert "entradox@icloud.com" in body, "/about must carry a contact address"
 
 
 def test_pre_existing_live_routes_still_200(page):

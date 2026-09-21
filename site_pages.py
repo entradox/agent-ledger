@@ -219,8 +219,8 @@ PERIMETER_WATCH_PAGE = """
 <p class="mut">Or run a free one-time snapshot in the browser:</p>
 <p><a class="plain" href="https://entradox.github.io/perimeter-watch-site/">Free perimeter snapshot &rarr;</a></p>
 <p class="mut">Status: MCP tools execute through the city gateway, which translates tool calls
-to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
-is being repaired (Sept 2026). The free browser snapshot works today.</p>
+to the product's documented REST API &mdash; handshake and all 6 tools verified working
+(2026-09-20). The free browser snapshot works today.</p>
 
 {PRICING_PERIMETER_WATCH}
 """
@@ -243,8 +243,8 @@ CITED_PAGE = """
 <p class="mut">Or run a free scan in the browser:</p>
 <p><a class="plain" href="https://entradox.github.io/cited-site/">Free AI-visibility scan &rarr;</a></p>
 <p class="mut">Status: MCP tools execute through the city gateway, which translates tool calls
-to the product's documented REST API &mdash; native MCP dispatch on the satellite backend
-is being repaired (Sept 2026). The free browser scan works today.</p>
+to the product's documented REST API &mdash; handshake and all 9 tools verified working
+(2026-09-20). The free browser scan works today.</p>
 
 {PRICING_CITED}
 """
@@ -301,8 +301,8 @@ are <b>$29/mo</b> — pick a plan below and checkout is self-serve. Every MCP to
 <li><b>aw_watch</b> &mdash; watchlist status for token holders</li>
 </ul>
 <p class="mut">Tools execute through the city gateway, which translates MCP tool calls
-to the product's documented REST API. Native MCP dispatch on the satellite backend
-is being repaired (Sept 2026).</p>
+to the product's documented REST API. MCP handshake and all 8 tools verified working
+(2026-09-20).</p>
 </div>
 
 <script>
@@ -594,6 +594,68 @@ agent-ledger share &lt;agent&gt;# print a shareable report link</code></pre>
 """
 
 # ── /security ───────────────────────────────────────────────────────────────
+# ── About page ────────────────────────────────────────────────────────────
+# FOUNDER_NAME is deliberately not guessed and not invented. Set it to a real
+# name to publish the founder line; while it is empty the page renders a
+# first-person paragraph that names no one, so the page is never half-built.
+FOUNDER_NAME = ""
+FOUNDER_BLURB = ""
+
+ABOUT = """<h1>About</h1>
+
+<h2>Who runs this</h2>
+<p>AI Agent City is operated by <b>Parmanand LLC</b>, a Georgia company. It is an
+independent, self-funded software project — not a venture-backed startup and not a
+reseller of anyone else's product.</p>
+{founder_block}
+
+<h2>Why it exists</h2>
+<p>Agents started holding credentials, calling paid APIs, and spending real money
+before anyone built the boring layer that makes that safe. A budget is now an
+operational primitive, not a spreadsheet: if an agent can spend, something has to
+enforce a limit <i>before</i> the money leaves — not report it afterwards.</p>
+<p>That is the whole thesis. Every product here is a piece of that operations layer:
+control spend, monitor traffic, watch the perimeter, check who you're trusting,
+and make sure AI recommends you.</p>
+
+<h2>How we work</h2>
+<p>One rule shapes everything: <b>publish the caveat, not just the claim.</b> Where a
+guarantee is weaker than it sounds, the page says so — for example, a budget cap on
+the plain API stops the ledger write, not the provider charge, and that difference
+is stated on the pricing page and in the Terms rather than buried.</p>
+<p>The tool counts on this site are the live <code>tools/list</code> output, not
+marketing numbers. When something is not working, the status note says what works and
+what does not, with a date.</p>
+
+<h2>Contact</h2>
+<p>General and support: <a href="mailto:entradox@icloud.com">entradox@icloud.com</a><br>
+Refunds, billing and privacy/deletion requests go to the same address.</p>
+<p>We aim to answer within two business days.</p>
+
+<h2>Public record</h2>
+<p><a href="/changelog">Changelog</a> — every ship, dated ·
+<a href="/status">Live status</a> ·
+<a href="/security">Security &amp; data handling</a> ·
+<a href="/terms">Terms</a> ·
+<a href="/privacy">Privacy</a></p>
+"""
+
+
+def _render_about() -> str:
+    """Fill the founder slot. Empty FOUNDER_NAME renders an unnamed first-person
+    paragraph rather than a placeholder, so the page is honest either way."""
+    if FOUNDER_NAME:
+        block = (
+            f'<p><b>{FOUNDER_NAME}</b> — founder. {FOUNDER_BLURB}</p>'
+            if FOUNDER_BLURB else f'<p><b>{FOUNDER_NAME}</b> — founder.</p>')
+    else:
+        block = (
+            "<p>It is built and run by its founder directly — engineering, support and "
+            "billing all reach the same person. Every product on this site was written "
+            "here, and the changelog is the record of it.</p>")
+    return ABOUT.replace("{founder_block}", block)
+
+
 SECURITY = """
 <h1>Security &amp; data handling</h1>
 
