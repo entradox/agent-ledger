@@ -425,6 +425,8 @@ def main() -> int:
     ap.add_argument("--json", default="")
     ap.add_argument("--log", default="")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--fail-on-unknown", action="store_true",
+                    help="treat UNKNOWN as failure (strict mode for a shipping gate)")
     a = ap.parse_args()
 
     c = Ctx(a.base)
@@ -483,10 +485,22 @@ def main() -> int:
     with open(lpath, "w") as fh:
         fh.write("\n".join(lines) + "\n")
 
-    print(f"\nlog: {lpath}\njson: {jpath}")
+    print(f"log: {lpath}\njson: {jpath}")
+    # EXIT-CODE CONTRACT — read this before wiring this into any pipeline.
+    # A shell pipeline returns the LAST command's status, so
+    #     python3 scripts/journey_sweep.py | tee log
+    # reports 0 (tee succeeded) even when the sweep is RED. That is a false green, and it
+    # is the exact failure Muse's "sweep must be green or nothing ships" bar exists to
+    # prevent. Verified: unpiped exit=1, piped exit=0 on the same run.
+    # Correct wiring:      set -o pipefail    (bash)
+    #                      python3 ... ; echo $?  (capture before any pipe)
+    #                      --json + check .verdict  (recommended for a gate)
+    # The JSON always carries the authoritative verdict field; trust it over $?.
     if n[FAIL]:
         return 1
-    return 3 if n[UNKNOWN] else 0
+    if n[UNKNOWN]:
+        return 1 if a.fail_on_unknown else 3
+    return 0
 
 
 if __name__ == "__main__":
