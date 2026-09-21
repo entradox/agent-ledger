@@ -438,6 +438,7 @@ PAGE_HOME = """<div class="agent-surface">
   <h2>Recent ships, dated.</h2>
   <p class="lede">The changelog is the proof the stack is alive — every entry is a shipped outcome, not a progress update.</p>
   <div class="chlog" style="margin-top:14px">
+    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>Access vs spend.</b> A positioning page: <span class="ver">/manifesto</span> — Kiteworks governs what agents can touch, AgentLedger governs what agents can spend. Complementary halves, and only one of them has an owner yet. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP verified end-to-end.</b> Handshake and <span class="ver">tools/list</span> confirmed for all five products — 12, 8, 6, 4 and 9 tools. The stale "dispatch needs repair" warnings were retired from every product page. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted.</b> <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> resolve instead of 404ing. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on __NETWORK_LABEL__.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks. <span class="ver">agent-ledger</span></div></div>
@@ -450,6 +451,63 @@ PAGE_HOME = """<div class="agent-surface">
 </section>
 </div>
 <script>var HOME_CMDS = ["claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
+
+
+PAGE_MANIFESTO = """<div class="agent-surface">
+<section>
+<h2>Two halves of one problem. Only one has an owner.</h2>
+  <p class="lede">A governed agent needs two things it can be trusted with: what it may
+  <b>touch</b>, and what it may <b>spend</b>. Every agent that acts economically needs a
+  budget before it needs an audit log — the spend decision happens first, on every call.</p>
+  <div class="grid3" style="margin-top:16px">
+    <div class="card"><h3>Access governance</h3><p>What an agent is allowed to reach:
+    inherited RBAC, encryption, audit trails, credentials kept out of model context. This
+    is real, it is being solved, and enterprise incumbents are solving it — Kiteworks
+    launched a marketplace of 60+ governed agents running through their Secure MCP server
+    on 2026-09-17.</p></div>
+    <div class="card"><h3>Spend governance</h3><p>What an agent is allowed to spend, and
+    what happens the moment it exceeds that. Metres it, caps it, refuses the over-budget
+    call <b>before the provider sees it</b>, then keeps a ledger. This layer has no owner
+    yet.</p></div>
+    <div class="card"><h3>Why they are different products</h3><p>Access control answers
+    "may this agent read that?" Spend control answers "may this agent buy that, and is it
+    already over budget?" A perfect access-control system still does not know an agent has
+    quietly spent its way past a budget.</p></div>
+  </div>
+  <h2>The line</h2>
+  <p><b>Kiteworks governs what agents can touch. AgentLedger governs what agents can
+  spend.</b></p>
+  <p class="lede">Complementary, not competitive — two halves of one trust problem. If you
+  are governing what your agents can reach, the other side of the same call is still
+  unowned.</p>
+  <h2>What we claim, and what we don't</h2>
+  <ul>
+    <li><b>Claimed:</b> an agent can buy 24 hours of AgentLedger Pro for $0.01 USDC over
+    x402 on __NETWORK_LABEL__, no human in the loop. It settled on mainnet.</li>
+    <li><b>Claimed:</b> a call that would exceed a set budget returns 402 and is refused
+    before it reaches the provider — not logged afterwards.</li>
+    <li><b>Not claimed:</b> that this is a governance suite, that we hold enterprise
+    certifications, or that we replace anything you run for access control. We are the
+    spend half.</li>
+    <li><b>Not claimed:</b> traction. We are early, and you can check the live surfaces
+    yourself rather than take a metric on faith.</li>
+  </ul>
+  <h2>Check it rather than believe it</h2>
+  <p>Agents find it at <a href="/llms.txt">/llms.txt</a> and
+  <a href="/.well-known/x402.json">/.well-known/x402.json</a>. Humans can read
+  <a href="/agent-ledger">the AgentLedger page</a>, watch a call get blocked in
+  <a href="/demo">the demo</a>, or start at <a href="/start">/start</a> — no signup, no card.</p>
+  <div class="cta-row">
+    <a class="btn btn-human" href="/agent-ledger">See AgentLedger →</a>
+    <a class="btn btn-ghost" href="/compare">How we differ from trace viewers →</a>
+    <a class="btn btn-agentb" href="/developers">I'm an agent — /developers →</a>
+  </div>
+  <footer class="site">
+    <div><a href="/manifesto">/manifesto</a><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a></div>
+    <div>AI Agent City · one site, two readers</div>
+  </footer>
+</section>
+</div>"""
 
 
 PAGE_PRODUCTS = """<div class="agent-surface">
@@ -663,6 +721,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
 
 PAGES_META = {
     "/": ("PAGE_HOME", "AI Agent City", "AI Agent City is the operations layer for the agent economy: spending limits, monitoring, security, trust, and discovery for AI agents. Human-readable and machine-readable."),
+    "/manifesto": ("PAGE_MANIFESTO", "Access vs spend — AI Agent City", "Kiteworks governs what agents can touch. AgentLedger governs what agents can spend. Two halves of one problem, and only one of them has an owner."),
     "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Five products, one thesis: the agent economy needs operations. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, and Cited — each live, independently usable, and agent-callable."),
     "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for all five products."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),

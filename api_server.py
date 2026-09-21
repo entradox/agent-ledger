@@ -230,7 +230,7 @@ REACH_EXEMPT = {
 # Exempting them would have hidden the newest pay surfaces from the funnel counter —
 # the reach guard exists to stop exactly that kind of silent gap, so the honest fix
 # is to track them.
-REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade"}
+REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto"}
 
 
 def _ip_hash(request: "Request") -> Optional[str]:
@@ -1508,6 +1508,18 @@ def _city_response(path: str) -> HTMLResponse:
 def city_products():
     """The five-product stack page (two surfaces)."""
     return _city_response("/products")
+
+
+@app.get("/manifesto", response_class=HTMLResponse)
+def city_manifesto():
+    """Access vs spend — the positioning page (D-1404 / brief item 5, top priority).
+
+    Rides the Kiteworks news cycle (2026-09-17 marketplace launch) inside the 48-hour
+    window, and does three jobs at once: defines the category, pre-empts "aren't you
+    competing with them?" with "no, we're the other half", and states plainly which
+    claims we do and do not make. No invented traction, no enterprise claims.
+    """
+    return _city_response("/manifesto")
 
 
 @app.get("/developers", response_class=HTMLResponse)
