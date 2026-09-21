@@ -396,11 +396,35 @@ def check_benefits(c: Ctx) -> None:
 
     # The MCP endpoint is POST-only; a GET returning 405 is correct, so POST a real
     # initialize handshake and require the server to name itself.
-    st, txt = c.http("/benefits/", method="GET")
+    st, txt = c.http("/benefits/")
     if st != 200:
         c.add("benefits.landing", FAIL, f"/benefits/ -> {st}", (txt or "")[:160])
     else:
         c.add("benefits.landing", PASS, f"/benefits/ 200 ({len(txt or '')}B)")
+        # The canonical must name the PUBLIC domain, never the railway origin. This app is
+        # reachable on both and the origin also serves /benefits/*, so a host-derived or
+        # missing canonical is duplicate content. Assert the exact host, not just presence.
+        import re as _re
+        m = _re.search(r'rel="canonical" href="([^"]+)"', txt or "")
+        if not m:
+            c.add("benefits.canonical", FAIL, "no canonical link on /benefits/")
+        elif "railway.app" in m.group(1):
+            c.add("benefits.canonical", FAIL,
+                  f"canonical points at the railway origin: {m.group(1)}")
+        else:
+            c.add("benefits.canonical", PASS, f"canonical -> {m.group(1)}")
+
+    for surface, needle in (("/benefits/robots.txt", "Sitemap:"),
+                            ("/benefits/sitemap.xml", "<urlset")):
+        st, txt = c.http(surface)
+        if st == 200 and needle in (txt or ""):
+            c.add(f"benefits{surface.split('/benefits')[-1]}", PASS, f"{surface} 200")
+        else:
+            c.add(f"benefits{surface.split('/benefits')[-1]}", FAIL,
+                  f"{surface} -> {st}", (txt or "")[:160])
+        if st == 200 and "railway.app" in (txt or ""):
+            c.add(f"benefits{surface.split('/benefits')[-1]}.host", FAIL,
+                  f"{surface} leaks the railway origin to crawlers")
 
     try:
         st, txt = c.http("/benefits/mcp", method="POST",
