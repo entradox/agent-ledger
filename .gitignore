@@ -12,6 +12,14 @@ customers.jsonl
 .claude-build-prompt*
 .claude/
 
+# Journey-sweep run artifacts. The harness writes journey-sweep-<date>.log/.json on every
+# run, so committing them means every sweep dirties the tree with a file whose NAME carries
+# a stale date — the first run after midnight would also leave an untracked new file behind.
+# They are run dumps, not evidence worth versioning: the sweep is re-runnable on demand and
+# its verdict is in the exit code and the JSON. (D-1404.)
+journey-sweep-*.log
+journey-sweep-*.json
+
 # packaging build artifacts (never commit derived files)
 *.egg-info/
 build/
