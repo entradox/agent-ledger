@@ -232,6 +232,115 @@ REACH_EXEMPT = {
 # is to track them.
 REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto"}
 
+# ── canonical address — one origin, declared once (2026-09-21) ──────────────
+# This app is reachable on TWO hosts that serve BYTE-IDENTICAL html: the public
+# domain and the raw Railway origin it runs behind. Verified 2026-09-21 — all
+# 10 probed pages hashed the same on both hosts. 11 of 12 indexable pages
+# emitted no rel=canonical at all (only /benefits/, served by a separate
+# service, had one). With identical content on two hosts and no canonical, a
+# crawler has nothing telling it which address is the real one, so the index
+# can attribute these pages to the Railway subdomain — which is what the
+# branded search result showed.
+#
+# Read from config, never hardcoded per page: the same drift rule this file
+# already applies to X402_NETWORK (a literal copy goes stale the moment the
+# deployment changes).
+PUBLIC_ORIGIN = os.environ.get("AL_PUBLIC_ORIGIN", "https://aiagentscity.com").rstrip("/")
+
+# Surfaces that must never be indexed, and must never carry a canonical: the
+# credential-entry page and the authenticated operator UI. Both are private.
+#
+# `/dashboard` earns its place here for a second reason. It is the page where a
+# user PASTES A WORKSPACE KEY, and it is guarded by
+# tests/test_workspace_dashboard.py::test_the_dashboard_forbids_every_external_resource,
+# which asserts no `https://` appears in its bytes at all: the page must not
+# reference a single external origin, so a compromised CDN or a typosquat can
+# never be resolved from a page that handles credentials. Injecting a canonical
+# URL into it is a regression under that rule, and the guard caught it.
+#
+# `/demo` is deliberately ABSENT: it is a public marketing surface with no
+# credential, so it is indexable and gets a canonical like any other page.
+NOINDEX_PATHS = frozenset({"/dashboard", "/v1/dashboard"})
+
+
+# Hosts this app is reachable on that are NOT the public address. A request
+# landing on one of these is a duplicate of the public origin, so it is
+# redirected permanently rather than served: two hosts serving byte-identical
+# pages split link equity and let the index pick the wrong one as authoritative
+# (verified 2026-09-21 — branded search returned the railway subdomain).
+#
+# Deliberately a REDIRECT and not a 404: this host is the app's own origin, so
+# platform health checks and any in-flight bookmark must keep working. A 404
+# would look like an outage.
+LEGACY_HOSTS = frozenset({
+    "agent-ledger-production-0ff8.up.railway.app",
+})
+
+
+@app.middleware("http")
+async def _canonical_host_middleware(request: Request, call_next):
+    """Send any non-public host to the public origin, path and query intact."""
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host in LEGACY_HOSTS:
+        # 308 keeps the method and the body. A 301 is what search engines treat
+        # as the permanent host move, and for GETs the two are equivalent.
+        target = f"{PUBLIC_ORIGIN}{request.url.path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+        return RedirectResponse(url=target, status_code=308)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _canonical_middleware(request: Request, call_next):
+    """Name each page's canonical address, in ONE place.
+
+    Applied here rather than in each of the ~8 page shells: the shells drift
+    independently, so a page added later would silently ship without a
+    canonical. One place means no page under this app can be missing one.
+    """
+    response = await call_next(request)
+
+    # call_next hands back a _StreamingResponse whose body is an ASYNC ITERATOR,
+    # not a `.body` attribute (starlette 1.6 — verified, not assumed). Reading
+    # `.body` yields None, so a naive version of this middleware silently no-ops
+    # while every test still passes: the exact "green but delivers nothing"
+    # class this project has shipped before. Drain the iterator instead.
+    if request.method != "GET" or response.status_code != 200:
+        return response
+    if "text/html" not in response.headers.get("content-type", ""):
+        return response
+    if "content-encoding" in response.headers:
+        return response
+    try:
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode())
+        body = b"".join(chunks)
+    except Exception:
+        return response  # nothing consumed yet — safe to hand back untouched
+
+    # From here the body is IN HAND. Never return `response` again: its
+    # iterator is exhausted, so returning it would serve an empty page.
+    headers = dict(response.headers)
+    headers.pop("content-length", None)  # Response recomputes, or we set it below
+    path = request.url.path
+    try:
+        if path in NOINDEX_PATHS:
+            headers["x-robots-tag"] = "noindex, nofollow"
+            return Response(content=body, status_code=200, headers=headers)
+        if b'rel="canonical"' in body:
+            # Already declared upstream (e.g. proxied /benefits/) — leave it.
+            headers["content-length"] = str(len(body))
+            return Response(content=body, status_code=200, headers=headers)
+        link = f'<link rel="canonical" href="{PUBLIC_ORIGIN}{path}">'.encode()
+        new_body = body.replace(b"</head>", link + b"</head>", 1)
+        headers["content-length"] = str(len(new_body))
+        return Response(content=new_body, status_code=200, headers=headers)
+    except Exception:
+        headers["content-length"] = str(len(body))
+        return Response(content=body, status_code=200, headers=headers)
+
 
 def _ip_hash(request: "Request") -> Optional[str]:
     """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs.
@@ -727,12 +836,40 @@ def llms_txt():
 
 ROBOTS_TXT = """User-agent: *
 Allow: /
+Disallow: /dashboard
+Disallow: /v1/
+
 Sitemap: https://aiagentscity.com/sitemap.xml
 """
+
+# ── IndexNow ────────────────────────────────────────────────────────────────
+# Bing, Yandex, Seznam and Naver share one IndexNow feed, so a single POST tells
+# four engines a page changed — no quota, no cost, no account. Google does not
+# participate in IndexNow (it retired its sitemap ping in 2023), so this is the
+# honest half of the job: it accelerates the engines that take it, and Google
+# still finds these pages through the sitemap and canonical alone.
+#
+# The key is served as a plain file at the root, which is how IndexNow proves
+# host ownership. Without it every submission is rejected (HTTP 422).
+INDEXNOW_KEY = os.environ.get("AL_INDEXNOW_KEY", "a1c9e4f7b2d8463085fa6c1b7e3d9052")
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt():
     return ROBOTS_TXT
+
+
+@app.get("/indexnow.txt", response_class=PlainTextResponse)
+def indexnow_key_file():
+    """Serve the IndexNow ownership proof.
+
+    Deliberately a FIXED path, not a `/{key}.txt` catch-all. A parametrised
+    route matches every `.txt` path and, because FastAPI resolves routes in
+    registration order, it shadowed `/llms.txt` — a live surface — the moment it
+    was added (caught immediately by the 200-then-<Response> probe). IndexNow
+    accepts any keyLocation we declare, so the key is published under a name
+    that cannot collide with a real route.
+    """
+    return PlainTextResponse(INDEXNOW_KEY)
 
 @app.get("/server.json")
 def server_json():
@@ -1463,18 +1600,41 @@ def sitemap_xml():
     some crawlers, which would make the whole route pointless.
     """
     from datetime import date
+    # Pages a reader can read, plus the ones added since this list was written.
+    # 2026-09-21 — the hand-maintained list had drifted: /manifesto, /demo,
+    # /pricing, /upgrade and the three satellite product landing pages all
+    # existed, were linked from the site, and were absent here, so a crawler
+    # reading only the sitemap never learned about the pages that carry the
+    # pitch and the price. Sitemap membership is still a deliberate act (D-1314)
+    # — every path below corresponds to a route that actually serves 200 — but
+    # the list is now guarded by a test that fails when an indexable HTML page
+    # is missing from it, so it cannot rot silently again.
     pages = [
         ("/",             "1.0", "daily"),
         ("/products",     "0.9", "weekly"),
-        ("/developers",   "0.8", "weekly"),
-        ("/compare",      "0.8", "weekly"),
-        ("/changelog",    "0.7", "weekly"),
         ("/agent-ledger", "0.9", "weekly"),
+        ("/perimeter-watch", "0.8", "weekly"),
+        ("/agent-watch",  "0.8", "weekly"),
+        ("/cited",        "0.8", "weekly"),
+        ("/trust-scan",   "0.8", "weekly"),
+        ("/pricing",      "0.9", "weekly"),
+        ("/upgrade",      "0.8", "weekly"),
+        ("/demo",         "0.8", "weekly"),
+        ("/developers",   "0.8", "weekly"),
         ("/start",        "0.8", "weekly"),
+        ("/quickstart",   "0.7", "weekly"),
+        ("/compare",      "0.8", "weekly"),
+        ("/manifesto",    "0.7", "monthly"),
+        ("/changelog",    "0.7", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
         ("/status",       "0.6", "daily"),
-        ("/stats",        "0.5", "daily"),
+        ("/reliability",  "0.5", "monthly"),
+        ("/security",     "0.5", "monthly"),
+        ("/about",        "0.5", "monthly"),
         ("/docs",         "0.5", "weekly"),
+        ("/stats",        "0.5", "daily"),
+        ("/privacy",      "0.3", "yearly"),
+        ("/terms",        "0.3", "yearly"),
     ]
     today = date.today().isoformat()
     body = "\n".join(
