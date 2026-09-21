@@ -1,0 +1,22 @@
+Journey sweep 2026-09-21T04:22:59.525911+00:00 base=https://aiagentscity.com
+verdict=FAIL pass=13 fail=3 unknown=4
+UNKNOWN creds.supplied                     no SWEEP_WS_ID/SWEEP_WS_KEY supplied — authed checks (dashboard pay affordance, checkout construction) cannot be established. Deliberately NOT minting: POST /start allows 3 per IP per day and a sweep must not consume it.
+PASS    mint.page                          /start 200 (mint form present)
+UNKNOWN mint.route                         POST /start with empty body returned 200 — may have minted; verify
+PASS    published.commands                 1 published command(s) execute against prod
+FAIL    paydoor/upgrade                    /upgrade -> 404 (no door from the dashboard)
+FAIL    paydoor/pricing                    /pricing -> 404 (no door from the dashboard)
+FAIL    paydoor.reachable                  pay door absent: /upgrade, /pricing
+UNKNOWN cap.remedy                         remedy unclear (HTTP 400) — inspect before calling it a defect
+PASS    checkout.constructs                checkout without creds refuses cleanly (401)
+UNKNOWN auth.boundary                      unauthenticated read refused (401) — no self-serve pointer in body
+PASS    auth.invalid_key                   invalid key -> 401 (expected 401/403)
+PASS    mcp.initialize                     MCP initialize -> 200
+PASS    mcp.tools_list                     tools/list -> 200, ~12 entries
+PASS    surface/llms.txt                   /llms.txt 200 (15687B)
+PASS    surface/sitemap.xml                /sitemap.xml 200 (1908B)
+PASS    surface/robots.txt                 /robots.txt 200 (69B)
+PASS    surface/.well-known/x402.json      /.well-known/x402.json 200 (993B)
+PASS    surface/.well-known/mcp.json       /.well-known/mcp.json 200 (2473B)
+PASS    surface/health                     /health 200 (54B)
+PASS    dashboard.renders                  /dashboard -> 200
