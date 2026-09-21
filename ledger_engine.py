@@ -22,7 +22,12 @@ import metrics
 
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
 
-# beta: free tier caps total claimed agents site-wide; Pro ($19/mo) unlimited
+# beta: free tier caps total claimed agents site-wide.
+# NOTE (2026-09-21): this used to read "Pro ($19/mo) unlimited", which is FALSE. Per
+# workspace_engine.mark_pro the paid tiers are capped: $19 -> "starter" -> 10 agents,
+# $79 -> "team" -> 50. Only the x402 Pro pass (tier "pro") is unbounded. A comment is
+# how the next reader learns the ladder, so a wrong one here propagates into copy; this
+# exact claim had already reached /llms.txt and the dashboard before it was caught.
 BETA_AGENT_CAP = 3
 
 # scarcity window (v0.3.1): the first N agent_ids ever claimed get Pro free
