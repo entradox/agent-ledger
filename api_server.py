@@ -2270,6 +2270,17 @@ _SATELLITE_MCP_UPSTREAMS = {
     "/mcp/cited": "https://cited-api-production.up.railway.app/mcp/",
     "/mcp/trustscan": "https://trust-scan-production.up.railway.app/mcp/",
     "/mcp/trust-scan": "https://trust-scan-production.up.railway.app/mcp/",
+    # Benefits City (D-1408): served here as a satellite SITE, not an MCP server.
+    # This prefix is NOT an MCP endpoint and sat_translate has no table for it, so
+    # `translatable()` returns False and requests fall straight through to the byte
+    # proxy below — which is exactly what a whole-site proxy needs. Upstream is the
+    # The app is served under the `/benefits` subpath (BASE_PATH), so the upstream
+    # base carries that prefix too — the public path is preserved end to end, per
+    # RAILWAY_DEPLOY.md §3, which is why no rewriting is needed here.
+    # NOTE the base ends in /benefits/ ON PURPOSE: _match() strips the matched
+    # prefix before appending, so the base must re-supply it or the app (which
+    # expects BASE_PATH=/benefits) would see a bare /healthz and 404.
+    "/benefits": "https://benefits-city-production.up.railway.app/benefits/",
 }
 _SAT_HOP_BY_HOP = frozenset({
     b"host", b"connection", b"keep-alive", b"proxy-authenticate",
