@@ -69,6 +69,28 @@ def x402_mint_price_atomic(decimals: int = 6) -> int:
 # cap-exceeded quote) reads one number instead of each hardcoding its own.
 X402_PRO_PASS_SECONDS = int(os.environ.get("X402_PRO_PASS_SECONDS", 24 * 3600))
 
+# What the ONE-TIME $0.01 trial GRANTS (principal-owned pricing knob). Values:
+#   "unlimited"  (default, current behaviour) — unlimited agents for the pass
+#   "starter"    — the Starter cap (workspace_engine.STARTER_AGENT_CAP, 10 agents)
+# The trial is limited to one purchase per wallet either way (see
+# TrialAlreadyUsed); this only decides how generous that one purchase is. Any
+# other value logs a warning and falls back to "unlimited" so a typo can never
+# silently change what a paying customer receives.
+X402_TRIAL_GRANT = os.environ.get("X402_TRIAL_GRANT", "unlimited").strip().lower()
+if X402_TRIAL_GRANT not in ("unlimited", "starter"):
+    logging.warning(f"X402_TRIAL_GRANT={X402_TRIAL_GRANT!r} is not 'unlimited' or "
+                    "'starter'; using 'unlimited'")
+    X402_TRIAL_GRANT = "unlimited"
+
+# The paid path a repeat trial buyer is pointed at.
+X402_TRIAL_PAID_PATH = "/start?plan=starter"
+
+
+def x402_trial_tier() -> str:
+    """The workspace tier the trial pass is granted as ("pro" = unlimited)."""
+    return "starter" if X402_TRIAL_GRANT == "starter" else "pro"
+
+
 # Resolved facilitator: explicit URL wins, else CDP, else the free public one.
 FACILITATOR_URL_RESOLVED = (X402_FACILITATOR_URL
                             or ("https://api.cdp.coinbase.com/platform/v2/x402"
@@ -252,6 +274,42 @@ class SettlementOutcomeUnknown(Exception):
             f"{cause}")
 
 
+class TrialAlreadyUsed(Exception):
+    """This wallet already bought its one-time $0.01 trial.
+
+    Raised from verify_payment BEFORE settlement, so no money has moved and the
+    caller can refuse cleanly. Both payment rails (x402 header and MPP
+    credential) reach settlement through verify_payment, so this one check
+    covers both.
+    """
+
+    def __init__(self, wallet: str):
+        self.wallet = wallet
+        super().__init__(f"x402 trial already used by wallet {wallet}")
+
+
+def _payer_from_payload(payment_payload) -> str | None:
+    """The paying wallet, read from the signed payload — known BEFORE settlement.
+
+    The settlement result only reveals the payer after the money has moved, which
+    is too late to refuse. The EIP-3009 authorization (and Permit2's) carries the
+    payer as `from`, covered by the signature the facilitator just verified.
+    None when the shape is not one we recognise; the caller then lets settlement
+    proceed (the route still honours and logs the purchase) rather than refusing
+    a payment we cannot attribute.
+    """
+    inner = getattr(payment_payload, "payload", None)
+    if not isinstance(inner, dict):
+        return None
+    for key in ("authorization", "permit2Authorization"):
+        auth = inner.get(key)
+        if isinstance(auth, dict):
+            payer = auth.get("from") or auth.get("from_address")
+            if isinstance(payer, str) and payer:
+                return payer
+    return None
+
+
 def verify_payment(request) -> dict:
     """Verify + settle the x402 payment carried on `request`.
 
@@ -274,7 +332,9 @@ def verify_payment(request) -> dict:
                               402 envelope is how discovery clients learn
                               the price and the payment requirements.
 
-    Raises X402Unavailable when x402 is not configured on this service.
+    Raises X402Unavailable when x402 is not configured on this service, and
+    TrialAlreadyUsed when the paying wallet has already bought its one-time
+    trial (raised before settlement — no money moves).
     """
     if not X402_ENABLED or resource_server is None:
         raise X402Unavailable(X402_DISABLED_REASON or "x402 not configured")
@@ -308,6 +368,20 @@ def verify_payment(request) -> dict:
         return {"verified": False, "payer_wallet": None, "tx_hash": None,
                 "error": "no payment was required for this route — refusing "
                          "to mint without a settlement"}
+
+    # ── ONE TRIAL PER WALLET — refuse BEFORE the money moves ─────────────────
+    # The payment above is verified but not settled. This is the last point at
+    # which refusing costs the payer nothing: after process_settlement the USDC
+    # is gone, and taking $0.01 while granting nothing is the worst outcome.
+    # The route only learns the wallet AFTER settlement, so the check cannot
+    # live there. A repeat purchase that races past this check (two concurrent
+    # submits before either workspace exists) has already settled, and the
+    # route honours it.
+    payer = _payer_from_payload(outcome.payment_payload)
+    if payer:
+        import workspace_engine
+        if workspace_engine.wallet_has_used_trial(payer):
+            raise TrialAlreadyUsed(payer)
 
     # ── SETTLEMENT BOUNDARY ──────────────────────────────────────────────────
     # Everything above is verification: a refusal there is definitively

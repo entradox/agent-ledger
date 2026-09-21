@@ -838,9 +838,13 @@ def _x402_pass_offer_words() -> str:
     """
     import x402_verify
     hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
-    return (f"{x402_verify.X402_MINT_PRICE} via x402 buys {hours}h of Pro "
-            "(unlimited agents) on the workspace your wallet resolves to — "
-            "no card, no human, pay again any time to extend it")
+    import workspace_engine
+    grant = (f"{workspace_engine.STARTER_AGENT_CAP} agents"
+             if x402_verify.x402_trial_tier() == "starter" else "unlimited agents")
+    return (f"{x402_verify.X402_MINT_PRICE} via x402 buys a one-time {hours}h trial "
+            f"({grant}) per wallet on the workspace your wallet resolves to — "
+            "no card, no human. After the trial, subscribe at "
+            f"{x402_verify.X402_TRIAL_PAID_PATH}")
 
 
 def _x402_asset() -> str:

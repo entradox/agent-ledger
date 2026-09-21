@@ -683,6 +683,23 @@ def create_checkout(request: Request):
 
 
 
+def _trial_refusal(err) -> "HTTPException":
+    """The typed refusal for a wallet that already bought its one-time trial.
+
+    Raised before settlement, so the message can truthfully say nothing was
+    charged. 403, not 402: 402 means "pay me", and an agent that reads it
+    would just pay again and hit the same wall.
+    """
+    import x402_verify
+    from ledger_engine import error_envelope
+    return HTTPException(403, detail=error_envelope(
+        403, "this wallet has already used its one-time trial pass, so this "
+             "payment was refused and you were NOT charged. To keep going, "
+             f"subscribe at {x402_verify.X402_TRIAL_PAID_PATH}",
+        error_type="permission_error", code="x402_trial_already_used",
+        param="wallet"))
+
+
 @router.post("/v1/billing/x402")
 def x402_billing(request: Request):
     """Mint (or resolve) a workspace from a settled x402 payment.
@@ -698,12 +715,12 @@ def x402_billing(request: Request):
       re-expose it to anyone who can name the tx_hash. Same precedent as
       /v1/track and /v1/budget, which strip the minted agent_secret from
       their cached payloads for the same reason.
-    - A NEW tx_hash from an ALREADY-KNOWN wallet (a second real payment)
-      resolves to that wallet's existing workspace and returns
-      workspace_key: null — a key was already issued for this wallet and
-      only its hash is stored, so it cannot be re-shown. Nothing is
-      invalidated (the previous behavior silently reissued, breaking the
-      key the agent was already using).
+    - The $0.01 pass is a ONE-TIME trial per wallet. A second purchase from a
+      known wallet is refused BEFORE settlement (403 x402_trial_already_used,
+      nothing charged) by x402_verify.verify_payment. If two purchases race past
+      that check and both settle, the second is honoured: it resolves to the
+      wallet's existing workspace with workspace_key: null (the key was already
+      issued and only its hash is stored) and nothing is invalidated.
     """
     from ledger_engine import (idempotency_begin, idempotency_store,
                                idempotency_release, error_envelope,
@@ -744,6 +761,11 @@ def x402_billing(request: Request):
                 "support and it will be reconciled",
                 error_type="payment_outcome_unknown",
                 code="mpp_settlement_outcome_unknown"))
+        except x402_verify.TrialAlreadyUsed as repeat:
+            # Refused BEFORE settlement (verify_payment checks the payer named
+            # in the signed payload) — nothing was charged, and falling through
+            # to the generic "payment required" answer would invite a retry.
+            raise _trial_refusal(repeat)
         except Exception as mpp_err:  # noqa: BLE001
             # Fall through to x402 path if the MPP credential cannot be
             # verified, so a client using x402 headers is not broken.
@@ -806,6 +828,8 @@ def x402_billing(request: Request):
     else:
         try:
             result = x402_verify.verify_payment(request)
+        except x402_verify.TrialAlreadyUsed as repeat:
+            raise _trial_refusal(repeat)
         except x402_verify.X402Unavailable as e:
             # Path A: even when x402 itself is unavailable (e.g. mainnet without CDP
             # creds), emit the MPP challenge if MPP is configured, so MPP-only
@@ -955,9 +979,23 @@ def x402_billing(request: Request):
     # the cached response above and never gets here), so each real payment
     # buys its own 24h window — paying again resets the clock forward rather
     # than stacking, which matches "buy a day pass" rather than "bank time."
-    workspace_engine.mark_pro(workspace_id, "",
-                              pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
-                              period_source="x402_pass")
+    #
+    # ONE TRIAL PER WALLET is enforced in x402_verify.verify_payment, before
+    # settlement. Reaching here with raw_key None means this wallet ALREADY had a
+    # workspace: two purchases raced past that check and both settled. The money
+    # has moved, so it is HONOURED — pass extended, event logged — never refused
+    # after the fact (taking payment and granting nothing is the worst outcome).
+    # The one thing it must not do is overwrite a Stripe subscription with a 24h
+    # pass, so a workspace that already carries a Stripe customer keeps its plan.
+    existing = None if raw_key is not None else workspace_engine.get_workspace(workspace_id)
+    if existing and existing.get("stripe_customer_id"):
+        logging.warning("x402 repeat trial honoured without touching plan: "
+                        "workspace %s already has a Stripe subscription", workspace_id)
+    else:
+        workspace_engine.mark_pro(workspace_id, "",
+                                  pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
+                                  period_source="x402_pass",
+                                  tier=x402_verify.x402_trial_tier())
 
     # amount is USDC atomic units (6 decimals) on the settlement the SDK
     # verified against — convert to cents for the same amount_cents field
@@ -977,6 +1015,10 @@ def x402_billing(request: Request):
         # Same wallet, a later real payment — resolved to its existing
         # workspace and just extended/renewed the Pro window.
         metrics.record_onboarding("x402_repeat_paid", workspace_id, **event_kwargs)
+        logging.warning("x402 trial race honoured: wallet %s bought a second "
+                        "$0.01 pass (tx %s) that settled before the one-trial "
+                        "check could see the first; workspace %s extended",
+                        wallet, tx_hash, workspace_id)
 
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
     if raw_key is None:

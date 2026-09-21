@@ -299,10 +299,19 @@ def test_route_forwards_sdk_402_envelope(client, monkeypatch):
     assert r.json()["error"] == "payment required"
 
 
-def test_second_payment_same_wallet_new_tx_does_not_invalidate_key(client, monkeypatch):
-    """A genuinely new payment from a known wallet resolves to the existing
-    workspace with workspace_key: null — the previously issued key must keep
-    working (the old behavior silently reissued and broke it)."""
+def test_second_settlement_same_wallet_new_tx_is_honoured_and_does_not_invalidate_key(client, monkeypatch):
+    """REVERSED (authorised, Phase 2a): this test used to assert that repeat
+    $0.01 purchases from a known wallet are a normal, supported flow. They are
+    not any more: the pass is a one-time trial per wallet, and a repeat is
+    refused BEFORE settlement in x402_verify.verify_payment (see
+    tests/test_x402_one_trial.py).
+
+    What remains true at the ROUTE, and is what this test now pins: a second
+    settlement that has ALREADY happened (two purchases racing past the
+    pre-settlement check) is honoured — resolved to the existing workspace with
+    workspace_key: null and the original key still valid. The money moved;
+    refusing now would take payment and return nothing. verify_payment is
+    mocked here, standing in for "the settlement already happened"."""
     c, api_server = client
     import workspace_engine
     monkeypatch.setattr(
