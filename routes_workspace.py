@@ -309,9 +309,23 @@ function renderPlanBar(d, key){
   var bar=document.getElementById('planbar');
   var cap=3;  // WORKSPACE_FREE_AGENT_CAP
   document.getElementById('planline').textContent = anyPro ? 'Paid plan' : 'Free plan';
+  // The cap per tier is REAL and tier-specific — mark_pro sets
+  // starter -> STARTER_AGENT_CAP (10), team -> TEAM_AGENT_CAP (50), pro -> None (unbounded,
+  // which is the x402 pass). Saying "unlimited" for any paid plan would be false for the
+  // two Stripe tiers, so read the actual tier and state its actual limit.
+  var paidTier = null;
+  for (var i=0;i<tiers.length;i++){
+    if(tiers[i]==='pro'){ paidTier='pro'; break; }
+    if(tiers[i]==='team' && paidTier!=='pro'){ paidTier='team'; }
+    else if(tiers[i]==='starter' && !paidTier && paidTier!=='team'){ paidTier='starter'; }
+  }
   var line;
-  if(anyPro){
-    line='Unlimited tracked agents. Thanks.';
+  if(paidTier==='pro'){
+    line='Pro pass — unlimited agents on this workspace.';
+  } else if(paidTier==='team'){
+    line='Team plan — up to 50 agents per workspace.';
+  } else if(paidTier==='starter'){
+    line='Starter plan — up to 10 agents per workspace.';
   } else if(n>=cap){
     line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused; this is the moment to upgrade.';
   } else {

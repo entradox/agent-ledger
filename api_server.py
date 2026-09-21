@@ -1057,11 +1057,13 @@ AGENT_JSON = {
     "pricing": {
         "model": "freemium",
         "amount_usd": 19.00,
-        "description": "Free tier is 3 agents per workspace, no expiry. Two paid paths "
-                        "to unlimited agents beyond that: an agent can pay via x402 "
-                        "itself for a time-boxed Pro pass, or a human subscribes at "
-                        "$19/mo for Pro with no expiry. See capabilities below for the "
-                        "x402 price and pass duration.",
+        "description": "Free tier is 3 agents per workspace, no expiry. Paid paths: an "
+                        "agent can pay via x402 itself for a time-boxed Pro pass "
+                        "(unlimited agents on the resolved workspace, 24h), or a human "
+                        "can subscribe at $19/mo (Starter — up to 10 agents per workspace) "
+                        "or $79/mo (Team — up to 50). Only the x402 Pro pass is unlimited; "
+                        "the monthly plans are capped per tier. See capabilities below for "
+                        "the x402 price and pass duration.",
     },
     "capabilities": [
         {"id": "mint_workspace_x402",
