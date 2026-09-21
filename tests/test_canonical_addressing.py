@@ -205,19 +205,44 @@ def test_the_fix_is_actually_reachable_from_config(client, monkeypatch):
 # noticed when seven real pages went missing from it. This makes an omission a
 # RED test instead of a quiet zero — the same fix applied to REACH_PATHS.
 def test_every_sitemap_entry_resolves(client):
-    """A sitemap that lists a 404 wastes the crawler's budget on nothing."""
+    """A sitemap that lists a 404 wastes the crawler's budget on nothing.
+
+    Also asserts each entry is a READABLE DOCUMENT, not just a 200. Status alone
+    cannot tell a page apart from a machine transport descriptor: `/openapi.json`
+    returns 200 with `application/json` and would pass a status-only check while
+    being exactly the kind of entry D-1314's rule excludes. That gap was found by
+    adversarial review (2026-09-21) — the guard green-lit JSON.
+    """
     r = client.get("/sitemap.xml")
     assert r.status_code == 200
     assert "application/xml" in r.headers.get("content-type", "")
     locs = re.findall(r"<loc>([^<]+)</loc>", r.text)
     assert locs, "sitemap listed no URLs at all"
-    broken = []
+
+    # A crawler should be handed prose it can read. These are reader surfaces.
+    READABLE = ("text/html", "text/markdown", "text/plain")
+    # `/stats` is the ONE deliberate exception: a JSON counter payload, listed
+    # because agents read it as a document (D-1314). Named explicitly so any
+    # OTHER json/text descriptor that sneaks in still fails.
+    AGENT_READABLE_EXCEPTIONS = {"/stats"}
+
+    broken, undescribed = [], []
     for loc in locs:
         path = loc.split(PUBLIC_HOST, 1)[-1] or "/"
         resp = client.get(path)
         if resp.status_code != 200:
             broken.append((path, resp.status_code))
+            continue
+        ctype = resp.headers.get("content-type", "").split(";")[0].strip()
+        if path in AGENT_READABLE_EXCEPTIONS:
+            continue
+        if not any(ctype.startswith(t) for t in READABLE):
+            undescribed.append((path, ctype))
     assert not broken, f"sitemap lists URLs that do not resolve: {broken}"
+    assert not undescribed, (
+        f"sitemap lists machine documents, not readable pages: {undescribed} — "
+        f"a crawler gains nothing from a transport descriptor"
+    )
 
 
 def test_indexable_pages_are_not_missing_from_the_sitemap(client):
@@ -333,3 +358,149 @@ def test_robots_txt_disallows_the_private_surfaces(client):
     body = r.text
     assert "/dashboard" in body, "robots.txt does not disallow the credential page"
     assert "Sitemap:" in body, "robots.txt does not point at the sitemap"
+
+
+# ── the redirect must not swallow machine surfaces or non-GET methods ────────
+# Found by adversarial review 2026-09-21. The host redirect originally fired for
+# EVERY method and EVERY path on the legacy host. Two classes must keep being
+# served from that origin, because redirecting them breaks something that is not
+# a page:
+#
+#   - machine/infrastructure paths: a health check that does not follow redirects
+#     reads the 308 as a failure and can take the service down;
+#   - non-GET methods: POSTs carry the money path, and a 308 preserves method and
+#     body only for clients that implement it correctly.
+#
+# Each test below goes RED if the redirect is widened back to a blanket rewrite.
+LEGACY_HOST_EXEMPT = ["/health", "/openapi.json", "/docs"]
+
+
+@pytest.mark.parametrize("path", LEGACY_HOST_EXEMPT)
+def test_legacy_host_serves_machine_paths_instead_of_redirecting(client, path):
+    """A health/descriptor path must answer from the legacy origin, not 308.
+
+    `follow_redirects=False` is ESSENTIAL here. TestClient follows redirects by
+    default, so without it this test silently follows the 308 to the LIVE public
+    site and asserts on the real network response — passing even when the
+    redirect is wrong, while quietly making outbound calls during a unit test.
+    That exact mistake made this guard vacuous on first write; the canary (widen
+    the redirect back to a blanket rewrite) caught it.
+    """
+    r = client.get(path, headers={"host": RAILWAY_HOST}, follow_redirects=False)
+    assert r.status_code != 308, (
+        f"{path} was redirected on the legacy host — a non-following health "
+        f"check would read that as an outage"
+    )
+    assert r.status_code < 500
+
+
+def test_the_mcp_prefix_is_exempt_from_the_host_redirect(client):
+    """`/mcp` must be exempt on the legacy host.
+
+    Asserted against the EXEMPTION LIST plus a non-raising request, because the
+    MCP sub-app cannot be exercised through TestClient: FastMCP raises
+    "task group was not initialized" unless its lifespan is wired into the parent
+    app, which this test harness does not do (pre-existing, unrelated to the host
+    redirect). Asserting on the live 308 instead would be meaningless, and
+    asserting through TestClient would fail for the wrong reason.
+    """
+    import api_server
+
+    assert "/mcp" in api_server.LEGACY_HOST_EXEMPT_PREFIXES
+
+    # Prove the gate consults that list. `follow_redirects=False` matters: the
+    # MCP sub-app raises under TestClient (lifespan not wired), and without this
+    # the client would follow the redirect to the live site and pass anyway.
+    from fastapi.testclient import TestClient
+    quiet = TestClient(api_server.app, raise_server_exceptions=False)
+    r = quiet.get("/mcp/", headers={"host": RAILWAY_HOST}, follow_redirects=False)
+    assert r.status_code != 308, "the /mcp prefix is not exempt from the redirect"
+
+
+def test_legacy_host_does_not_redirect_post_requests(client):
+    """POSTs must not 308 — the money path cannot depend on redirect handling.
+
+    `follow_redirects=False` — see the note in the machine-paths test above.
+    Without it, this follows the 308 to the live site and passes on the real
+    response regardless of what the middleware did.
+    """
+    for path in ["/v1/track", "/v1/budget", "/"]:
+        r = client.post(path, headers={"host": RAILWAY_HOST}, json={},
+                        follow_redirects=False)
+        assert r.status_code != 308, (
+            f"POST {path} was redirected on the legacy host; a client that "
+            f"mishandles a redirect on POST could drop or duplicate a charge"
+        )
+
+
+def test_legacy_host_still_redirects_pages(client):
+    """The positive control: page GETs MUST still redirect, or the fix is off."""
+    for path in ["/", "/pricing", "/agent-ledger"]:
+        r = client.get(path, headers={"host": RAILWAY_HOST}, follow_redirects=False)
+        assert r.status_code == 308, f"{path} no longer redirects on the legacy host"
+        assert r.headers["location"] == f"https://{PUBLIC_HOST}{path}"
+
+
+# ── the canonical must not corrupt a body it cannot read ────────────────────
+def test_a_body_read_failure_fails_loudly_never_truncated(client):
+    """A partially-drained body must never be served as a truncated page.
+
+    The middleware drains `response.body_iterator`. If that raises PARTWAY
+    through, some bytes were consumed and discarded — returning the original
+    `_StreamingResponse` would then serve half a page with the ORIGINAL
+    content-length, which is a silent corruption (browsers show a cut page or
+    hang). So the failure path must NOT hand the original response back.
+
+    Pinned two ways, both real:
+      1. the source contains no `return response` on the drain-failure path;
+      2. driving the middleware with an iterator that dies mid-stream yields a
+         500, never a 200 carrying a half-body.
+    """
+    import asyncio
+    import inspect
+
+    import api_server
+    from starlette.responses import StreamingResponse
+
+    src = inspect.getsource(api_server._canonical_middleware)
+    drain_block = src.split("async for chunk in response.body_iterator", 1)[1]
+    failure_branch = drain_block.split("except Exception:", 1)[1].split("\n\n", 1)[0]
+    assert "return response" not in failure_branch, (
+        "the drain-failure path returns the original response, whose iterator is "
+        "partially consumed — that serves a truncated body with a stale "
+        "content-length"
+    )
+
+    class Exploding:
+        """Yields one chunk, then dies mid-stream."""
+        def __init__(self):
+            self._n = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            self._n += 1
+            if self._n == 1:
+                return b"<html><head>"
+            raise RuntimeError("stream died mid-body")
+
+    async def fake_call_next(_request):
+        return StreamingResponse(Exploding(), media_type="text/html")
+
+    from starlette.datastructures import Headers
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http", "method": "GET", "path": "/", "headers": Headers({}).raw,
+        "query_string": b"", "scheme": "http", "server": ("test", 80),
+        "client": ("127.0.0.1", 1234),
+    }
+    resp = asyncio.run(
+        api_server._canonical_middleware(Request(scope), fake_call_next)
+    )
+    assert resp.status_code == 500, (
+        f"a mid-stream body failure returned {resp.status_code}; serving a "
+        f"partially-read body is a silent truncation"
+    )
+

@@ -269,25 +269,54 @@ NOINDEX_PATHS = frozenset({"/dashboard", "/v1/dashboard"})
 # pages split link equity and let the index pick the wrong one as authoritative
 # (verified 2026-09-21 — branded search returned the railway subdomain).
 #
-# Deliberately a REDIRECT and not a 404: this host is the app's own origin, so
-# platform health checks and any in-flight bookmark must keep working. A 404
-# would look like an outage.
+# A 308 keeps the method and body, so an in-flight bookmark or an agent pointed
+# at this origin still lands on the real page rather than a 404 that would look
+# like an outage.
+#
+# SCOPE — deliberately NOT a blanket host rewrite. Two classes of request must
+# keep being served from this origin, because redirecting them breaks something
+# that is not a page:
+#
+#   1. Machine/infrastructure paths (/health, /mcp, /openapi.json, ...). A
+#      platform or fleet health check that follows redirects still passes, but
+#      one that does not will read the 308 as a failure and take the service
+#      down. Health must be cheap and direct; send it nowhere.
+#   2. Non-GET methods. A 308 preserves method+body by spec, but that is only a
+#      guarantee for clients that implement it correctly. POSTs here carry the
+#      money path — a client that mishandles a redirect on POST could duplicate
+#      or drop a charge. Duplicate content is a GET-only problem, so it gets a
+#      GET-only fix.
 LEGACY_HOSTS = frozenset({
     "agent-ledger-production-0ff8.up.railway.app",
 })
 
+# Paths served directly from the legacy origin, never redirected. Anything
+# under these prefixes keeps working exactly as it did before the host fix.
+LEGACY_HOST_EXEMPT_PREFIXES = (
+    "/health",
+    "/mcp",
+    "/v1/",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+)
+
 
 @app.middleware("http")
 async def _canonical_host_middleware(request: Request, call_next):
-    """Send any non-public host to the public origin, path and query intact."""
+    """Send page GETs on a duplicate host to the public origin.
+
+    Scoped to `GET` requests for indexable pages only — see LEGACY_HOSTS above
+    for why machine paths and non-GET methods are deliberately exempt.
+    """
     host = (request.headers.get("host") or "").split(":")[0].lower()
-    if host in LEGACY_HOSTS:
-        # 308 keeps the method and the body. A 301 is what search engines treat
-        # as the permanent host move, and for GETs the two are equivalent.
-        target = f"{PUBLIC_ORIGIN}{request.url.path}"
-        if request.url.query:
-            target += f"?{request.url.query}"
-        return RedirectResponse(url=target, status_code=308)
+    if host in LEGACY_HOSTS and request.method == "GET":
+        path = request.url.path
+        if not path.startswith(LEGACY_HOST_EXEMPT_PREFIXES):
+            target = f"{PUBLIC_ORIGIN}{path}"
+            if request.url.query:
+                target += f"?{request.url.query}"
+            return RedirectResponse(url=target, status_code=308)
     return await call_next(request)
 
 
@@ -318,7 +347,16 @@ async def _canonical_middleware(request: Request, call_next):
             chunks.append(chunk if isinstance(chunk, bytes) else str(chunk).encode())
         body = b"".join(chunks)
     except Exception:
-        return response  # nothing consumed yet — safe to hand back untouched
+        # The iterator raised PARTWAY THROUGH, so some bytes were consumed and
+        # discarded. Returning `response` here is NOT safe: its iterator is
+        # partially drained, so the client would get a truncated page with the
+        # ORIGINAL content-length — a silent corruption. Serving it unmodified
+        # is what we wanted; serving half of it is worse than serving none.
+        # Nothing can be reconstructed, so fail loudly rather than quietly.
+        return PlainTextResponse(
+            "canonical injection failed while reading the response body",
+            status_code=500,
+        )
 
     # From here the body is IN HAND. Never return `response` again: its
     # iterator is exhausted, so returning it would serve an empty page.
@@ -843,14 +881,20 @@ Sitemap: https://aiagentscity.com/sitemap.xml
 """
 
 # ── IndexNow ────────────────────────────────────────────────────────────────
-# Bing, Yandex, Seznam and Naver share one IndexNow feed, so a single POST tells
-# four engines a page changed — no quota, no cost, no account. Google does not
+# Bing, Yandex, Seznam and Naver share one IndexNow feed: one POST tells all
+# four that pages changed — no quota, no cost, no account. Google does not
 # participate in IndexNow (it retired its sitemap ping in 2023), so this is the
 # honest half of the job: it accelerates the engines that take it, and Google
 # still finds these pages through the sitemap and canonical alone.
 #
-# The key is served as a plain file at the root, which is how IndexNow proves
-# host ownership. Without it every submission is rejected (HTTP 422).
+# WHAT THIS BLOCK DOES: serves the ownership-proof key file only. IndexNow
+# requires the submitting host to publish the key at keyLocation before it will
+# accept anything (an unproven key is rejected HTTP 422). The actual submission
+# is a separate step and is NOT done by this process — a web server answering
+# requests has no business making outbound calls on every deploy. The submitter
+# lives at `scripts/indexnow_submit.py` and is run deliberately (after a deploy,
+# or on a schedule). Do not read this service as "pings on change": it only
+# hosts the proof.
 INDEXNOW_KEY = os.environ.get("AL_INDEXNOW_KEY", "a1c9e4f7b2d8463085fa6c1b7e3d9052")
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
