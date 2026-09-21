@@ -389,10 +389,21 @@ def check_benefits(c: Ctx) -> None:
               f"/benefits/healthz -> {st} (proxy or upstream broken)", (txt or "")[:160])
 
     st, txt = c.http("/benefits/api/stats")
-    if st == 200 and "total_offers" in (txt or ""):
-        c.add("benefits.feed", PASS, "/benefits/api/stats 200 (JSON feed present)")
+    # Assert the VALUE, not the key's presence. A presence-only check passes on
+    # {"total_offers": 0} — i.e. it would call an emptied feed healthy, which is the
+    # exact regression this check exists to catch.
+    n_offers = None
+    if st == 200 and txt:
+        try:
+            n_offers = int(json.loads(txt).get("total_offers"))
+        except (ValueError, TypeError):
+            n_offers = None
+    if n_offers is not None and n_offers > 0:
+        c.add("benefits.feed", PASS, f"/benefits/api/stats 200 total_offers={n_offers}")
     else:
-        c.add("benefits.feed", FAIL, f"/benefits/api/stats -> {st}", (txt or "")[:160])
+        c.add("benefits.feed", FAIL,
+              f"/benefits/api/stats -> {st} total_offers={n_offers} (feed empty/unparseable)",
+              (txt or "")[:160])
 
     # The MCP endpoint is POST-only; a GET returning 405 is correct, so POST a real
     # initialize handshake and require the server to name itself.
