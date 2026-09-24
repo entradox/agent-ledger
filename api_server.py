@@ -1024,8 +1024,10 @@ def _x402_pass_offer_words() -> str:
              if x402_verify.x402_trial_tier() == "starter" else "unlimited agents")
     return (f"{x402_verify.X402_MINT_PRICE} via x402 buys a one-time {hours}h trial "
             f"({grant}) per wallet on the workspace your wallet resolves to — "
-            "no card, no human. After the trial, subscribe at "
-            f"{x402_verify.X402_TRIAL_PAID_PATH}")
+            "no card, no human. After the trial, subscribe to a monthly plan "
+            f"({x402_verify.X402_TRIAL_PAID_PATH} with X-Workspace-Id and "
+            "X-Workspace-Key returns a Stripe link a human opens to pay; "
+            "/start?plan=starter is the human door and does NOT subscribe)")
 
 
 def _x402_asset() -> str:
@@ -1243,12 +1245,22 @@ AGENT_JSON = {
         "model": "freemium",
         "amount_usd": 19.00,
         "description": "Free tier is 3 agents per workspace, no expiry. Paid paths: an "
-                        "agent can pay via x402 itself for a time-boxed Pro pass "
-                        "(unlimited agents on the resolved workspace, 24h), or a human "
-                        "can subscribe at $19/mo (Starter — up to 10 agents per workspace) "
-                        "or $79/mo (Team — up to 50). Only the x402 Pro pass is unlimited; "
-                        "the monthly plans are capped per tier. See capabilities below for "
-                        "the x402 price and pass duration.",
+                       "agent can pay via x402 itself for a time-boxed Pro pass "
+                       "(unlimited agents on the resolved workspace, 24h) — this is "
+                       "the ONLY way an agent can pay without a human. The monthly "
+                       "plans ($19/mo Starter, up to 10 agents; $79/mo Team, up to 50) "
+                       "are human-checkout only: they are sold through a Stripe "
+                       "payment link that a person must open and pay in a browser. "
+                       "POST /start?plan=starter does NOT subscribe anyone — it mints "
+                       "a FREE workspace and shows that link, and it returns 409 to a "
+                       "machine that asks for a paid plan. To start a monthly "
+                       "subscription for an existing workspace, POST "
+                       "/v1/billing/checkout with X-Workspace-Id and X-Workspace-Key; "
+                       "that returns the checkout_url a human then opens. "
+                       "Only the x402 Pro pass is unlimited; the monthly "
+                       "plans are capped per tier, and the x402 pass is the only "
+                       "agent-purchasable path. See capabilities below for the "
+                       "x402 price and pass duration.",
     },
     "capabilities": [
         {"id": "mint_workspace_x402",
@@ -2294,6 +2306,29 @@ def start_mint(request: Request):
     # falls back to the Starter link and the page says Starter — never a dead
     # checkout.
     want = (request.query_params.get("plan") or "").strip().lower()
+    if want not in ("starter", "team"):
+        want = ""
+    is_machine = "application/json" in (request.headers.get("accept") or "").lower()
+    # MEASURED LIVE 2026-09-24: `POST /start?plan=starter` with
+    # `Accept: application/json` returned 200 and silently minted a FREE
+    # workspace. The agent asked for a PAID plan, got 200, and read that as
+    # success — while owning a 3-agent free workspace and a `plan: "free"`
+    # payload. Nothing told it no Starter purchase had happened, and llms.txt
+    # advertised /start?plan=starter as the way to subscribe.
+    #
+    # This endpoint cannot take money — it only mints and then renders a link a
+    # HUMAN has to click. So for a machine asking for a paid plan, minting is the
+    # wrong answer: it produces a free workspace wearing the name of a paid one.
+    # Refuse BEFORE minting, so no orphan workspace is created and no launch slot
+    # is burned. A 4xx is the documented alternative and the honest one.
+    if is_machine and want:
+        raise HTTPException(409, detail=error_envelope(
+            409, f"POST /start mints a FREE workspace and cannot sell {want}. It "
+                 "only renders a checkout link for a human to click. To buy "
+                 "without a human, pay via POST /v1/billing/x402; to upgrade an "
+                 "existing workspace, POST /v1/billing/checkout with "
+                 "X-Workspace-Id and X-Workspace-Key.",
+            code="plan_requires_human_checkout"))
     plan_link, plan_name = PAYMENT_LINK_STARTER, "Starter"
     if want == "team" and PAYMENT_LINK_TEAM:
         plan_link, plan_name = PAYMENT_LINK_TEAM, "Team"

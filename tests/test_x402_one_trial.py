@@ -90,7 +90,19 @@ def test_second_trial_from_same_wallet_is_refused_before_settlement(env):
     assert err["type"] == "permission_error"
     assert err["code"] == "x402_trial_already_used"
     assert err["param"] == "wallet"
-    assert "/start?plan=starter" in err["message"]
+    # MEASURED LIVE 2026-09-24: this used to point at "/start?plan=starter", which
+    # a machine would POST to, get HTTP 200, and silently receive a FREE workspace —
+    # reading 200 as "I subscribed". The pointer must be the credential-authenticated
+    # checkout route, and the message must still say nothing was charged.
+    assert "/v1/billing/checkout" in err["message"], (
+        "the refusal must point at the route that can actually transact")
+    # /start may still be NAMED, but only as the human door and explicitly not as
+    # the way to subscribe. The defect was pointing an agent at it TO SUBSCRIBE.
+    assert "subscribe at /start" not in err["message"], (
+        "the message tells an agent to subscribe at /start, which mints a free "
+        "workspace and answers 200")
+    assert "does not subscribe" in err["message"], (
+        "if /start is named at all it must say plainly that it does not subscribe")
     assert "NOT charged" in err["message"]
 
 

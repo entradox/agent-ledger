@@ -83,7 +83,17 @@ if X402_TRIAL_GRANT not in ("unlimited", "starter"):
     X402_TRIAL_GRANT = "unlimited"
 
 # The paid path a repeat trial buyer is pointed at.
-X402_TRIAL_PAID_PATH = "/start?plan=starter"
+#
+# MEASURED LIVE 2026-09-24: this was "/start?plan=starter", which a machine
+# following the error text would POST to — and it minted a FREE workspace and
+# returned 200, because /start cannot take money. The agent read 200 as "I
+# subscribed" and got a 3-agent free workspace instead of Starter.
+#
+# The honest target for an agent that already holds a workspace is the checkout
+# route, which is credential-authenticated and returns the link a human opens. The
+# human door stays available and is named in the same sentence; it is just no
+# longer the only thing an agent is told to hit.
+X402_TRIAL_PAID_PATH = "/v1/billing/checkout"
 
 
 def x402_trial_tier() -> str:

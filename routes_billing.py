@@ -779,12 +779,29 @@ def create_checkout(request: Request):
     starter = os.environ.get("AL_STRIPE_PAYMENT_LINK",
                              "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
     plan = (request.query_params.get("plan") or "").strip().lower()
-    link = starter
+    team_link = (os.environ.get("AL_STRIPE_TEAM_LINK") or "").strip()
+    if plan == "team" and not team_link:
+        # MEASURED LIVE 2026-09-24: `?plan=team` returned the $19 Starter link with
+        # plan="starter". The label was honest, but the CALLER had explicitly asked
+        # for Team, and a machine that sends plan=team and receives 200 reasonably
+        # reads that as "Team bought" — then delivers a $79 entitlement it did not
+        # pay for. The old code could not tell "asked for Team" from "asked for
+        # nothing", so it sold the cheaper plan under the pricier name.
+        #
+        # Refuse instead of silently substituting: a wrong charge is far worse than
+        # a failed call. 409 (not 402): the caller's request conflicts with this
+        # deployment's configuration, and no payment will fix it — the Team link
+        # does not exist here.
+        raise HTTPException(409, detail=error_envelope(
+            409, "Team ($79/mo) is not configured on this deployment, and this "
+                 "endpoint will not sell the $19 Starter link under a Team "
+                 "request. Use plan=starter, or ask a human to set up Team at "
+                 "/about.",
+            code="plan_not_available"))
     if plan == "team":
-        link = os.environ.get("AL_STRIPE_TEAM_LINK", "") or starter
-        plan = "team" if os.environ.get("AL_STRIPE_TEAM_LINK", "") else "starter"
+        link, plan = team_link, "team"
     else:
-        plan = "starter"
+        link, plan = starter, "starter"
     return {"checkout_url": f"{link}?client_reference_id={workspace_id}",
             "workspace_id": workspace_id, "plan": plan}
 
@@ -802,7 +819,11 @@ def _trial_refusal(err) -> "HTTPException":
     return HTTPException(403, detail=error_envelope(
         403, "this wallet has already used its one-time trial pass, so this "
              "payment was refused and you were NOT charged. To keep going, "
-             f"subscribe at {x402_verify.X402_TRIAL_PAID_PATH}",
+             f"subscribe to a monthly plan: POST "
+             f"{x402_verify.X402_TRIAL_PAID_PATH} with your X-Workspace-Id and "
+             "X-Workspace-Key returns a Stripe link a human opens to pay. "
+             "(POST /start?plan=starter is the HUMAN door — it mints a free "
+             "workspace and does not subscribe, so do not rely on it.)",
         error_type="permission_error", code="x402_trial_already_used",
         param="wallet"))
 
