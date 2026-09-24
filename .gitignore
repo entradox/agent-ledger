@@ -9,6 +9,14 @@ logs/
 .pytest_cache/
 counts.jsonl
 customers.jsonl
+tier_mismatch.jsonl
+grant_failures.jsonl
+metrics.jsonl
+
+# Data-dir runtime state. metrics.py writes DATA_DIR/metrics.jsonl on every
+# event and nothing ignored it, so any commit run from the data dir would sweep
+# a live revenue counter into git — a derived artifact that also leaks the
+# customer funnel. (Muse's fix contract #5, pre-existing hazard note.)
 .claude-build-prompt*
 .claude/
 

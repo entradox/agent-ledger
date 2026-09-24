@@ -46,6 +46,9 @@ router = APIRouter()
 # ── Stripe billing (LIVE, GASPERMIT acct) — mirrors Agent Watch's pattern ────
 CUSTOMERS_FILE = DATA_DIR / "customers.jsonl"
 GRANT_FAILURES_FILE = "grant_failures.jsonl"
+# Skips where a settled payment would have DOWNGRADED a workspace. Separate from
+# grant_failures.jsonl on purpose — see _record_tier_mismatch().
+TIER_MISMATCH_FILE = "tier_mismatch.jsonl"
 
 # Stripe's own limit for client_reference_id (docs.stripe.com/payment-links/
 # url-parameters). Values above it are silently dropped by Stripe, but a
@@ -58,6 +61,46 @@ MAX_CLIENT_REFERENCE_ID = 200
 # traversing client_reference_id from escaping the workspaces directory, since
 # pathlib.__truediv__ discards the left operand on an absolute right operand.
 _WORKSPACE_ID_RE = re.compile(r"ws_[A-Za-z0-9_-]{1,200}")
+
+
+def _record_tier_mismatch(incoming_tier: str, current_tier: str, session_id: str,
+                          workspace_id: str, amount: Optional[int] = None) -> None:
+    """Record a settled payment that was SKIPPED because it would downgrade.
+
+    Why this is its own file and not grant_failures.jsonl: grant_failures.jsonl
+    is the repair queue — "a customer paid and their workspace was never
+    upgraded". Every row there needs a human to go grant something. A skipped
+    downgrade is the opposite: the customer already holds a HIGHER tier than the
+    one they just paid for, so nothing is owed and nothing needs repair. Putting
+    these in the same file would inflate the repair queue with rows nobody should
+    action, which is how the synthetic-event miscount of 2026-09-14 happened.
+
+    What it is for: the amount→tier table derives the tier from the settled
+    AMOUNT alone, so it cannot tell "bought a smaller seat" from "already a
+    bigger customer". When it guesses wrong the guard suppresses the tier change
+    silently. This ledger is what makes that suppression reviewable — it proves
+    the guard fired, on which workspace, for which session, and for how much.
+
+    Must never raise: this runs inside a webhook Stripe is waiting on. An
+    exception here would turn a suppressed downgrade into a 500 and trigger
+    endless Stripe retries for an event we deliberately did not apply.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": time.time(),
+            "kind": "tier_downgrade_suppressed",
+            "workspace_id": workspace_id,
+            "stripe_session": session_id,
+            "incoming_tier": incoming_tier,
+            "current_tier": current_tier,
+            "amount_total": amount,
+            "action": "granted nothing; kept the higher tier",
+        }
+        with open(DATA_DIR / TIER_MISMATCH_FILE, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
 
 
 def _append_customer(rec: dict):
@@ -191,6 +234,11 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
     # (customer.subscription.updated/deleted), which carries the actual plan intent
     # and is applied by _handle_subscription_lifecycle().
     _RANK = {"starter": 1, "team": 2, "pro": 3}
+    # Set by the guard below. Needed so the `else` branch at the end does not
+    # misfile a DELIBERATE skip as a failed grant: with tier forced to None, that
+    # branch would otherwise write `unexpected_amount` for a payment whose amount
+    # was perfectly expected — a false alarm in the repair queue.
+    _suppressed_downgrade = False
     try:
         import workspace_engine as _we
         _cur = str((_we.get_workspace(
@@ -209,6 +257,18 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
         _lg.warning("stripe amount-derived tier %s would downgrade %s; "
                     "keeping %s (money never removes capability)",
                     tier, _cur, _cur)
+        # The warning above goes to stderr and dies with the container. A skipped
+        # money event must be findable AFTER the fact (Muse's fix contract #3), so
+        # it is also written to its own append-only ledger. Deliberately NOT
+        # grant_failures.jsonl: that file is the REPAIR QUEUE ("paid, not granted"),
+        # and a skipped downgrade needs no repair — the customer already holds the
+        # higher tier. Mixing them would inflate the queue, which is the same
+        # counting error the synthetic-event scrub of 2026-09-14 was about.
+        _record_tier_mismatch(incoming_tier=tier, current_tier=_cur,
+                              session_id=str(sess.get("id") or ""),
+                              workspace_id=str(sess.get("client_reference_id") or ""),
+                              amount=amount)
+        _suppressed_downgrade = True
         tier = None            # grant nothing, downgrade nothing
         plan = _cur
 
@@ -268,10 +328,18 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
     else:
         # Money settled but not at the Pro price. Do not grant, and do not be
         # silent about it.
-        _record_grant_failure("unexpected_amount",
-                              sess.get("id", ""), email,
-                              f"amount_total={amount}",
-                              sess.get("client_reference_id") or "")
+        #
+        # EXCEPT when the guard above deliberately suppressed a downgrade. In that
+        # case the amount was entirely expected — the payment simply could not be
+        # allowed to LOWER the tier — and it is already recorded, with its real
+        # reason, in tier_mismatch.jsonl. Filing it here as `unexpected_amount`
+        # would put a false row in the repair queue (paid, never granted) for an
+        # event that needs no repair and whose grant succeeded in substance.
+        if not _suppressed_downgrade:
+            _record_grant_failure("unexpected_amount",
+                                  sess.get("id", ""), email,
+                                  f"amount_total={amount}",
+                                  sess.get("client_reference_id") or "")
 
     try:
         from send_onboarding_email import send_onboarding_email

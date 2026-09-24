@@ -201,6 +201,90 @@ def test_the_payment_is_still_recorded_when_the_tier_is_kept(env):
         "the lifecycle index must still resolve the workspace's real subscription")
 
 
+def _mismatch_rows(mod):
+    """Read the tier-mismatch ledger the WRITER writes.
+
+    Resolved from the module constant, never by re-deriving the temp path: the
+    fixture reloads routes_billing but `ledger_engine.DATA_DIR` is bound at import
+    time and is NOT reloaded, so all tests in this file share the first temp dir.
+    Asserting `len(rows) == 1` therefore measures the whole file's history, not
+    this test. Everything below measures the DELTA across the call instead.
+    """
+    p = mod.DATA_DIR / mod.TIER_MISMATCH_FILE
+    if not p.exists():
+        return []
+    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+
+
+def test_a_suppressed_downgrade_is_findable_after_the_fact(env):
+    """Contract #3: a skipped money event must be discoverable, not silent.
+
+    The guard used to log to stderr and nothing else — which dies with the
+    container and cannot be reviewed after the fact. This asserts the skip is
+    written to its own append-only ledger, with the workspace, the session, the
+    tier it would have applied, and the tier it kept.
+
+    It must land in tier_mismatch.jsonl and NOT in grant_failures.jsonl:
+    grant_failures.jsonl is the REPAIR QUEUE (paid, never granted), and nothing
+    needs repairing here — the customer already holds the higher tier. Rows
+    added there would inflate a queue a human has to work.
+    """
+    client, we = env
+    import routes_billing
+
+    before = len(_mismatch_rows(routes_billing))
+    gf = routes_billing.DATA_DIR / routes_billing.GRANT_FAILURES_FILE
+    gf_before = (len([l for l in gf.read_text().splitlines() if l.strip()])
+                 if gf.exists() else 0)
+
+    ws_id, _ = we.create_workspace(owner_email="ledger@example.com")
+    we.revoke_pro(ws_id)
+    we.mark_pro(ws_id, "cus_led", tier="team")
+
+    post(client, paid_event(ws_id, 1900, session="cs_ledger_probe"))
+
+    rows = _mismatch_rows(routes_billing)
+    assert len(rows) == before + 1, (
+        f"expected exactly one new mismatch row, got {len(rows) - before}")
+
+    row = rows[-1]
+    assert row["kind"] == "tier_downgrade_suppressed"
+    assert row["workspace_id"] == ws_id, "the row cannot identify the workspace"
+    assert row["stripe_session"] == "cs_ledger_probe"
+    assert row["incoming_tier"] == "starter"
+    assert row["current_tier"] == "team"
+    assert row["amount_total"] == 1900, "the amount that was skipped is not recorded"
+
+    # The repair queue must stay clean — this event needs no repair. Measured as a
+    # delta for the same reason _mismatch_rows is: ledger_engine.DATA_DIR is bound
+    # at import and shared across this file, and other tests here legitimately
+    # write real unexpected-amount failures.
+    gf = routes_billing.DATA_DIR / routes_billing.GRANT_FAILURES_FILE
+    gf_rows = ([json.loads(l) for l in gf.read_text().splitlines() if l.strip()]
+               if gf.exists() else [])
+    assert len(gf_rows) == gf_before, (
+        "a suppressed downgrade was written to the repair queue; that queue is for "
+        "payments that were never granted, and inflating it hides real failures")
+
+
+def test_an_upgrade_writes_no_mismatch_row(env):
+    """The ledger must record SKIPS only — not every paid event."""
+    client, we = env
+    import routes_billing
+
+    ws_id, _ = we.create_workspace(owner_email="clean@example.com")
+    we.revoke_pro(ws_id)
+    we.mark_pro(ws_id, "cus_cl", tier="starter")
+
+    before = len(_mismatch_rows(routes_billing))
+    post(client, paid_event(ws_id, 7900, session="cs_clean_upgrade"))
+    after = len(_mismatch_rows(routes_billing))
+
+    assert we.get_workspace(ws_id)["plan"] == "team", "the upgrade did not land"
+    assert after == before, (
+        "a real upgrade was recorded as a suppressed downgrade")
+
+
 def test_the_x402_day_pass_still_caps_deliberately(env):
     """CANARY for the placement decision: the guard must NOT live in mark_pro().
 
