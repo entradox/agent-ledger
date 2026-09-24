@@ -35,7 +35,7 @@ from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.4.1"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.2"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 # ── OpenAPI augmentation for agent payment-directory discovery (D-1293) ──────
