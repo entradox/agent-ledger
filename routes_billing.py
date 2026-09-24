@@ -173,6 +173,45 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
             7900: "team", 79000: "team"}.get(amount)  # $79/mo, $790/yr
     plan = tier or "unknown"
 
+    # ── D-1440: a settled Stripe payment must never DOWNGRADE a workspace ─────
+    # Measured on live production 2026-09-24 with a signed checkout.session.completed
+    # replay carrying amount_total=1900: a workspace at `plan: pro, agent_cap: null
+    # (unlimited)` came back `plan: starter, agent_cap: 10`. Because this tier comes
+    # from the AMOUNT ALONE, every Pro/Team customer who bought a Starter seat was
+    # silently downgraded and had their agent cap cut.
+    #
+    # The guard lives HERE, at the amount→tier derivation, and deliberately NOT in
+    # mark_pro(). mark_pro() is also the x402 day-pass grant, where a deliberate
+    # Starter cap IS the design (X402_TRIAL_GRANT) — putting the guard there broke
+    # the one-trial pass and its two tests. The amount table is the only caller that
+    # cannot tell "bought a smaller seat" from "already a bigger customer", so it is
+    # the only caller that needs the protection.
+    #
+    # A real Stripe downgrade arrives as a subscription-lifecycle event
+    # (customer.subscription.updated/deleted), which carries the actual plan intent
+    # and is applied by _handle_subscription_lifecycle().
+    _RANK = {"starter": 1, "team": 2, "pro": 3}
+    try:
+        import workspace_engine as _we
+        _cur = str((_we.get_workspace(
+            sess.get("client_reference_id") or "") or {}).get("plan") or "")
+    except Exception:
+        _cur = ""      # unreadable workspace: fall through, resolve_paying_workspace
+                       # below records the real failure rather than guessing here
+    if _cur in _RANK and tier and _RANK[tier] < _RANK[_cur]:
+        # NOTE: `logging` must be imported IN THIS BRANCH, not referenced bare.
+        # `fulfill_paid_session` contains a function-local `import logging` further
+        # down (the onboarding-email path), which makes `logging` a local name for
+        # the WHOLE function — a bare `logging.warning(...)` here raises
+        # UnboundLocalError and would 500 the webhook. Caught by the guard tests
+        # against the real handler; do not "simplify" this back to a bare call.
+        import logging as _lg
+        _lg.warning("stripe amount-derived tier %s would downgrade %s; "
+                    "keeping %s (money never removes capability)",
+                    tier, _cur, _cur)
+        tier = None            # grant nothing, downgrade nothing
+        plan = _cur
+
     _append_customer({"ts": time.time(), "email": email, "plan": plan,
                       "amount_total": amount,
                       "stripe_session": sess.get("id", ""),
