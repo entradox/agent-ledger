@@ -2276,6 +2276,44 @@ def start_mint(request: Request):
     grant_scarcity=False: this is the free tier, not the launch grant. See
     workspace_engine.create_workspace for why.
     """
+    # Pricing-page plan (?plan=starter|team on the form action). The Team link
+    # is operator-configured; until AL_STRIPE_TEAM_LINK exists the Team button
+    # falls back to the Starter link and the page says Starter — never a dead
+    # checkout.
+    want = (request.query_params.get("plan") or "").strip().lower()
+    if want not in ("starter", "team"):
+        want = ""
+    is_machine = "application/json" in (request.headers.get("accept") or "").lower()
+    # MEASURED LIVE 2026-09-24: `POST /start?plan=starter` with
+    # `Accept: application/json` returned 200 and silently minted a FREE
+    # workspace. The agent asked for a PAID plan, got 200, and read that as
+    # success — while owning a 3-agent free workspace and a `plan: "free"`
+    # payload. Nothing told it no Starter purchase had happened, and llms.txt
+    # advertised /start?plan=starter as the way to subscribe.
+    #
+    # This endpoint cannot take money — it only mints and then renders a link a
+    # HUMAN has to click. So for a machine asking for a paid plan, minting is the
+    # wrong answer: it produces a free workspace wearing the name of a paid one.
+    # A 4xx is the documented alternative and the honest one.
+    #
+    # THIS GUARD SITS ABOVE THE MINT AND ABOVE THE RATE LIMITER DELIBERATELY.
+    # Measured, not assumed: the first cut of this fix placed the guard after
+    # create_workspace(), and `tests/test_start_refusal_side_effects.py` caught
+    # that a refused request still (a) wrote an orphan workspace row — dead disk,
+    # since the 409 never reveals the key — and (b) consumed 1 of the 3 daily
+    # mints per IP, so an agent that retried a refused request three times locked
+    # itself out of the FREE path it was entitled to. A request that creates
+    # nothing must cost nothing. Placing it here also keeps the rate limiter's
+    # documented meaning true ("three workspace mints per IP per day"): a refused
+    # request is not a mint.
+    if is_machine and want:
+        raise HTTPException(409, detail=error_envelope(
+            409, f"POST /start mints a FREE workspace and cannot sell {want}. It "
+                 "only renders a checkout link for a human to click. To buy "
+                 "without a human, pay via POST /v1/billing/x402; to upgrade an "
+                 "existing workspace, POST /v1/billing/checkout with "
+                 "X-Workspace-Id and X-Workspace-Key.",
+            code="plan_requires_human_checkout"))
     if not _start_mint_allowed(request):
         # Bug fixed alongside D-1270: this page carried {X402_SETTLEMENT_HTML}
         # literally, unsubstituted — no .replace() was ever called on it, so a
@@ -2300,35 +2338,8 @@ def start_mint(request: Request):
             metrics.record_onboarding("key_revealed", workspace_id)
     except Exception:
         pass
-    checkout = f"{PAYMENT_LINK}?client_reference_id={workspace_id}"
-    # Pricing-page plan (?plan=starter|team on the form action). The Team link
-    # is operator-configured; until AL_STRIPE_TEAM_LINK exists the Team button
-    # falls back to the Starter link and the page says Starter — never a dead
-    # checkout.
-    want = (request.query_params.get("plan") or "").strip().lower()
-    if want not in ("starter", "team"):
-        want = ""
-    is_machine = "application/json" in (request.headers.get("accept") or "").lower()
-    # MEASURED LIVE 2026-09-24: `POST /start?plan=starter` with
-    # `Accept: application/json` returned 200 and silently minted a FREE
-    # workspace. The agent asked for a PAID plan, got 200, and read that as
-    # success — while owning a 3-agent free workspace and a `plan: "free"`
-    # payload. Nothing told it no Starter purchase had happened, and llms.txt
-    # advertised /start?plan=starter as the way to subscribe.
-    #
-    # This endpoint cannot take money — it only mints and then renders a link a
-    # HUMAN has to click. So for a machine asking for a paid plan, minting is the
-    # wrong answer: it produces a free workspace wearing the name of a paid one.
-    # Refuse BEFORE minting, so no orphan workspace is created and no launch slot
-    # is burned. A 4xx is the documented alternative and the honest one.
-    if is_machine and want:
-        raise HTTPException(409, detail=error_envelope(
-            409, f"POST /start mints a FREE workspace and cannot sell {want}. It "
-                 "only renders a checkout link for a human to click. To buy "
-                 "without a human, pay via POST /v1/billing/x402; to upgrade an "
-                 "existing workspace, POST /v1/billing/checkout with "
-                 "X-Workspace-Id and X-Workspace-Key.",
-            code="plan_requires_human_checkout"))
+    # Pricing-page plan (?plan=starter|team on the form action) was resolved
+    # ABOVE the mint guard — see the comment there for why order matters.
     plan_link, plan_name = PAYMENT_LINK_STARTER, "Starter"
     if want == "team" and PAYMENT_LINK_TEAM:
         plan_link, plan_name = PAYMENT_LINK_TEAM, "Team"
