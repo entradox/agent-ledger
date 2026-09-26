@@ -5,6 +5,7 @@ Endpoints:
   GET  /health                       — liveness
   POST /v1/track                     — record a spend entry
   POST /v1/budget                    — set budget caps
+  POST /v1/check                     : may this agent spend X now? (read-only)
   GET  /v1/report/{agent_id}         — spend report
   GET  /v1/alerts/{agent_id}         — alerts for agent
   GET  /v1/agents                    — list all tracked agents
@@ -696,6 +697,14 @@ POST /v1/budget                    — set budget caps (mints/verifies agent_sec
             "monthly_tokens": int (optional, token-burn cap), "daily_tokens": int (optional, token-burn cap),
             "workspace_key": str (required to CLAIM a new agent_id),
             "agent_secret": str (required after the first call for this agent_id)}
+POST /v1/check                     : ask BEFORE spending: allowed true/false + reason code, estimate,
+                                      the price used, and every budget window (cap/spent/remaining).
+                                      Same decision the /proxy gate enforces. Read-only: records and
+                                      reserves nothing. Requires X-Agent-Secret or X-Workspace-Key.
+     body: {"agent_id": str, and ONE of: "amount_cents": int (any rail, e.g. an x402 purchase) |
+            "model": str + "tokens_in"/"tokens_out": int | "model": str + "payload": the request body}
+     reasons: within_budget | over_monthly_cap | over_daily_cap | over_monthly_token_cap |
+              over_daily_token_cap | no_budget_set | unpriced_model
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 POST /v1/report/{agent_id}/share   — mint a read-only, EXPIRING link to the human report page
                                       (agent_secret OR workspace_key; default 7 days, max 90)
@@ -782,7 +791,8 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
 
-Tools exposed at POST /mcp/ (12):
+Tools exposed at POST /mcp/ (13):
+  ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
   ledger_report         — get a spend report (agent_secret or workspace_key param)
@@ -1278,6 +1288,10 @@ AGENT_JSON = {
          "endpoint": "/v1/track", "method": "POST", "free": True},
         {"id": "set_budget", "description": "Set monthly/daily budget caps for an agent",
          "endpoint": "/v1/budget", "method": "POST", "free": True},
+        {"id": "check_spend", "description": "Ask before spending: allowed or denied with a "
+                        "reason code, the estimate and the headroom left. Same decision the "
+                        "proxy enforces. Read-only.",
+         "endpoint": "/v1/check", "method": "POST", "free": True},
         {"id": "get_report", "description": "Spend report — totals, by rail, by service, anomalies",
          "endpoint": "/v1/report/{agent_id}", "method": "GET", "free": True},
         {"id": "get_alerts", "description": "Anomaly alerts for an agent",
@@ -1364,7 +1378,8 @@ def mcp_wellknown_json():
              "url": "https://aiagentscity.com/mcp/",
              "version": "v0.4.1", "status": "live",
              "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
-                       "ledger_track", "ledger_set_budget", "ledger_report",
+                       "ledger_track", "ledger_set_budget", "ledger_check_spend",
+                       "ledger_report",
                        "ledger_alerts", "ledger_list_agents", "ledger_start",
                        "ledger_api_docs", "ledger_examples",
                        "skills_list_tool", "read_skill"]},
