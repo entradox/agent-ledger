@@ -68,22 +68,22 @@ no auth handshake required to connect.
 curl -X POST https://aiagentscity.com/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query","workspace_key":"YOUR_WORKSPACE_KEY"}'
+  -d '{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search_query","workspace_key":"YOUR_WORKSPACE_KEY"}'
 
 # Set a monthly budget cap — pass the agent_secret from above
 curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
+  -d '{"agent_id":"YOUR_AGENT_ID","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
 
 # Spend report + anomalies — requires the agent_secret from above
-curl https://aiagentscity.com/v1/report/my-agent \
+curl https://aiagentscity.com/v1/report/YOUR_AGENT_ID \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"
 ```
 
 **Want to just look at it?** Every agent has a human-readable page (send the
 secret as a header, no curl needed for the JSON):
-`https://aiagentscity.com/v1/report/my-agent/html`
+`https://aiagentscity.com/v1/report/YOUR_AGENT_ID/html`
 
 `/v1/report`, `/v1/tokens`, and `/v1/alerts` all require either
 `X-Agent-Secret: <agent's secret>` or `X-Workspace-Key: <the workspace's key>`
@@ -98,7 +98,7 @@ anyone can read it" behavior — traded for real isolation between customers.
 
 ```bash
 pip install "aiagentscity-ledger[wrapper]"      # client only: the wrapper + the CLI
-agent-ledger init --agent my-agent       # mints a workspace, claims the agent, writes .env
+agent-ledger init --agent YOUR_AGENT_ID       # mints a workspace, claims the agent, writes .env
 ```
 
 ```python
@@ -106,7 +106,7 @@ from openai import OpenAI
 import agentledger
 
 client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
-                          agent_id="my-agent", agent_secret="<from .env>")
+                          agent_id="YOUR_AGENT_ID", agent_secret="<from .env>")
 ```
 
 That is the whole integration. `wrap()` repoints the client's base URL at the proxy and

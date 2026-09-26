@@ -26,7 +26,7 @@ Usage:
     report-session.py                     # newest transcript, report it
     report-session.py --transcript PATH
     report-session.py --dry-run           # print what would be sent
-    report-session.py --agent-id my-agent --api-base https://...
+    report-session.py --agent-id YOUR_AGENT_ID --api-base https://...
 """
 import argparse
 import json

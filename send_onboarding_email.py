@@ -25,7 +25,7 @@ completed).
 
 curl -X POST {base}/v1/track \\
   -H "Content-Type: application/json" \\
-  -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query",
+  -d '{{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search_query",
        "tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}}'
 
 The FIRST call for a new agent_id returns an "agent_secret" in the
@@ -37,13 +37,13 @@ open, no secret needed.
 
 curl -X POST {base}/v1/budget \\
   -H "Content-Type: application/json" \\
-  -d '{{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}}'
+  -d '{{"agent_id":"YOUR_AGENT_ID","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}}'
 
 3. Pull your reports:
 
-Dollar spend:    curl {base}/v1/report/my-agent
-Token burn:      curl {base}/v1/tokens/my-agent
-Budget alerts:   curl {base}/v1/alerts/my-agent
+Dollar spend:    curl {base}/v1/report/YOUR_AGENT_ID
+Token burn:      curl {base}/v1/tokens/YOUR_AGENT_ID
+Budget alerts:   curl {base}/v1/alerts/YOUR_AGENT_ID
 
 4. Wire the MCP server into any MCP client (Claude, Cursor) — paste into your
 MCP config file:
