@@ -5,6 +5,7 @@ TDQS-optimized tool definitions: full descriptions, parameter docs, and
 behavioral annotations for registry scoring and agent routing.
 """
 import os
+from typing import Optional
 from fastmcp import FastMCP
 import metrics
 
@@ -298,6 +299,56 @@ def ledger_alerts(agent_id: str, agent_secret: str = "",
             continue
     _record_mcp_call()
     return {"alerts": alerts}
+
+
+@mcp.tool(annotations={"title": "Check Before Spending", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
+def ledger_check_spend(agent_id: str, amount_cents: Optional[int] = None,
+                       model: str = "", tokens_in: int = 0, tokens_out: int = 0,
+                       agent_secret: str = "", workspace_key: str = "") -> dict:
+    """Ask BEFORE you spend: may this agent spend this much right now?
+
+    Returns allowed (true/false), a stable reason code (within_budget,
+    over_monthly_cap, over_daily_cap, over_monthly_token_cap,
+    over_daily_token_cap, no_budget_set, unpriced_model), a one-line message,
+    the cost estimate, the price used (with its source and as_of date) and
+    every budget window with cap, spent and remaining.
+
+    Same decision the /proxy/{provider} gate enforces. Read-only: nothing is
+    recorded or reserved, so record the spend with ledger_track afterwards.
+
+    Give exactly one spend shape: amount_cents (any rail, e.g. an x402
+    purchase), OR model with tokens_in/tokens_out.
+
+    Args:
+        agent_id: the agent that would spend
+        amount_cents: the spend in cents, if you already know it
+        model: model id to price from tokens (instead of amount_cents)
+        tokens_in: expected input tokens (with model)
+        tokens_out: expected output tokens, e.g. your max_tokens (with model)
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+    """
+    import spend_policy
+    from ledger_engine import validate_agent_id, ValidationError
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+    try:
+        result = spend_policy.check_spend(agent_id, amount_cents, model,
+                                          tokens_in, tokens_out)
+    except spend_policy.CheckInputError as e:
+        return {"error": str(e), "error_code": e.code}
+    try:
+        metrics.record_event("spend_check_" + result["decision"], via="mcp")
+    except Exception:
+        pass
+    _record_mcp_call()
+    return result
 
 
 @mcp.tool(annotations={"title": "List Tracked Agents", "readOnlyHint": True,

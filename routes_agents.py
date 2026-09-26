@@ -388,6 +388,41 @@ def create_budget(req: BudgetRequest, request: Request):
         pass
     return result
 
+class CheckRequest(BaseModel):
+    agent_id: str
+    # Exactly one spend shape: a dollar amount on any rail (an x402 purchase,
+    # a paid API), OR a model priced from tokens, OR a model plus the exact
+    # request body, estimated the way the proxy estimates it.
+    amount_cents: Optional[int] = None
+    model: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    payload: Optional[dict] = None
+
+
+@router.post("/v1/check")
+def check_spend_route(req: CheckRequest, request: Request):
+    """May this agent spend this much right now? Read-only: the answer comes
+    from spend_policy.decide(), the same function the proxy's 402 gate uses,
+    and nothing is recorded or reserved. Credentials as for reads."""
+    import spend_policy
+    try:
+        le_validate_agent_id(req.agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
+    _authorize_agent_read(req.agent_id, request)
+    try:
+        result = spend_policy.check_spend(req.agent_id, req.amount_cents, req.model,
+                                          req.tokens_in, req.tokens_out, req.payload)
+    except spend_policy.CheckInputError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e), code=e.code))
+    try:
+        metrics.record_event("spend_check_" + result["decision"])
+    except Exception:
+        pass
+    return result
+
+
 @router.get("/v1/report/{agent_id}")
 def get_report(agent_id: str, request: Request, days: int = 30):
     _authorize_agent_read(agent_id, request)

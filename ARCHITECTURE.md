@@ -36,6 +36,14 @@ git log and scattered specs.
   alerts, claim-on-first-write via `ensure_agent_secret`, which now
   requires a `workspace_key` on brand-new claims, resolved via
   `identity.py`).
+- `spend_policy.py` — the ONE decision "may this agent spend X now?"
+  (`decide()`), read-only. Two callers: the proxy's pre-call 402 gate
+  (`routes_proxy._pre_call_check`, which enforces it) and `POST /v1/check`
+  / the `ledger_check_spend` MCP tool (`check_spend()`, which reports it
+  before any spend on any rail). Imports `ledger_engine` and `proxy`;
+  nothing below it imports it. If the two callers ever computed the answer
+  separately, an agent told "allowed" could be refused by the proxy a moment
+  later; `tests/test_spend_check.py` pins that parity.
 - `routes_agents.py` / `routes_billing.py` — responsibility-scoped
   FastAPI routers, each independently readable without loading the others.
   Mounted onto the app in `api_server.py`. There is no third auth router:

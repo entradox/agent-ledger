@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 import identity
 import metrics
 import proxy as proxy_core
+import spend_policy
 from ledger_engine import BudgetExceededError, error_envelope
 
 router = APIRouter()
@@ -129,38 +130,33 @@ def _meter(agent_id: str, provider: str, model: str,
 def _pre_call_check(agent_id: str, model: str, payload: dict) -> JSONResponse | None:
     """The property this whole feature exists for. Returns a 402 response to
     hand straight back to the caller when the call must not go out, else None."""
-    from ledger_engine import get_budget, _month_spend, _today_spend, _log_alert_daily
+    from ledger_engine import _log_alert_daily
     estimate = proxy_core.call_estimate_cents(model, payload)
-    budget = get_budget(agent_id)
-    if not budget:
+    # One decision function for the proxy and for POST /v1/check, so an agent
+    # that asked first is never told "yes" by one and refused by the other.
+    # Unpriced (estimate None) passes through; _meter() alerts afterwards.
+    verdict = spend_policy.decide(agent_id, estimate)
+    if verdict["allowed"]:
         return None
-    if estimate is None:
-        return None  # unpriced: pass through, _meter() alerts afterwards
-    checks = []
-    if budget.monthly_cap_cents > 0:
-        checks.append(("monthly", budget.monthly_cap_cents, _month_spend(agent_id)))
-    if getattr(budget, "daily_cap_cents", 0) > 0:
-        checks.append(("daily", budget.daily_cap_cents, _today_spend(agent_id)))
-    for label, cap, spent in checks:
-        if spent + estimate > cap:
-            try:
-                metrics.record_event("proxy_blocked")
-            except Exception:
-                pass
-            try:
-                _log_alert_daily(
-                    agent_id, "budget_blocked",
-                    f"proxy blocked a call to '{model}': est. {estimate}c would put "
-                    f"{agent_id} over its {label} cap ({spent}c of {cap}c). "
-                    f"The provider was never contacted.")
-            except Exception:
-                pass
-            return _err(402,
-                        f"blocked before the provider: this call's estimated maximum cost "
-                        f"({estimate} cents) would put {agent_id} over its {label} budget "
-                        f"({spent} of {cap} cents). Nothing was sent upstream.",
-                        "budget_exceeded")
-    return None
+    w = verdict["binding"]
+    label, cap, spent = w["window"], w["cap"], w["spent"]
+    try:
+        metrics.record_event("proxy_blocked")
+    except Exception:
+        pass
+    try:
+        _log_alert_daily(
+            agent_id, "budget_blocked",
+            f"proxy blocked a call to '{model}': est. {estimate}c would put "
+            f"{agent_id} over its {label} cap ({spent}c of {cap}c). "
+            f"The provider was never contacted.")
+    except Exception:
+        pass
+    return _err(402,
+                f"blocked before the provider: this call's estimated maximum cost "
+                f"({estimate} cents) would put {agent_id} over its {label} budget "
+                f"({spent} of {cap} cents). Nothing was sent upstream.",
+                "budget_exceeded")
 
 
 @router.get("/v1/pricing")

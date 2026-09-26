@@ -129,7 +129,7 @@ Not using a Python SDK? Point any OpenAI- or Anthropic-compatible client at
 }
 ```
 
-Tools: `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`,
+Tools: `ledger_track`, `ledger_set_budget`, `ledger_check_spend`, `ledger_report`, `ledger_alerts`,
 `ledger_list_agents`, `ledger_api_docs`, `ledger_examples`.
 
 Agent-facing API reference: [`llms.txt`](https://aiagentscity.com/llms.txt)
