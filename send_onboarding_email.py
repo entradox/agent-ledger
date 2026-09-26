@@ -15,17 +15,17 @@ SMTP_PASS = os.environ.get("ICLOUD_SMTP_APP_PASSWORD", "")
 
 BASE = "https://aiagentscity.com"
 
-BODY = """You're on AgentLedger Pro.
+BODY = """You're on the AgentLedger {plan} plan.
 
-Pro lifts the 3-agent cap: track as many agents as you want (the cap is
-skipped automatically on this instance from the moment your checkout
+{plan} lifts the 3-agent cap: track up to {agents} agents on this workspace (the
+cap is skipped automatically on this instance from the moment your checkout
 completed).
 
 1. Track spend (any agent, any rail — x402 / mpp / api_key / manual):
 
 curl -X POST {base}/v1/track \\
   -H "Content-Type: application/json" \\
-  -d '{{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query",
+  -d '{{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search_query",
        "tokens_in":4500,"tokens_out":1200,"model":"gpt-4o"}}'
 
 The FIRST call for a new agent_id returns an "agent_secret" in the
@@ -37,13 +37,13 @@ open, no secret needed.
 
 curl -X POST {base}/v1/budget \\
   -H "Content-Type: application/json" \\
-  -d '{{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}}'
+  -d '{{"agent_id":"YOUR_AGENT_ID","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}}'
 
 3. Pull your reports:
 
-Dollar spend:    curl {base}/v1/report/my-agent
-Token burn:      curl {base}/v1/tokens/my-agent
-Budget alerts:   curl {base}/v1/alerts/my-agent
+Dollar spend:    curl {base}/v1/report/YOUR_AGENT_ID
+Token burn:      curl {base}/v1/tokens/YOUR_AGENT_ID
+Budget alerts:   curl {base}/v1/alerts/YOUR_AGENT_ID
 
 4. Wire the MCP server into any MCP client (Claude, Cursor) — paste into your
 MCP config file:
@@ -64,10 +64,28 @@ Questions? entradox@icloud.com
 """
 
 
-def send_onboarding_email(email: str, plan: str = "pro") -> None:
+def send_onboarding_email(email: str, plan: str = "starter") -> None:
     if not SMTP_PASS:
         raise RuntimeError("ICLOUD_SMTP_APP_PASSWORD not set — cannot send onboarding email")
-    body = BODY.format(base=BASE)
+    # D-1441 CLOSURE (2026-09-26). This body used to hardcode a "Pro" greeting and an
+    # unbounded agents promise for EVERY payer, while the webhook actually grants
+    # `starter` (10 agents) to a $19 settlement. So a $19 customer received, in writing,
+    # a promise of unlimited agents that the product then enforced against: their 11th
+    # agent claim is refused. The subject line already said "starter" (it interpolates
+    # `plan`), so the email contradicted ITSELF as well. The banned strings are listed
+    # by pattern in tests/test_tier_label_truth.py rather than quoted here, because
+    # quoting them in this comment would trip that guard.
+    #
+    # The ladder is a code fact, not copy: free = 3 (workspace_engine.WORKSPACE_FREE_AGENT_CAP),
+    # starter = 10 (STARTER_AGENT_CAP), team = 50 (TEAM_AGENT_CAP), and only the x402
+    # "pro" pass is unbounded. The "Pro" name is reserved for that pass, so using it for
+    # a subscription is the specific mislabel this fix removes.
+    #
+    # The default was "pro" for the same reason and is now "starter" — the cheapest paid
+    # plan, so a caller that omits the argument understates rather than overstates. An
+    # overstatement here is a promise emailed to a paying customer.
+    agents = {"starter": "10", "team": "50", "pro": "unlimited"}.get(plan, "10")
+    body = BODY.format(base=BASE, plan=plan.capitalize(), agents=agents)
     msg = MIMEText(body, "plain")
     msg["Subject"] = f"AgentLedger — you're on the {plan} plan"
     msg["From"] = SMTP_USER

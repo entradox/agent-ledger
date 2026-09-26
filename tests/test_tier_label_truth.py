@@ -28,11 +28,48 @@ def _read(name):
 # docstring in api_server.py that DOCUMENTS this very bug ("...the way the hardcoded
 # '$19/mo, unlimited agents' line did before..."), so a loose pattern flags the
 # explanation of the fix as if it were the defect. Match the customer-facing forms.
+#
+# EXTENDED 2026-09-26: the first version of this list had three entries and missed the
+# two surfaces with the HIGHEST reliance weight — the onboarding email sent to a paying
+# customer, and the README purchase CTA. Both still said "$19 = Pro = unlimited" while
+# routes_billing grants `starter` (10 agents) for a 1900-cent settlement. The email was
+# the worse of the two: the subject line interpolates `plan` and read "starter", so the
+# email contradicted its own body. A guard that covers the surfaces nobody reads is
+# worth less than one that covers the surface that arrives in the customer's inbox.
 FORBIDDEN_PRICE_LABELS = [
     ("routes_workspace.py", r"Upgrade to Pro — \$19"),
     ("api_server.py", r"\$19/mo, unlimited, no expiry\)"),
     ("site_pages.py", r"flat \$19/workspace, not per-seat"),
+    # The promise emailed to a $19 payer. `plan` is interpolated now, so a hardcoded
+    # "Pro" or an unbounded "as many as you want" can only come back as a regression.
+    ("send_onboarding_email.py", r"You're on AgentLedger Pro"),
+    ("send_onboarding_email.py", r"as many agents as you want"),
+    ("send_onboarding_email.py", r'plan: str = "pro"'),
+    # The purchase path a developer reads before paying.
+    ("README.md", r"\*\*Pro \$19/mo\*\*"),
+    ("npm/README.md", r"\*\*Pro \$19/mo\*\*"),
+    ("README.md", r"Pro \$19/mo ⇒ unlimited"),
+    ("npm/README.md", r"Pro \$19/mo ⇒ unlimited"),
 ]
+
+
+def test_the_onboarding_email_never_promises_unlimited():
+    """The highest-reliance surface: it lands in a paying customer's inbox.
+
+    Asserts the actual rendered body for a `starter` payer, not just the absence of a
+    bad string — so a future edit that re-introduces "unlimited" by another wording
+    still fails here.
+    """
+    import importlib
+    import sys
+    sys.path.insert(0, REPO)
+    mod = importlib.import_module("send_onboarding_email")
+    importlib.reload(mod)
+    rendered = mod.BODY.format(base=mod.BASE, plan="Starter", agents="10")
+    assert "unlimited" not in rendered.lower(), (
+        "the $19 payer's onboarding email claims unlimited agents; $19 buys 10")
+    assert "10 agents" in rendered, "the email must state the real agent cap"
+
 
 
 def test_no_surface_labels_the_19_tier_as_pro():

@@ -68,22 +68,22 @@ no auth handshake required to connect.
 curl -X POST https://aiagentscity.com/v1/track \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","rail":"x402","amount_cents":100,"service":"search_query","workspace_key":"YOUR_WORKSPACE_KEY"}'
+  -d '{"agent_id":"YOUR_AGENT_ID","rail":"x402","amount_cents":100,"service":"search_query","workspace_key":"YOUR_WORKSPACE_KEY"}'
 
 # Set a monthly budget cap — pass the agent_secret from above
 curl -X POST https://aiagentscity.com/v1/budget \
   -H "Content-Type: application/json" \
   -H "AL-API-Version: 2026-09-01" \
-  -d '{"agent_id":"my-agent","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
+  -d '{"agent_id":"YOUR_AGENT_ID","monthly_cents":5000,"agent_secret":"YOUR_SAVED_SECRET"}'
 
 # Spend report + anomalies — requires the agent_secret from above
-curl https://aiagentscity.com/v1/report/my-agent \
+curl https://aiagentscity.com/v1/report/YOUR_AGENT_ID \
   -H "X-Agent-Secret: YOUR_SAVED_SECRET"
 ```
 
 **Want to just look at it?** Every agent has a human-readable page (send the
 secret as a header, no curl needed for the JSON):
-`https://aiagentscity.com/v1/report/my-agent/html`
+`https://aiagentscity.com/v1/report/YOUR_AGENT_ID/html`
 
 `/v1/report`, `/v1/tokens`, and `/v1/alerts` all require either
 `X-Agent-Secret: <agent's secret>` or `X-Workspace-Key: <the workspace's key>`
@@ -98,7 +98,7 @@ anyone can read it" behavior — traded for real isolation between customers.
 
 ```bash
 pip install "aiagentscity-ledger[wrapper]"      # client only: the wrapper + the CLI
-agent-ledger init --agent my-agent       # mints a workspace, claims the agent, writes .env
+agent-ledger init --agent YOUR_AGENT_ID       # mints a workspace, claims the agent, writes .env
 ```
 
 ```python
@@ -106,7 +106,7 @@ from openai import OpenAI
 import agentledger
 
 client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
-                          agent_id="my-agent", agent_secret="<from .env>")
+                          agent_id="YOUR_AGENT_ID", agent_secret="<from .env>")
 ```
 
 That is the whole integration. `wrap()` repoints the client's base URL at the proxy and
@@ -159,7 +159,7 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
   revokes it while keeping the spend history
 - **Per-workspace isolation** — your agents, your cap, your subscription; nothing is shared across customers
 - **Free tier: 3 agents per workspace** —
-  **Pro $19/mo** for unlimited tracked agents: [Get Pro](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
+  **Starter $19/mo** for up to 10 tracked agents, **Team $79/mo** for up to 50: [Get Starter](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
 
 ## Architecture
 
@@ -189,8 +189,9 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
   rail whitelisted to mpp/x402/api_key/manual, amount + budget caps bounded [0, $100k]
 - Stripe webhook is fail-closed: events are rejected unless the HMAC signature
   verifies against `STRIPE_WEBHOOK_SECRET_AL`; a verified `pro` checkout marks
-  **that workspace** Pro via its `client_reference_id` (Pro $19/mo ⇒ unlimited
-  agents for that workspace only).
+  **that workspace** its paid tier via its `client_reference_id` (Starter $19/mo ⇒ 10
+  agents on that workspace only; Team $79/mo ⇒ 50; the x402 Pro pass is the only
+  unbounded grant).
 
 ## Contact
 

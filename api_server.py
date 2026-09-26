@@ -11,7 +11,7 @@ Endpoints:
   GET  /stats                        — usage counters
   GET  /.well-known/agent.json       — AEO capability manifest
 """
-import html, json, os, re, sys, time, hmac, hashlib
+import html, json, os, re, sys, time, hmac, hashlib, uuid
 from pathlib import Path
 from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -735,21 +735,22 @@ GET  /start                        — renders the start form (no signup, no log
 ## Getting started (the shortest path)
 
     pip install "aiagentscity-ledger[wrapper]"   # or: uvx --from git+https://github.com/entradox/agent-ledger agent-ledger init
-    agent-ledger init --agent my-agent    # mints a workspace, claims an agent, writes .env
+    agent-ledger init                   # mints a workspace, claims an agent, writes .env
 
 then, in your code:
 
     from openai import OpenAI
     import agentledger
     client = agentledger.wrap(OpenAI(api_key=OPENAI_KEY),
-                              agent_id="my-agent", agent_secret="<from .env>")
+                              agent_id="<AGENT_LEDGER_AGENT_ID from .env>",
+                              agent_secret="<from .env>")
 
 Every call now goes through the proxy: metered, and refused before the provider
 is contacted if it would cross a cap. Streaming, tool calls and retries are
 unchanged — wrap() only repoints the base URL and adds two headers; it does not
 patch or subclass the SDK. Anthropic's client works the same way.
 
-`agent-ledger share --agent-id my-agent --agent-secret <secret>` prints a
+`agent-ledger share --agent-id <AGENT_LEDGER_AGENT_ID from .env> --agent-secret <secret>` prints a
 read-only link anyone can open in a browser.
 
 ## Proxy (enforcement — a cap that stops money, not just a record)
@@ -2011,8 +2012,8 @@ def upgrade_page():
     import site_pages
     import x402_verify
     return HTMLResponse(site_pages.page(
-        "Upgrade to Pro — AgentLedger",
-        "Lift the 3-agent cap on this workspace: $19/mo Starter or $79/mo Team.",
+        "Upgrade — AgentLedger",
+        "Lift the 3-agent cap on this workspace: Starter $19/mo for up to 10 agents, or Team $79/mo for up to 50.",
         site_pages._render_upgrade().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
@@ -2149,6 +2150,39 @@ than the free tier gives, with no human in the loop:</p>
     return _page("AgentLedger — start", body)
 
 
+def _fresh_agent_id(workspace_id: str) -> str:
+    """A ready-to-paste agent_id that is unique per mint.
+
+    WHY THIS EXISTS (2026-09-18, D-1382)
+        The success screen used to hand the customer `"agent_id":"my-agent"` in the copy-paste curl.
+        `agent_id` is a GLOBAL namespace, and `my-agent` was claimed once by our own
+        `agent-ledger init` probe — so that exact string is now permanently taken. The FIRST
+        instruction every new customer follows returned:
+
+            HTTP 401 agent_id 'my-agent' is already claimed — pass its agent_secret
+
+        i.e. a brand-new customer was told someone else already owns their agent. A control call with
+        a unique id returned 200, isolating the defect to the string, not the API.
+
+        Fixing it with a documented placeholder (`<your-agent-id>`) would still require the customer
+        to invent and type a value. The principal's standing rule is that any flow requiring a human
+        to type data fails, so we pre-fill a value that is already valid and unique.
+
+    Shaped to satisfy the API's own `agent_id` validator: lowercase [a-z0-9-], <=64 chars
+    (probed live: "a"*80 -> 422 invalid_agent_id; "agent with space" -> 422; "first-agent" -> ok).
+
+    Uniqueness comes from the workspace id, NOT from a timestamp. That distinction
+    is load-bearing: a time suffix is only as unique as its resolution, so two
+    workspaces minted inside the same window would derive the same id, and the
+    second would be handed a string the first had already claimed — the original
+    bug, restored, just harder to see. A uuid4 does not have a resolution.
+    The workspace id keeps it recognisable and stable per workspace; the uuid
+    carries the guarantee.
+    """
+    tail = re.sub(r"[^a-z0-9]+", "-", workspace_id.lower()).strip("-")[:12]
+    return f"first-agent-{tail}-{uuid.uuid4().hex[:8]}"
+
+
 def _start_key_html(workspace_id: str, raw_key: str, checkout: str,
                     plan_name: str = "Starter") -> str:
     """The post-mint page.
@@ -2186,7 +2220,10 @@ no signup.</p>
 <p><b>Next: claim your first agent.</b> Send this key as <code>workspace_key</code> on the
 first <code>POST /v1/track</code> for a new <code>agent_id</code>. That call returns the
 agent's own <code>agent_secret</code>, which authenticates every write after it.</p>
-<pre class="cmd">curl -sL --post301 -X POST https://aiagentscity.com/v1/track -H "Content-Type: application/json" -H "AL-API-Version: 2026-09-01" -d '{{"agent_id":"my-agent","rail":"manual","amount_cents":100,"service":"test","workspace_key":"YOUR_KEY"}}'</pre>
+<pre class="cmd">curl -sL --post301 -X POST https://aiagentscity.com/v1/track -H "Content-Type: application/json" -H "AL-API-Version: 2026-09-01" -d '{{"agent_id":"{html.escape(_fresh_agent_id(workspace_id), quote=True)}","rail":"manual","amount_cents":100,"service":"test","workspace_key":"{html.escape(raw_key, quote=True)}"}}'</pre>
+<p class="mut">This command is ready to paste as-is: the <code>agent_id</code> is unique to your
+workspace and your key is already filled in. (Agent ids are global, so use a name that is yours —
+this one is pre-made so the example works on the first try.)</p>
 <p class="mut">Full working examples: <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 <p class="mut">Or connect over MCP — <code>claude mcp add --transport http agent-ledger
 https://aiagentscity.com/mcp/</code> — and let the agent do it.</p>
