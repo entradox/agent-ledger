@@ -225,6 +225,21 @@ def test_check_and_proxy_agree_on_the_same_request_body(env, seeded):
         assert len(_Upstream.seen) == before, "a call the check denied reached the provider"
 
 
+def test_a_token_cap_does_not_make_the_check_stricter_than_the_proxy(env):
+    """The proxy never checks token caps before a call. A payload check that
+    did would say 'deny' for a call the proxy forwards: the exact disagreement
+    this endpoint exists to rule out."""
+    tc, _, secret = env
+    _budget(tc, secret, 10_000, monthly_tokens=10)
+    payload = {"model": "gpt-4o-mini", "max_tokens": 100,
+               "messages": [{"role": "user", "content": "hello"}]}
+    verdict = _check(tc, secret, model="gpt-4o-mini", payload=payload).json()
+    r = tc.post("/proxy/openai/v1/chat/completions",
+                headers={"Authorization": "Bearer sk-x", "X-AL-Agent": AGENT,
+                         "X-AL-Secret": secret}, json=payload)
+    assert verdict["allowed"] is (r.status_code == 200), (verdict, r.status_code)
+
+
 # ── read-only ───────────────────────────────────────────────────────────────
 
 def test_a_check_records_nothing(env):

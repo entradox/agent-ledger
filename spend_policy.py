@@ -181,7 +181,11 @@ def check_spend(agent_id: str, amount_cents: Optional[int] = None, model: str = 
     le.validate_agent_id(agent_id)
     estimate, tokens, basis, price = _estimate(amount_cents, (model or "").strip(),
                                                tokens_in, tokens_out, payload)
-    verdict = decide(agent_id, estimate, tokens)
+    # A payload is a call headed for the proxy, and the proxy does not check
+    # token caps (its token rows are force-recorded after the call). Checking
+    # them here would deny what the proxy then forwards. Token caps DO bind a
+    # model+tokens spend, which the agent will record through track().
+    verdict = decide(agent_id, estimate, 0 if basis == "payload" else tokens)
     return {"agent_id": agent_id,
             "allowed": verdict["allowed"],
             "decision": "allow" if verdict["allowed"] else "deny",
