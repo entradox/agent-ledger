@@ -2012,8 +2012,8 @@ def upgrade_page():
     import site_pages
     import x402_verify
     return HTMLResponse(site_pages.page(
-        "Upgrade to Pro — AgentLedger",
-        "Lift the 3-agent cap on this workspace: $19/mo Starter or $79/mo Team.",
+        "Upgrade — AgentLedger",
+        "Lift the 3-agent cap on this workspace: Starter $19/mo for up to 10 agents, or Team $79/mo for up to 50.",
         site_pages._render_upgrade().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 

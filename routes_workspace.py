@@ -361,7 +361,7 @@ function renderPlanBar(d, key){
     .catch(function(e){
       // Keep /upgrade as the href — it is a real page now — and say what happened.
       document.getElementById('payerr').textContent =
-        'Could not build a direct checkout link ('+esc(e.message)+'). Use Upgrade to Pro.';
+        'Could not build a direct checkout link ('+esc(e.message)+'). Use the upgrade button above.';
     });
 }
 

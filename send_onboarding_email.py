@@ -15,10 +15,10 @@ SMTP_PASS = os.environ.get("ICLOUD_SMTP_APP_PASSWORD", "")
 
 BASE = "https://aiagentscity.com"
 
-BODY = """You're on AgentLedger Pro.
+BODY = """You're on the AgentLedger {plan} plan.
 
-Pro lifts the 3-agent cap: track as many agents as you want (the cap is
-skipped automatically on this instance from the moment your checkout
+{plan} lifts the 3-agent cap: track up to {agents} agents on this workspace (the
+cap is skipped automatically on this instance from the moment your checkout
 completed).
 
 1. Track spend (any agent, any rail — x402 / mpp / api_key / manual):
@@ -64,10 +64,28 @@ Questions? entradox@icloud.com
 """
 
 
-def send_onboarding_email(email: str, plan: str = "pro") -> None:
+def send_onboarding_email(email: str, plan: str = "starter") -> None:
     if not SMTP_PASS:
         raise RuntimeError("ICLOUD_SMTP_APP_PASSWORD not set — cannot send onboarding email")
-    body = BODY.format(base=BASE)
+    # D-1441 CLOSURE (2026-09-26). This body used to hardcode a "Pro" greeting and an
+    # unbounded agents promise for EVERY payer, while the webhook actually grants
+    # `starter` (10 agents) to a $19 settlement. So a $19 customer received, in writing,
+    # a promise of unlimited agents that the product then enforced against: their 11th
+    # agent claim is refused. The subject line already said "starter" (it interpolates
+    # `plan`), so the email contradicted ITSELF as well. The banned strings are listed
+    # by pattern in tests/test_tier_label_truth.py rather than quoted here, because
+    # quoting them in this comment would trip that guard.
+    #
+    # The ladder is a code fact, not copy: free = 3 (workspace_engine.WORKSPACE_FREE_AGENT_CAP),
+    # starter = 10 (STARTER_AGENT_CAP), team = 50 (TEAM_AGENT_CAP), and only the x402
+    # "pro" pass is unbounded. The "Pro" name is reserved for that pass, so using it for
+    # a subscription is the specific mislabel this fix removes.
+    #
+    # The default was "pro" for the same reason and is now "starter" — the cheapest paid
+    # plan, so a caller that omits the argument understates rather than overstates. An
+    # overstatement here is a promise emailed to a paying customer.
+    agents = {"starter": "10", "team": "50", "pro": "unlimited"}.get(plan, "10")
+    body = BODY.format(base=BASE, plan=plan.capitalize(), agents=agents)
     msg = MIMEText(body, "plain")
     msg["Subject"] = f"AgentLedger — you're on the {plan} plan"
     msg["From"] = SMTP_USER

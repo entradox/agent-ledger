@@ -47,21 +47,51 @@ def live(monkeypatch):
         importlib.reload(module)
 
     import uvicorn
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(api_server.app, host="127.0.0.1",
-                                           port=port, log_level="error"))
-    threading.Thread(target=server.run, daemon=True).start()
-    base = f"http://127.0.0.1:{port}"
-    deadline = time.time() + 15
+    # Port retry, and a real teardown. Both are here because this test was FLAKY when
+    # first written: it passed alone and failed inside the suite, once out of three runs,
+    # because `_free_port()` closes its socket before uvicorn binds it — another test
+    # can take the port in that window — and the fixture never stopped the server, so a
+    # previous run's thread could outlive the test and mutate the shared module state the
+    # next reload reads. A test that fails one run in three trains people to ignore red.
+    server = None
+    last = None
+    for _ in range(5):
+        port = _free_port()
+        server = uvicorn.Server(uvicorn.Config(api_server.app, host="127.0.0.1",
+                                               port=port, log_level="error"))
+        t = threading.Thread(target=server.run, daemon=True)
+        t.start()
+        base = f"http://127.0.0.1:{port}"
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if server.started:
+                break
+            if not t.is_alive():          # bind failed — port was taken; try another
+                last = "server thread died (port in use)"
+                break
+            time.sleep(0.1)
+        else:
+            last = "server did not come up in 15s"
+            continue
+        if server.started:
+            break
+        server.should_exit = True
+    else:
+        raise RuntimeError(f"no free port would host the test server: {last}")
+
+    yield base
+
+    # Real teardown: stop the server and join its thread before the next fixture
+    # reloads these modules.
+    server.should_exit = True
+    deadline = time.time() + 10
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(base + "/health", timeout=2):
-                break
+            urllib.request.urlopen(base + "/health", timeout=1)
         except Exception:
-            time.sleep(0.2)
-    else:
-        raise RuntimeError("server did not come up")
-    yield base
+            break                             # refused connection == it is down
+        time.sleep(0.1)
+    t.join(timeout=5)
 
 
 def _mint(base: str) -> str:
