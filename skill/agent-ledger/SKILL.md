@@ -32,6 +32,7 @@ money?", and a cap is enforced, not merely reported.
 |------|------------|
 | `ledger_track` | Record a spend entry. Send `tokens_in`/`tokens_out` + `model` and the server prices it — do not do the arithmetic yourself. |
 | `ledger_set_budget` | Set `monthly_cents`/`daily_cents`, plus token caps for agents billed in tokens. Warns at 80%, blocks when exceeded. |
+| `ledger_check_spend` | Ask BEFORE you spend: `amount_cents` (any rail) or `model` + tokens. Returns `allowed`, a reason code and the headroom left. Same decision the proxy enforces; records nothing. |
 | `ledger_report` | Spend over a rolling window: total, by rail, by model, budget status, anomalies. |
 | `ledger_alerts` | Budget warnings (80% threshold) and spending spikes. |
 | `ledger_list_agents` | Owner-only cross-tenant listing — see what exists before creating anything. |

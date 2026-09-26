@@ -78,6 +78,7 @@ MCP_TOOLS_MD = f"""## MCP Tools
 |---|---|---|
 | `ledger_track` | write | record a spend entry (`workspace_key` to claim a new `agent_id`, `agent_secret` thereafter) |
 | `ledger_set_budget` | write | set monthly/daily budget caps (same credentials as `ledger_track`) |
+| `ledger_check_spend` | read | ask BEFORE spending: allowed/denied, reason code, estimate, headroom; same decision the proxy enforces (`agent_secret` or `workspace_key`) |
 | `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies (`agent_secret` or `workspace_key`) |
 | `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts (`agent_secret` or `workspace_key`) |
 | `ledger_list_agents` | read, owner-only | full cross-tenant listing, needs `admin_secret` |
@@ -98,6 +99,7 @@ GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
 POST /v1/budget                    — set budget caps (workspace_key claims, agent_secret writes)
+POST /v1/check                     : may this agent spend X now? allowed + reason + headroom (read-only)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key

@@ -156,6 +156,60 @@
       }
     },
     {
+      "name": "ledger_check_spend",
+      "description": "Ask BEFORE you spend: may this agent spend this much right now?\n\nReturns allowed (true/false), a stable reason code (within_budget,\nover_monthly_cap, over_daily_cap, over_monthly_token_cap,\nover_daily_token_cap, no_budget_set, unpriced_model), a one-line message,\nthe cost estimate, the price used (with its source and as_of date) and\nevery budget window with cap, spent and remaining.\n\nSame decision the /proxy/{provider} gate enforces. Read-only: nothing is\nrecorded or reserved, so record the spend with ledger_track afterwards.\n\nGive exactly one spend shape: amount_cents (any rail, e.g. an x402\npurchase), OR model with tokens_in/tokens_out.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "the agent that would spend"
+          },
+          "amount_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "the spend in cents, if you already know it"
+          },
+          "model": {
+            "default": "",
+            "type": "string",
+            "description": "model id to price from tokens (instead of amount_cents)"
+          },
+          "tokens_in": {
+            "default": 0,
+            "type": "integer",
+            "description": "expected input tokens (with model)"
+          },
+          "tokens_out": {
+            "default": 0,
+            "type": "integer",
+            "description": "expected output tokens, e.g. your max_tokens (with model)"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "the agent's own secret (either this or workspace_key)"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "the owning workspace's key (either this or agent_secret)"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
       "name": "ledger_report",
       "description": "Spend report for an agent over a rolling window.\n\nReturns total spend, breakdown by rail and by service, budget status\n(ok/warning/exceeded), detected anomalies, and entry count.\n\nRequires a credential: either the agent's own agent_secret or its\nworkspace's workspace_key (same rule as GET /v1/report).",
       "inputSchema": {
