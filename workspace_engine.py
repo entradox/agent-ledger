@@ -23,6 +23,27 @@ WORKSPACE_FREE_AGENT_CAP = 3
 STARTER_AGENT_CAP = 10
 TEAM_AGENT_CAP = 50
 PAID_TIERS = ("starter", "team", "pro")
+# Default spend caps stamped on every NEW workspace (VALUE-BUILD-2, 2026-09-26).
+# The headline promise is "refuse before you spend"; before this, a fresh
+# workspace had no cap at all, so the promise was OFF until the caller found
+# ledger_set_budget. The caps are applied PER AGENT, at the moment each agent_id
+# is claimed into the workspace (ledger_engine.ensure_agent_secret), because
+# budgets are per-agent everywhere enforcement runs (track, proxy, /v1/check).
+# Raise or lower them with ledger_set_budget / POST /v1/budget. Workspaces minted
+# before this field existed carry no `default_budget` and are left untouched.
+DEFAULT_MONTHLY_CAP_CENTS = 500
+DEFAULT_DAILY_CAP_CENTS = 100
+DEFAULT_BUDGET = {"monthly_cents": DEFAULT_MONTHLY_CAP_CENTS,
+                  "daily_cents": DEFAULT_DAILY_CAP_CENTS}
+
+
+def default_caps_payload() -> dict:
+    """The default caps as a mint response surfaces them, so every mint door
+    (MCP ledger_start, POST /start JSON, x402) reports the same bounds."""
+    return {"monthly_cents": DEFAULT_MONTHLY_CAP_CENTS,
+            "daily_cents": DEFAULT_DAILY_CAP_CENTS,
+            "applies_to": "each agent_id claimed in this workspace",
+            "change_with": "ledger_set_budget or POST /v1/budget"}
 # Reused from ledger_engine, where the retired per-agent scarcity grant used
 # the same one-year duration — imported rather than re-literal'd so the two
 # can never drift apart.
@@ -220,6 +241,9 @@ def create_workspace(*, owner_email: Optional[str] = None,
         # SCARCITY_PRO_DURATION_SECONDS). A Stripe-paid workspace has no
         # pro_until — subscriptions don't expire this way.
         "pro_until": (time.time() + SCARCITY_PRO_DURATION_SECONDS) if is_scarcity else None,
+        # Copied, not referenced: the caps a workspace was minted with stay its
+        # caps even if the module defaults change later.
+        "default_budget": dict(DEFAULT_BUDGET),
     }
     _write_workspace(record)
     (_index_dir("by_key_hash") / _hash(raw_key)).write_text(workspace_id)

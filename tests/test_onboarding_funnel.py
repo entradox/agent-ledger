@@ -49,6 +49,10 @@ def client(monkeypatch):
     importlib.reload(routes_billing)
     importlib.reload(routes_agents)   # re-decorate onto the reloaded api_server app
     importlib.reload(api_server)
+    # Predates the default cap (VALUE-BUILD-2): these tests spend over $1/day to
+    # exercise something else, so they model a workspace minted WITHOUT one.
+    # The default itself is pinned in tests/test_default_cap.py.
+    monkeypatch.setattr(workspace_engine, "DEFAULT_BUDGET", {})
     from fastapi.testclient import TestClient
     return TestClient(api_server.app)
 

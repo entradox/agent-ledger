@@ -14,6 +14,10 @@ def client(monkeypatch):
     import importlib
     import ledger_engine, workspace_engine, api_server, routes_agents
     importlib.reload(workspace_engine)
+    # Predates the default cap (VALUE-BUILD-2): these tests spend over $1/day to
+    # exercise something else, so they model a workspace minted WITHOUT one.
+    # The default itself is pinned in tests/test_default_cap.py.
+    monkeypatch.setattr(workspace_engine, "DEFAULT_BUDGET", {})
     importlib.reload(ledger_engine)
     importlib.reload(routes_agents)
     importlib.reload(api_server)

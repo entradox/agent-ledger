@@ -299,6 +299,13 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)
     path.write_text(new_secret)
     (_agent_dir(agent_id) / "workspace_id.txt").write_text(workspace["workspace_id"])
+    # A workspace minted with a default_budget caps every agent claimed into it,
+    # so "refuse before you spend" is ON from the first write. Records minted
+    # before the field existed have none and keep their old (uncapped) behaviour.
+    default = workspace.get("default_budget")
+    if default and not _budget_path(agent_id).exists():
+        set_budget(agent_id, int(default.get("monthly_cents", 0)),
+                   int(default.get("daily_cents", 0)))
     return new_secret, True
 
 
