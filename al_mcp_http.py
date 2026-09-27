@@ -265,6 +265,83 @@ def ledger_report(agent_id: str, days: int = 30, agent_secret: str = "",
             "anomalies": r.anomalies, "entry_count": r.entry_count}
 
 
+@mcp.tool(annotations={"title": "Attach the Budget-Enforcing Proxy",
+                        "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True})
+def ledger_proxy_attach(agent_id: str, provider: str = "openai",
+                        agent_secret: str = "", workspace_key: str = "") -> dict:
+    """Point your provider traffic at the proxy so budget caps are enforced
+    BEFORE the provider is contacted, instead of being reported afterwards.
+
+    This closes the gap where the brake was unreachable from MCP: an agent
+    connected over MCP could record spend (ledger_track) but nothing could
+    refuse a call. With this, the cap is enforced on every LLM call.
+
+    Returns the base_url to use, the two headers to send, and the exact change
+    for the OpenAI and Anthropic SDKs. Your provider credential is NOT part of
+    this: it stays in Authorization / x-api-key and is only forwarded, never
+    stored.
+
+    Args:
+        agent_id: the agent whose budget the proxied calls are billed to
+        provider: which upstream to proxy: openai or anthropic
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+    """
+    from ledger_engine import validate_agent_id, ValidationError
+    import proxy as proxy_core
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+
+    provider = (provider or "").strip().lower()
+    # Ask the proxy module which providers actually exist; never hard-code the
+    # list here, or this tool advertises a rail the deployment has not enabled.
+    supported = proxy_core.provider_ids()
+    if provider not in supported:
+        return {"error": f"provider must be one of {', '.join(supported)}; "
+                         f"got '{provider}'",
+                "error_code": "unsupported_provider"}
+    cfg = proxy_core.provider_config(provider) or {}
+    credential_header = cfg.get("credential_header") or "Authorization"
+
+    base = os.environ.get("AL_PUBLIC_BASE_URL",
+                          "https://aiagentscity.com").rstrip("/")
+    proxy_base = f"{base}/proxy/{provider}"
+    try:
+        metrics.record_event("proxy_attach", via="mcp")
+    except Exception:
+        pass
+    return {
+        "base_url": proxy_base,
+        "headers": {"X-AL-Agent": agent_id, "X-AL-Secret": agent_secret or "<your agent_secret>"},
+        "required_headers": ["X-AL-Agent", "X-AL-Secret"],
+        "provider_credential_header": credential_header,
+        "do_not_move": "Your provider key stays where it is. Send it as "
+                       f"{credential_header} exactly as you do today; the proxy forwards it "
+                       "upstream and never stores it.",
+        "how_to_use": {
+            "openai_sdk": f"OpenAI(base_url=\"{proxy_base}\", "
+                          f"default_headers={{\"X-AL-Agent\": \"{agent_id}\", "
+                          f"\"X-AL-Secret\": \"<agent_secret>\"}})",
+            "anthropic_sdk": f"Anthropic(base_url=\"{proxy_base}\", "
+                             f"default_headers={{\"X-AL-Agent\": \"{agent_id}\", "
+                             f"\"X-AL-Secret\": \"<agent_secret>\"}})",
+            "raw_http": f"POST {proxy_base} + your normal provider path, with X-AL-Agent and "
+                        f"X-AL-Secret added alongside {credential_header}",
+        },
+        "what_happens_when_over_budget": "HTTP 402 with the reason, and the provider is never "
+                                         "contacted, so the money is never spent.",
+        "limits": ["Only calls routed through this base_url are enforced. A caller that "
+                   "bypasses the proxy is recorded but not stopped.",
+                   "Dollar caps are enforced before the call; token caps are recorded after."],
+    }
+
+
 @mcp.tool(annotations={"title": "Agent Budget Alerts", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
 def ledger_alerts(agent_id: str, agent_secret: str = "",
