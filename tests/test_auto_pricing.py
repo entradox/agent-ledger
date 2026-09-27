@@ -30,6 +30,10 @@ def env(monkeypatch):
     import ledger_engine, workspace_engine, identity, proxy, routes_agents, api_server
     for module in (proxy, ledger_engine, workspace_engine, identity, routes_agents, api_server):
         importlib.reload(module)
+    # Predates the default cap (VALUE-BUILD-2): these tests spend over $1/day to
+    # exercise something else, so they model a workspace minted WITHOUT one.
+    # The default itself is pinned in tests/test_default_cap.py.
+    monkeypatch.setattr(workspace_engine, "DEFAULT_BUDGET", {})
     from fastapi.testclient import TestClient
     tc = TestClient(api_server.app)
     _, key = workspace_engine.create_workspace(owner_email="a@example.com")

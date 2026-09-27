@@ -61,6 +61,10 @@ def client(monkeypatch):
     import api_server as api_server_mod
     import workspace_engine
     importlib.reload(workspace_engine)
+    # Predates the default cap (VALUE-BUILD-2): these tests spend over $1/day to
+    # exercise something else, so they model a workspace minted WITHOUT one.
+    # The default itself is pinned in tests/test_default_cap.py.
+    monkeypatch.setattr(workspace_engine, "DEFAULT_BUDGET", {})
     _, ws_key = workspace_engine.create_workspace(owner_email='client-fixture@example.com')
     from fastapi.testclient import TestClient
 

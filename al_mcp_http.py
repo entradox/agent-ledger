@@ -265,6 +265,83 @@ def ledger_report(agent_id: str, days: int = 30, agent_secret: str = "",
             "anomalies": r.anomalies, "entry_count": r.entry_count}
 
 
+@mcp.tool(annotations={"title": "Attach the Budget-Enforcing Proxy",
+                        "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True})
+def ledger_proxy_attach(agent_id: str, provider: str = "openai",
+                        agent_secret: str = "", workspace_key: str = "") -> dict:
+    """Point your provider traffic at the proxy so budget caps are enforced
+    BEFORE the provider is contacted, instead of being reported afterwards.
+
+    This closes the gap where the brake was unreachable from MCP: an agent
+    connected over MCP could record spend (ledger_track) but nothing could
+    refuse a call. With this, the cap is enforced on every LLM call.
+
+    Returns the base_url to use, the two headers to send, and the exact change
+    for the OpenAI and Anthropic SDKs. Your provider credential is NOT part of
+    this: it stays in Authorization / x-api-key and is only forwarded, never
+    stored.
+
+    Args:
+        agent_id: the agent whose budget the proxied calls are billed to
+        provider: which upstream to proxy: openai or anthropic
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+    """
+    from ledger_engine import validate_agent_id, ValidationError
+    import proxy as proxy_core
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+
+    provider = (provider or "").strip().lower()
+    # Ask the proxy module which providers actually exist; never hard-code the
+    # list here, or this tool advertises a rail the deployment has not enabled.
+    supported = proxy_core.provider_ids()
+    if provider not in supported:
+        return {"error": f"provider must be one of {', '.join(supported)}; "
+                         f"got '{provider}'",
+                "error_code": "unsupported_provider"}
+    cfg = proxy_core.provider_config(provider) or {}
+    credential_header = cfg.get("credential_header") or "Authorization"
+
+    base = os.environ.get("AL_PUBLIC_BASE_URL",
+                          "https://aiagentscity.com").rstrip("/")
+    proxy_base = f"{base}/proxy/{provider}"
+    try:
+        metrics.record_event("proxy_attach", via="mcp")
+    except Exception:
+        pass
+    return {
+        "base_url": proxy_base,
+        "headers": {"X-AL-Agent": agent_id, "X-AL-Secret": agent_secret or "<your agent_secret>"},
+        "required_headers": ["X-AL-Agent", "X-AL-Secret"],
+        "provider_credential_header": credential_header,
+        "do_not_move": "Your provider key stays where it is. Send it as "
+                       f"{credential_header} exactly as you do today; the proxy forwards it "
+                       "upstream and never stores it.",
+        "how_to_use": {
+            "openai_sdk": f"OpenAI(base_url=\"{proxy_base}\", "
+                          f"default_headers={{\"X-AL-Agent\": \"{agent_id}\", "
+                          f"\"X-AL-Secret\": \"<agent_secret>\"}})",
+            "anthropic_sdk": f"Anthropic(base_url=\"{proxy_base}\", "
+                             f"default_headers={{\"X-AL-Agent\": \"{agent_id}\", "
+                             f"\"X-AL-Secret\": \"<agent_secret>\"}})",
+            "raw_http": f"POST {proxy_base} + your normal provider path, with X-AL-Agent and "
+                        f"X-AL-Secret added alongside {credential_header}",
+        },
+        "what_happens_when_over_budget": "HTTP 402 with the reason, and the provider is never "
+                                         "contacted, so the money is never spent.",
+        "limits": ["Only calls routed through this base_url are enforced. A caller that "
+                   "bypasses the proxy is recorded but not stopped.",
+                   "Dollar caps are enforced before the call; token caps are recorded after."],
+    }
+
+
 @mcp.tool(annotations={"title": "Agent Budget Alerts", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
 def ledger_alerts(agent_id: str, agent_secret: str = "",
@@ -351,16 +428,13 @@ def ledger_check_spend(agent_id: str, amount_cents: Optional[int] = None,
     return result
 
 
-@mcp.tool(annotations={"title": "List Tracked Agents", "readOnlyHint": True,
-                        "destructiveHint": False, "idempotentHint": True})
-def ledger_list_agents(admin_secret: str = "") -> dict:
-    """Owner-only: full cross-tenant listing of every agent ever claimed on
-    this instance, with totals. Requires the operator's admin_secret — this
-    is a portfolio-wide view, not a per-agent report (use ledger_report for
-    that — it requires that agent's agent_secret or its workspace_key).
+def _removed_ledger_list_agents(admin_secret: str = "") -> dict:
+    """OPERATOR ROUTE MOVED TO REST — see GET /v1/agents (X-Al-Admin header).
 
-    Args:
-        admin_secret: operator admin secret (not the same as an agent_secret)
+    Kept as an unregistered function so anyone grepping for the old MCP tool name
+    lands here. It is NOT decorated with @mcp.tool, so it does not appear in
+    tools/list. Original contract, unchanged: full cross-tenant listing of every
+    agent ever claimed on this instance, requiring the operator's admin_secret.
     """
     import os as _os
     real_admin = _os.environ.get("AL_ADMIN_SECRET", "")
@@ -369,6 +443,67 @@ def ledger_list_agents(admin_secret: str = "") -> dict:
     from ledger_engine import list_agents
     _record_mcp_call()
     return {"agents": list_agents()}
+
+
+# ledger_list_agents was REMOVED from the MCP surface on 2026-09-26 (VALUE-BUILD-3, item 5).
+# An agent's-eye audit found it advertised in the public `tools/list` to every connecting
+# agent while requiring the operator's AL_ADMIN_SECRET. The leak was the advertisement, not
+# the access: the tool never exposed data (it returns {"error": "owner only"} without the
+# secret), but it told every arriving agent that a cross-tenant listing exists and that its
+# key is called admin_secret. Probing for that key is work an agent does not need to be
+# handed. The operator route still exists and is unchanged: GET /v1/agents, guarded by
+# X-Al-Admin (api_server.py:425). Nothing was lost; it just stopped being advertised.
+# If the MCP door is ever wanted back, gate it behind an authenticated operator identity
+# rather than a secret-name in a public tool list.
+
+
+@mcp.tool(annotations={"title": "Price a Call Before You Make It",
+                        "readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True})
+def ledger_price(model: str, tokens_in: int = 0, tokens_out: int = 0) -> dict:
+    """What will this call cost? Priced from the same table the caps use.
+
+    Exists because ledger_track requires the CALLER to supply amount_cents, so an
+    agent whose spend is capped could under-report its own cost and stay under
+    the cap. This returns the number the enforcement path would use, so an agent
+    can report honestly (and plan before it spends).
+
+    Cost = (tokens_in * in_rate + tokens_out * out_rate) / 1_000_000. If the
+    model has cache rates, the standard in-rate is used, which is the
+    conservative direction for a spend cap.
+
+    Every price carries the source it came from and the date it was read, and
+    `verified: false` means the number was NOT read off the provider's own
+    pricing page. Treat an unverified price as an estimate, not a measurement.
+
+    Args:
+        model: the model id you are about to call (e.g. gpt-4o, claude-sonnet-4)
+        tokens_in: expected input tokens
+        tokens_out: expected output tokens, e.g. your max_tokens
+    """
+    if not model or not str(model).strip():
+        return {"error": "model is required", "error_code": "model_required"}
+    if tokens_in < 0 or tokens_out < 0:
+        return {"error": "tokens_in and tokens_out must be >= 0",
+                "error_code": "invalid_tokens"}
+    from spend_policy import _estimate, CheckInputError
+    try:
+        cents, tokens, basis, price = _estimate(None, model, tokens_in, tokens_out, None)
+    except CheckInputError as e:
+        return {"error": str(e), "error_code": e.code}
+    if cents is None:
+        # An unpriced model is a fact about the request, not a failure: say so
+        # plainly instead of returning a made-up zero.
+        return {"model": model, "priced": False, "reason": "unpriced_model",
+                "estimate_cents": None, "tokens": tokens,
+                "message": f"no price on file for '{model}'; a capped spend on it "
+                           f"cannot be enforced up front"}
+    try:
+        metrics.record_event("price_lookup", via="mcp")
+    except Exception:
+        pass
+    return {"model": model, "priced": True, "estimate_cents": cents,
+            "tokens": tokens, "basis": basis, "price": price}
 
 
 @mcp.tool(annotations={"title": "Start a Workspace", "readOnlyHint": False,

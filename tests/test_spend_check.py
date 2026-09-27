@@ -155,10 +155,21 @@ def test_token_caps_are_checked_when_tokens_are_named(env):
     assert body["allowed"] is False and body["reason"] == "over_monthly_token_cap"
 
 
-def test_no_budget_is_allowed_and_says_so(env):
-    """Never 'within_budget' when there is no budget: that would be a lie."""
-    tc, _, secret = env
-    body = _check(tc, secret, amount_cents=99_999).json()
+def test_no_budget_is_allowed_and_says_so(env, monkeypatch):
+    """Never 'within_budget' when there is no budget: that would be a lie.
+
+    New workspaces cap every agent by default (VALUE-BUILD-2), so an uncapped
+    agent now only exists in a workspace minted before that default. Model one.
+    """
+    tc, _, _ = env
+    import workspace_engine
+    monkeypatch.setattr(workspace_engine, "DEFAULT_BUDGET", {})
+    _, legacy_key = workspace_engine.create_workspace(owner_email="legacy@example.com")
+    r = tc.post("/v1/track", headers=V, json={"agent_id": "legacy-agent", "rail": "api_key",
+                                              "amount_cents": 0, "service": "seed",
+                                              "workspace_key": legacy_key})
+    body = tc.post("/v1/check", headers={**V, "X-Agent-Secret": r.json()["agent_secret"]},
+                   json={"agent_id": "legacy-agent", "amount_cents": 99_999}).json()
     assert body["allowed"] is True and body["reason"] == "no_budget_set"
     assert "no budget" in body["message"]
 
