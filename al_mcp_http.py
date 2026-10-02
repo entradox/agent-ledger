@@ -132,7 +132,10 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
     or the write is rejected. Amounts are capped
     at $100,000/entry and must be >= 0. If a budget is set for this agent,
     an entry that would cross the monthly/daily cap is blocked, not just
-    logged. Include tokens_in/tokens_out + model on every LLM call so token
+    logged. Caps here bind the AMOUNT YOU REPORT — a caller that lies to
+    amount_cents lies to the cap. The only enforcement against real spend is
+    routing the provider call through the /proxy/{provider} rail, which
+    prices from the provider's own usage block. Include tokens_in/tokens_out + model on every LLM call so token
     burn shows up in the /v1/tokens report.
 
     Args:

@@ -51,11 +51,10 @@ def _limited(key: str, ip: str, n: int = 12, window: int = 60) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    # Railway sits behind a proxy; X-Forwarded-For carries the real client.
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "?"
+    # One resolver for every limiter — see client_ip.py for why the
+    # rightmost XFF entry (edge-appended) is the only trustworthy one.
+    from client_ip import client_ip
+    return client_ip(request)
 
 
 def _get_json(url: str, timeout: int = 15) -> tuple[Optional[dict], Optional[str]]:

@@ -28,6 +28,7 @@ from ledger_engine import (
 )
 import metrics
 import sat_translate
+from client_ip import client_ip
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
@@ -389,8 +390,8 @@ def _ip_hash(request: "Request") -> Optional[str]:
     salt = os.environ.get("AL_METRICS_SALT", "")
     if not salt:
         return None
-    client = request.client.host if request.client else None
-    if not client:
+    client = client_ip(request)
+    if not client or client == "unknown":
         return None
     return hashlib.sha256((client + salt).encode()).hexdigest()[:12]
 
@@ -2305,7 +2306,7 @@ def _start_mint_allowed(request: Request) -> bool:
     it took the whole promotion in a second. In-memory on purpose: this is a
     single-instance service and the counter is not worth a datastore.
     """
-    client = request.client.host if request.client else "unknown"
+    client = client_ip(request)
     now = time.time()
     recent = [t for t in _START_MINTS.get(client, []) if now - t < _START_WINDOW_SECONDS]
     if len(recent) >= _START_MAX_PER_IP:
@@ -2597,7 +2598,31 @@ _SAT_HOP_BY_HOP = frozenset({
     b"host", b"connection", b"keep-alive", b"proxy-authenticate",
     b"proxy-authorization", b"te", b"trailer", b"transfer-encoding",
     b"upgrade", b"content-length",
+    # Credentials that belong to THIS service, not the satellite. SDKs set
+    # default headers globally, so an agent pointing its client at
+    # /mcp/<satellite> can carry its AgentLedger secret along — forwarding it
+    # would hand a live credential to a third party. Same rule
+    # proxy.forward_headers applies upstream.
+    b"x-al-agent", b"x-al-secret", b"x-workspace-key", b"x-al-admin",
+    b"al-api-version", b"cookie",
 })
+
+
+class _ScopeRequestView:
+    """Minimal Request-shaped view over an ASGI scope for client_ip():
+    exposes .headers (dict-like, get()) and .client (with .host)."""
+    __slots__ = ("headers", "client")
+
+    def __init__(self, scope):
+        self.headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope.get("headers") or []
+        }
+        peer = (scope.get("client") or [None])[0]
+
+        class _C:
+            host = peer
+        self.client = _C() if peer else None
 
 
 class _SatelliteMcpProxy:
@@ -2674,9 +2699,12 @@ class _SatelliteMcpProxy:
             return False
         if not isinstance(rpc, dict):
             return False
-        client_ip = (scope.get("client") or [None])[0]
+        # scope["client"] was already rewritten by uvicorn's --proxy-headers
+        # from the attacker-controllable leftmost XFF entry; resolve from the
+        # raw header instead (rightmost = edge-appended, unforgeable).
+        real_ip = client_ip(_ScopeRequestView(scope))
         translated = await sat_translate.translate(prefix, rpc, client,
-                                                    client_ip)
+                                                    real_ip)
         if translated is None:
             return False
         body_b = json.dumps(translated).encode("utf-8")

@@ -70,6 +70,15 @@ IDEMPOTENCY_TTL_SECONDS = 24 * 3600
 # in-flight request (crashed process) rather than a live conflict
 IDEMPOTENCY_INFLIGHT_STALE_SECONDS = 60
 
+import threading
+
+# Serializes the budget check-then-append in track(). Without it, N concurrent
+# writes all read the same spend total, all pass the cap check, and all
+# append — the cap is advisory under any concurrency at all. A single lock
+# (not per-agent) because a JSONL append is microseconds and contention across
+# agents is not a real workload here.
+_spend_lock = threading.Lock()
+
 # typed error envelope: {"error": {"type": str, "message": str, "code": str?, "param": str?}}
 ERROR_TYPE_BY_STATUS = {
     400: "invalid_request_error",
@@ -665,6 +674,9 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
     CLI, which has no notion of secrets. Validates amount and blocks entries
     that would cross a set budget cap (rail=="tokens" rows are 0-cent burn
     bookkeeping and are exempt from budget checks; amount bounds still apply).
+    The cap binds the REPORTED amount: a caller that understates amount_cents
+    understates its own spend. Only calls routed through /proxy/{provider} are
+    priced from the provider's response, so real-money enforcement lives there.
 
     force=True records a charge that has ALREADY been spent, skipping the cap
     check. It exists for the proxy's post-hoc path: the provider has charged us
@@ -674,61 +686,65 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
     that lets a client set it defeats the cap. (Adversarial review 2026-09-13.)
     """
     validate_agent_id(agent_id)
-    if rail == "tokens":
-        if amount_cents != 0:
-            raise ValidationError("rail 'tokens' rows must carry amount_cents=0 — "
-                                  "token burn is bookkeeping, not spend")
-        total_tokens = meta.get("tokens_in", 0) + meta.get("tokens_out", 0)
-        if total_tokens > 0:
+    # The cap check and the append must be atomic: read-sum-then-append without
+    # a lock lets every concurrent writer pass the check against the same stale
+    # total and all spend at once (found in red-team review).
+    with _spend_lock:
+        if rail == "tokens":
+            if amount_cents != 0:
+                raise ValidationError("rail 'tokens' rows must carry amount_cents=0 — "
+                                      "token burn is bookkeeping, not spend")
+            total_tokens = meta.get("tokens_in", 0) + meta.get("tokens_out", 0)
+            if total_tokens > 0:
+                budget = get_budget(agent_id)
+                if budget and not force:
+                    if budget.monthly_token_cap > 0:
+                        projected = _month_tokens(agent_id) + total_tokens
+                        if projected > budget.monthly_token_cap:
+                            raise BudgetExceededError(
+                                f"blocked: this {total_tokens}-token entry would put "
+                                f"{agent_id} at {projected} tokens this month, over its "
+                                f"monthly token cap of {budget.monthly_token_cap}")
+                    if budget.daily_token_cap > 0:
+                        projected_daily = _today_tokens(agent_id) + total_tokens
+                        if projected_daily > budget.daily_token_cap:
+                            raise BudgetExceededError(
+                                f"blocked: this {total_tokens}-token entry would put "
+                                f"{agent_id} at {projected_daily} tokens today, over its "
+                                f"daily token cap of {budget.daily_token_cap}")
+        else:
+            if rail not in VALID_RAILS:
+                raise ValidationError(
+                    f"rail must be one of {sorted(VALID_RAILS)} (got '{rail}')")
+            if amount_cents < 0:
+                raise ValidationError("amount_cents must be >= 0")
+            if amount_cents > MAX_AMOUNT_CENTS:
+                raise ValidationError(
+                    f"amount_cents exceeds the per-entry ceiling of {MAX_AMOUNT_CENTS} "
+                    f"(${MAX_AMOUNT_CENTS/100:,.0f})")
             budget = get_budget(agent_id)
             if budget and not force:
-                if budget.monthly_token_cap > 0:
-                    projected = _month_tokens(agent_id) + total_tokens
-                    if projected > budget.monthly_token_cap:
+                if budget.monthly_cap_cents > 0:
+                    projected = _month_spend(agent_id) + amount_cents
+                    if projected > budget.monthly_cap_cents:
                         raise BudgetExceededError(
-                            f"blocked: this {total_tokens}-token entry would put "
-                            f"{agent_id} at {projected} tokens this month, over its "
-                            f"monthly token cap of {budget.monthly_token_cap}")
-                if budget.daily_token_cap > 0:
-                    projected_daily = _today_tokens(agent_id) + total_tokens
-                    if projected_daily > budget.daily_token_cap:
+                            f"blocked: this ${amount_cents/100:.2f} spend would put "
+                            f"{agent_id} at ${projected/100:.2f}, over its monthly cap "
+                            f"of ${budget.monthly_cap_cents/100:.2f}")
+                if budget.daily_cap_cents > 0:
+                    projected_daily = _today_spend(agent_id) + amount_cents
+                    if projected_daily > budget.daily_cap_cents:
                         raise BudgetExceededError(
-                            f"blocked: this {total_tokens}-token entry would put "
-                            f"{agent_id} at {projected_daily} tokens today, over its "
-                            f"daily token cap of {budget.daily_token_cap}")
-    else:
-        if rail not in VALID_RAILS:
-            raise ValidationError(
-                f"rail must be one of {sorted(VALID_RAILS)} (got '{rail}')")
-        if amount_cents < 0:
-            raise ValidationError("amount_cents must be >= 0")
-        if amount_cents > MAX_AMOUNT_CENTS:
-            raise ValidationError(
-                f"amount_cents exceeds the per-entry ceiling of {MAX_AMOUNT_CENTS} "
-                f"(${MAX_AMOUNT_CENTS/100:,.0f})")
-        budget = get_budget(agent_id)
-        if budget and not force:
-            if budget.monthly_cap_cents > 0:
-                projected = _month_spend(agent_id) + amount_cents
-                if projected > budget.monthly_cap_cents:
-                    raise BudgetExceededError(
-                        f"blocked: this ${amount_cents/100:.2f} spend would put "
-                        f"{agent_id} at ${projected/100:.2f}, over its monthly cap "
-                        f"of ${budget.monthly_cap_cents/100:.2f}")
-            if budget.daily_cap_cents > 0:
-                projected_daily = _today_spend(agent_id) + amount_cents
-                if projected_daily > budget.daily_cap_cents:
-                    raise BudgetExceededError(
-                        f"blocked: this ${amount_cents/100:.2f} spend would put "
-                        f"{agent_id} at ${projected_daily/100:.2f} today, over its "
-                        f"daily cap of ${budget.daily_cap_cents/100:.2f}")
+                            f"blocked: this ${amount_cents/100:.2f} spend would put "
+                            f"{agent_id} at ${projected_daily/100:.2f} today, over its "
+                            f"daily cap of ${budget.daily_cap_cents/100:.2f}")
 
-    entry = SpendEntry(agent_id=agent_id, rail=rail, amount_cents=amount_cents,
-                       service=service, meta=meta)
-    agent_dir = _agent_dir(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    with open(_ledger_path(agent_id), "a") as f:
-        f.write(json.dumps(entry.to_dict()) + "\n")
+        entry = SpendEntry(agent_id=agent_id, rail=rail, amount_cents=amount_cents,
+                           service=service, meta=meta)
+        agent_dir = _agent_dir(agent_id)
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        with open(_ledger_path(agent_id), "a") as f:
+            f.write(json.dumps(entry.to_dict()) + "\n")
     if rail != "tokens":
         _check_budget(agent_id)
         # Spike detection runs on the write path so a customer hears about a

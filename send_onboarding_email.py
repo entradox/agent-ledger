@@ -30,8 +30,9 @@ curl -X POST {base}/v1/track \\
 
 The FIRST call for a new agent_id returns an "agent_secret" in the
 response. Save it — every later write to that agent_id must include it
-(or the write is rejected with 401). Reads (report/tokens/alerts) are
-open, no secret needed.
+(or the write is rejected with 401). Reads (report/tokens/alerts) also
+require a credential — the agent_secret or your workspace_key, sent as the
+X-Agent-Secret / X-Workspace-Key header.
 
 2. Set a budget cap (warns at 80%, blocks spend that would cross it):
 
