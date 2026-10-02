@@ -180,3 +180,77 @@ def test_proxy_upstream_url_rejects_traversal():
     url = proxy.upstream_url("openai", "../v1/admin")
     assert url.endswith("/__rejected__")
     assert ".." not in url
+
+
+# ── Activation: the first write must not strand the caller ─────────────────
+
+@pytest.fixture
+def api_env(monkeypatch):
+    tmp = tempfile.mkdtemp()
+    monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
+    import importlib
+    import ledger_engine, workspace_engine, identity, metrics as _m
+    for m in (_m, workspace_engine, identity, ledger_engine):
+        importlib.reload(m)
+    import routes_agents
+    importlib.reload(routes_agents)
+    yield workspace_engine, ledger_engine
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _shrink_default_caps(workspace_engine, workspace_id, monthly=50, daily=0):
+    rec = workspace_engine.get_workspace(workspace_id)
+    rec["default_budget"] = {"monthly_cents": monthly, "daily_cents": daily}
+    (workspace_engine._workspaces_dir() / f"{workspace_id}.json").write_text(
+        __import__("json").dumps(rec))
+
+
+def test_default_caps_no_longer_reject_a_normal_first_write(api_env):
+    """Measured live: a fresh workspace's first track 402'd on the $1/day
+    default. The new default ($50/mo, no daily) must let it through."""
+    ws, le = api_env
+    assert ws.DEFAULT_MONTHLY_CAP_CENTS >= 350   # the docs demo a $3.50 write
+    assert ws.DEFAULT_DAILY_CAP_CENTS == 0
+
+
+def test_first_write_over_default_cap_does_not_squat_the_agent_id(api_env):
+    """The 402 must happen BEFORE the claim — no secret minted, no slot used."""
+    ws, le = api_env
+    workspace_id, key = ws.create_workspace()
+    _shrink_default_caps(ws, workspace_id, monthly=50, daily=0)
+
+    from fastapi.testclient import TestClient
+    import importlib, api_server
+    importlib.reload(api_server)
+    tc = TestClient(api_server.app)
+    r = tc.post("/v1/track", headers={"AL-API-Version": "2026-09-01"},
+                json={"agent_id": "squatter-check", "rail": "api_key",
+                      "amount_cents": 400, "service": "s",
+                      "workspace_key": key})
+    assert r.status_code == 402
+    assert not le.agent_exists("squatter-check"), \
+        "a refused first write must not claim the agent_id"
+
+
+def test_a_blocked_claim_still_returns_the_minted_secret(api_env):
+    """If a claim-time write is blocked anyway (auto-priced, raced), the 402
+    must carry the minted secret — otherwise the agent_id is orphaned."""
+    ws, le = api_env
+    workspace_id, key = ws.create_workspace()
+    _shrink_default_caps(ws, workspace_id, monthly=1, daily=0)  # 1 cent cap
+
+    from fastapi.testclient import TestClient
+    import importlib, api_server
+    importlib.reload(api_server)
+    tc = TestClient(api_server.app)
+    # model+tokens path prices AFTER claim, so it exercises the post-claim
+    # 402 branch — the one that used to strand the secret.
+    r = tc.post("/v1/track", headers={"AL-API-Version": "2026-09-01"},
+                json={"agent_id": "priced-claim", "rail": "api_key",
+                      "service": "s", "model": "gpt-4o",
+                      "tokens_in": 100000, "tokens_out": 100000,
+                      "workspace_key": key})
+    assert r.status_code == 402
+    err = r.json()["error"]
+    assert err.get("agent_secret"), "402 on a claim must return the secret"
+    assert le.agent_exists("priced-claim")

@@ -31,8 +31,16 @@ PAID_TIERS = ("starter", "team", "pro")
 # budgets are per-agent everywhere enforcement runs (track, proxy, /v1/check).
 # Raise or lower them with ledger_set_budget / POST /v1/budget. Workspaces minted
 # before this field existed carry no `default_budget` and are left untouched.
-DEFAULT_MONTHLY_CAP_CENTS = 500
-DEFAULT_DAILY_CAP_CENTS = 100
+#
+# Sizing (2026-10-02, live-fire review): the old $5/mo + $1/day defaults
+# REJECTED a fresh user's very first track call — the onboarding email itself
+# demos a $3.50 write, which 402'd and stranded the minted agent_secret.
+# Enforcement should be demonstrated, not inflicted before first value: a
+# $50/mo ceiling still refuses real runaway spend while letting every doc
+# example and smoke test through. No daily cap: a daily dimension exists only
+# to trip a busy first day, not to protect anyone who just signed up.
+DEFAULT_MONTHLY_CAP_CENTS = 5000
+DEFAULT_DAILY_CAP_CENTS = 0
 DEFAULT_BUDGET = {"monthly_cents": DEFAULT_MONTHLY_CAP_CENTS,
                   "daily_cents": DEFAULT_DAILY_CAP_CENTS}
 

@@ -23,7 +23,7 @@ from ledger_engine import (
     IdempotencyKeyTooLongError, IdempotencyConflictError,
     idempotency_begin, idempotency_store, idempotency_release,
     validate_agent_id as le_validate_agent_id, _ledger_path,
-    ensure_agent_secret, MAX_AMOUNT_CENTS, VALID_RAILS,
+    ensure_agent_secret, MAX_AMOUNT_CENTS, VALID_RAILS, agent_exists,
 )
 import metrics
 
@@ -205,6 +205,28 @@ def create_track(req: TrackRequest, request: Request):
     # state, so pricing an unauthenticated request let anyone create files
     # under a foreign agent_id and perturb another tenant's carried residue
     # (adversarial review 2026-09-13).
+    # Pre-flight for a CLAIM call (new agent_id + workspace_key + explicit
+    # amount): if the amount already exceeds the workspace's minted default
+    # caps, refuse HERE — before _claim_or_401 burns an agent slot and mints
+    # a secret the 402 would never return (measured live 2026-10-02: a first
+    # track over the daily default orphaned the credential; only a
+    # workspace-key rotate-secret recovered it).
+    if (req.amount_cents is not None and req.workspace_key
+            and not agent_exists(req.agent_id)):
+        import identity, workspace_engine
+        ws_id = identity.resolve_workspace_key(req.workspace_key)
+        ws = workspace_engine.get_workspace(ws_id) if ws_id else None
+        default = (ws or {}).get("default_budget") or {}
+        monthly, daily = default.get("monthly_cents", 0), default.get("daily_cents", 0)
+        if (monthly and req.amount_cents > monthly) or (daily and req.amount_cents > daily):
+            raise HTTPException(402, detail=error_envelope(
+                402, f"blocked: this ${req.amount_cents/100:.2f} spend exceeds the "
+                     f"workspace's default caps (${(daily or monthly)/100:.2f} "
+                     f"{'daily' if daily and req.amount_cents > daily else 'monthly'}). "
+                     "Nothing was claimed — raise the cap with POST /v1/budget on an "
+                     "existing agent, or claim a smaller first write.",
+                code="budget_exceeded"))
+
     secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
     idem_key = request.headers.get("Idempotency-Key")
     #
@@ -283,7 +305,17 @@ def create_track(req: TrackRequest, request: Request):
             _log_alert_daily(req.agent_id, "budget_blocked", str(e))
         except Exception:
             pass
-        raise HTTPException(402, detail=error_envelope(402, str(e)))
+        detail = error_envelope(402, str(e))
+        if created:
+            # The claim already minted a secret; a bare 402 would strand it
+            # server-side and squat the agent_id forever. Return it once, here
+            # — never in the idempotency cache (which only stores 200s anyway).
+            detail["error"]["agent_secret"] = secret
+            detail["error"]["_note"] = (
+                "This write was blocked but the claim STANDS — save this "
+                "agent_secret; it is required for every future write to this "
+                "agent_id. Raise the cap with POST /v1/budget.")
+        raise HTTPException(402, detail=detail)
     if req.rail != "tokens" and tok_meta:
         track(req.agent_id, "tokens", 0, req.model or service, **tok_meta)
     result = entry.to_dict()

@@ -2406,6 +2406,7 @@ def start_mint(request: Request):
                              "workspace_key": raw_key,
                              "plan": "free",
                              "agents_included": BETA_AGENT_CAP,
+                             "default_budget": workspace_engine.default_caps_payload(),
                              "upgrade": f"POST /v1/billing/x402 for a {round(x402_verify.X402_PRO_PASS_SECONDS / 3600)}h Pro pass"},
                             headers={"Cache-Control": "no-store"})
     # no-store: the key is shown exactly once and can never be re-revealed, so

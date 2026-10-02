@@ -162,7 +162,14 @@ def ledger_track(agent_id: str, rail: str, amount_cents: int, service: str,
     try:
         entry = track(agent_id, rail, amount_cents, service, **meta)
     except (ValidationError, BudgetExceededError) as e:
-        return {"error": str(e)}
+        out = {"error": str(e)}
+        if created and isinstance(e, BudgetExceededError):
+            # Same orphan fix as REST /v1/track: the claim minted a secret and
+            # a bare error would strand it, squatting the agent_id forever.
+            out["agent_secret"] = secret
+            out["_note"] = ("The write was blocked but the claim STANDS — save this "
+                            "agent_secret; raise the cap with ledger_set_budget.")
+        return out
     result = entry.to_dict()
     if created:
         result["agent_secret"] = secret
@@ -589,6 +596,7 @@ def ledger_start() -> dict:
         "key_shown_once": True,
         "plan": "free",
         "agents_included": 3,
+        "default_budget": workspace_engine.default_caps_payload(),
         "next_steps": [
             "Store workspace_key now — it cannot be shown again.",
             "Call ledger_track with a NEW agent_id and this workspace_key; the "
