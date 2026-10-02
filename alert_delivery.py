@@ -106,6 +106,27 @@ def _is_public_target(url: str) -> bool:
     return True
 
 
+def _public_required() -> bool:
+    """Private targets are only allowed when the operator opted in."""
+    return os.environ.get("AL_ALLOW_PRIVATE_WEBHOOKS", "") != "1"
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect hop. urllib's default handler follows 3xx
+    blindly, so a registered PUBLIC url could 302 to a private/link-local
+    target and reach it — the registration-time check never sees the second
+    hop. Each redirect target goes through the same validation as the
+    registered URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlparse(newurl)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise WebhookError(f"redirect to non-http(s) target refused: {newurl[:80]}")
+        if _public_required() and not _is_public_target(newurl):
+            raise WebhookError("redirect target must resolve to a public address")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def validate_url(url: str) -> str:
     """http(s) only. An email-shaped string is rejected here — the product has
     no mail rail by design (see the module docstring)."""
@@ -118,7 +139,7 @@ def validate_url(url: str) -> str:
                            "is not offered; point a webhook at your own service")
     if not parsed.hostname:
         raise WebhookError("url must include a host")
-    if os.environ.get("AL_ALLOW_PRIVATE_WEBHOOKS", "") != "1" and not _is_public_target(url):
+    if _public_required() and not _is_public_target(url):
         raise WebhookError("url must resolve to a public address")
     return url
 
@@ -133,7 +154,13 @@ def load_registry(workspace_id: str) -> list:
         return []
 
 
+_registry_lock = threading.Lock()
+
+
 def _save_registry(workspace_id: str, entries: list) -> None:
+    """Caller MUST hold _registry_lock (register/unregister wrap the whole
+    load-modify-write; locking only this write would still let concurrent
+    mutations drop each other's entries)."""
     path = _registry_path(workspace_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(entries, indent=2))
@@ -141,27 +168,29 @@ def _save_registry(workspace_id: str, entries: list) -> None:
 
 def register(workspace_id: str, url: str, events: Optional[list] = None,
              label: str = "") -> dict:
-    entries = load_registry(workspace_id)
-    if len(entries) >= MAX_WEBHOOKS_PER_WORKSPACE:
-        raise WebhookError(
-            f"at most {MAX_WEBHOOKS_PER_WORKSPACE} destinations per workspace")
     url = validate_url(url)
     selected = [e for e in (events or list(EVENTS)) if e in EVENTS]
     if not selected:
         raise WebhookError(f"events must be a non-empty subset of {list(EVENTS)}")
-    entry = {"id": "wh_" + os.urandom(8).hex(), "url": url,
-             "events": selected, "label": label, "created_at": time.time()}
-    entries.append(entry)
-    _save_registry(workspace_id, entries)
+    with _registry_lock:
+        entries = load_registry(workspace_id)
+        if len(entries) >= MAX_WEBHOOKS_PER_WORKSPACE:
+            raise WebhookError(
+                f"at most {MAX_WEBHOOKS_PER_WORKSPACE} destinations per workspace")
+        entry = {"id": "wh_" + os.urandom(8).hex(), "url": url,
+                 "events": selected, "label": label, "created_at": time.time()}
+        entries.append(entry)
+        _save_registry(workspace_id, entries)
     return entry
 
 
 def unregister(workspace_id: str, webhook_id: str) -> bool:
-    entries = load_registry(workspace_id)
-    keep = [e for e in entries if e.get("id") != webhook_id]
-    if len(keep) == len(entries):
-        return False
-    _save_registry(workspace_id, keep)
+    with _registry_lock:
+        entries = load_registry(workspace_id)
+        keep = [e for e in entries if e.get("id") != webhook_id]
+        if len(keep) == len(entries):
+            return False
+        _save_registry(workspace_id, keep)
     return True
 
 
@@ -195,14 +224,24 @@ def recent_deliveries(workspace_id: str, limit: int = 50) -> list:
 
 
 def deliver_once(entry: dict, payload: dict) -> None:
-    """One attempt. Raises on failure so the caller can retry and record."""
+    """One attempt. Raises on failure so the caller can retry and record.
+
+    The target is re-validated HERE, not just at registration: DNS answers
+    change between the two calls (rebinding), so checking only in
+    validate_url() would let a URL that resolved publicly at signup deliver
+    to a private address at send time. Redirect hops are validated by
+    _ValidatingRedirectHandler for the same reason."""
+    url = entry["url"]
+    if _public_required() and not _is_public_target(url):
+        raise WebhookError("url no longer resolves to a public address")
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
-        entry["url"], data=body, method="POST",
+        url, data=body, method="POST",
         headers={"Content-Type": "application/json",
                  "User-Agent": "agent-ledger-webhooks/1",
                  "X-AgentLedger-Event": payload["event"]})
-    with urllib.request.urlopen(req, timeout=DELIVERY_TIMEOUT_SECONDS) as resp:
+    opener = urllib.request.build_opener(_ValidatingRedirectHandler)
+    with opener.open(req, timeout=DELIVERY_TIMEOUT_SECONDS) as resp:
         if resp.status >= 300:
             raise RuntimeError(f"endpoint returned {resp.status}")
 
@@ -232,6 +271,12 @@ def deliver(workspace_id: str, entry: dict, payload: dict) -> dict:
     return record
 
 
+# Bound on in-flight delivery threads: retries sleep between attempts, so a
+# burst of alerts against dead endpoints would otherwise pile up threads
+# (each holding a socket and sleeping up to ~31s) for the whole retry window.
+_delivery_slots = threading.Semaphore(32)
+
+
 def dispatch(event: str, *, agent_id: str, message: str,
              workspace_id: Optional[str] = None) -> int:
     """Fan an event out to every matching destination. Returns how many were
@@ -250,10 +295,34 @@ def dispatch(event: str, *, agent_id: str, message: str,
         payload = {"event": event, "agent_id": agent_id, "message": message,
                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "report_url": f"{base}/v1/report/{agent_id}"}
+        queued = 0
         for entry in targets:
-            threading.Thread(target=deliver,
-                             args=(workspace_id, entry, payload),
-                             daemon=True).start()
-        return len(targets)
+            # Threads still spawn per target (a parked delivery parks its
+            # thread, not the caller) but the semaphore caps how many can be
+            # actively delivering/retrying at once.
+            if not _delivery_slots.acquire(blocking=False):
+                _record(workspace_id, {"ts": time.time(),
+                                       "webhook_id": entry.get("id"),
+                                       "url": entry.get("url"),
+                                       "event": event,
+                                       "agent_id": agent_id,
+                                       "status": "dropped_congestion",
+                                       "attempts": 0})
+                continue
+            try:
+                threading.Thread(
+                    target=lambda: (_deliver_locked(workspace_id, entry, payload)),
+                    daemon=True).start()
+                queued += 1
+            except Exception:
+                _delivery_slots.release()
+        return queued
     except Exception:
         return 0
+
+
+def _deliver_locked(workspace_id: str, entry: dict, payload: dict) -> None:
+    try:
+        deliver(workspace_id, entry, payload)
+    finally:
+        _delivery_slots.release()

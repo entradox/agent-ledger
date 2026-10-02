@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""AgentLedger MCP server — per-agent spend management as native tools."""
+"""AgentLedger MCP server — per-agent spend management as native tools.
+
+STDIO/LOCAL ONLY. These tools carry NO authentication — that is correct for
+a server the operator runs on their own machine over stdio, and it is exactly
+why this module must NEVER be mounted over an HTTP transport: the hosted
+authenticated MCP surface is al_mcp_http.py. Serving this file remotely would
+expose unauthenticated cross-tenant writes and the full agent list.
+"""
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from ledger_engine import track, set_budget, get_budget, report, list_agents
+from ledger_engine import (track, set_budget, get_budget, report, list_agents,
+                           validate_agent_id, ValidationError)
 import metrics
 
 from fastmcp import FastMCP
@@ -71,6 +79,10 @@ def ledger_report(agent_id: str, days: int = 30) -> dict:
 @mcp.tool()
 def ledger_alerts(agent_id: str) -> dict:
     """Show budget/spending alerts for an agent."""
+    try:
+        validate_agent_id(agent_id)  # rejects ../ — agent_id goes into a path
+    except ValidationError as e:
+        return {"error": str(e)}
     alerts_path = os.path.join(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")),
                                "agents", agent_id, "alerts.jsonl")
     if not os.path.exists(alerts_path):

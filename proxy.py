@@ -453,6 +453,11 @@ def upstream_url(provider: str, path: str) -> Optional[str]:
     cfg = provider_config(provider)
     if not cfg:
         return None
+    # The path segment is attacker-controlled (route wildcard). Reject
+    # traversal — httpx sends it verbatim, and an upstream that normalizes
+    # ".." would let a caller escape the provider's API prefix.
+    if ".." in path or "\\" in path:
+        return f"{cfg['base_url'].rstrip('/')}/__rejected__"
     base = os.environ.get(f"AL_PROXY_{provider.upper()}_BASE", cfg["base_url"])
     return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
