@@ -406,7 +406,7 @@ def pricing_md() -> str:
         for t in prod["tiers"]:
             kind = t["kind"]
             if kind == "free":
-                price = "Free"
+                price = "Free" if t["name"] != "Free" else "$0"
             elif kind == "once":
                 price = f"${t['price_once']} one-time"
             elif kind == "custom":
