@@ -385,3 +385,52 @@ def pricing_section(product_id: str) -> str:
         f'Refund eligibility: first paid purchase refundable within 14 days — '
         f'<a href="/terms#refunds">see the refund policy</a>.'
         f'</p>{x402_block}</div>' + _TOGGLE_JS)
+
+
+def pricing_md() -> str:
+    """Machine-readable price sheet for /pricing.md.
+
+    Rendered from PRODUCTS — the same source as the HTML /pricing page — so the
+    markdown can never disagree with what a buyer sees. Deliberately carries NO
+    checkout links: bare Stripe URLs lack the client_reference_id the webhook
+    needs to credit a workspace (_cta explains the incident), so agents are sent
+    to each product's free entry point instead.
+    """
+    import x402_verify
+
+    out = ["# AI Agent City — pricing", "",
+           "Five products, each with a free tier. Prices in USD, cancel any time.", ""]
+    for prod in PRODUCTS.values():
+        out.append(f"## {prod['name']}")
+        out.append("")
+        for t in prod["tiers"]:
+            kind = t["kind"]
+            if kind == "free":
+                price = "Free"
+            elif kind == "once":
+                price = f"${t['price_once']} one-time"
+            elif kind == "custom":
+                price = "Custom"
+            else:
+                price = f"${t['price_mo']}/mo"
+                if t.get("price_yr"):
+                    price += f" (${t['price_yr']}/yr)"
+            out.append(f"- **{t['name']} — {price}** — {t['blurb']}")
+            for feat in t["features"]:
+                out.append(f"  - {feat}")
+        out.append("")
+    out += [
+        "## Agent-paid rail (x402)",
+        "",
+        "An agent with a Base wallet can buy a 24-hour AgentLedger Pro pass for "
+        f"{x402_verify.X402_MINT_PRICE} USDC over x402 — no account, card form, or human "
+        "checkout. It does not renew automatically; continued access requires another "
+        "payment. Request and response format: /.well-known/x402.json.",
+        "",
+        "## Terms",
+        "",
+        "Subscriptions end at the close of the billing period. First paid purchase "
+        "refundable within 14 days — see /terms#refunds. Full pricing page: /pricing.",
+        "",
+    ]
+    return "\n".join(out)

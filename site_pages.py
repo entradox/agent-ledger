@@ -951,3 +951,49 @@ def _render_pricing() -> str:
                  "Use <a href=\"/start\">/start</a> to get a workspace, or email us.</p>")
     return _PRICING_PAGE_BODY.replace("{PRICING_AGENT_LEDGER}", cards)
 
+
+
+def okf_index_md() -> str:
+    """D-1553 — /okf/index.md, an agent-readable map of every machine surface on the
+    root domain. A pointer document, not a page clone: openapi.json and the MCP
+    manifests already describe the interface better than markdown could."""
+    return """# AI Agent City — agent-readable knowledge index
+
+Umbrella site for five products: AgentLedger, Agent Watch, Perimeter Watch,
+TrustScan, Cited. AgentLedger is the ledger service served by this process.
+
+## Machine surfaces
+
+- OpenAPI 3: /openapi.json
+- MCP manifest: /server.json  ·  /.well-known/mcp/server-card.json  ·  /.well-known/glama.json
+- LLM manifest: /llms.txt
+- Buyer skill: /skill.md  ·  /agents.txt
+- x402 payment challenge format: /.well-known/x402.json
+- Live status: /status
+- Sitemap: /sitemap.xml  ·  Robots: /robots.txt
+- IndexNow proof: /indexnow.txt
+
+## Pricing
+
+- Machine-readable price sheet: /pricing.md
+- Human pricing page: /pricing
+- Agent-paid rail: 24-hour AgentLedger Pro pass over x402 — see /.well-known/x402.json
+
+## Products
+
+- AgentLedger — per-agent spend tracking, budgets, alerts. Landing: /agent-ledger · self-serve workspace: /start
+- Agent Watch — alerts when new AI agents hit your endpoints: /agent-watch
+- Perimeter Watch — domain-perimeter monitoring: /perimeter-watch
+- TrustScan — npm/MCP package trust scoring: /trust-scan
+- Cited — AI-search visibility scans: /cited
+- Comparison: /compare · All products: /products
+
+## Sister product (separate service, same domain)
+
+- Benefits City — verified US bank/card signup bonuses, MCP + JSON feed: /benefits/
+
+## Data handling
+
+Cost metadata only — no prompt or response content is collected or stored.
+See /privacy and /terms.
+"""

@@ -2015,6 +2015,25 @@ def pricing_page():
         site_pages._render_pricing().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
+@app.get("/pricing.md")
+def pricing_md_page():
+    """Machine-readable price sheet. Rendered from pricing.PRODUCTS — the same
+    source as the HTML page — so the two can never disagree. D-1553."""
+    import pricing
+    return PlainTextResponse(pricing.pricing_md(), media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/okf")
+@app.get("/okf/")
+@app.get("/okf/index.md")
+def okf_index_md():
+    """Agent-readable knowledge index — a map to the real machine surfaces, not a
+    clone of the HTML pages (openapi.json + MCP already describe the interface).
+    D-1553."""
+    import site_pages
+    return PlainTextResponse(site_pages.okf_index_md(), media_type="text/markdown; charset=utf-8")
+
+
 @app.get("/upgrade", response_class=HTMLResponse)
 def upgrade_page():
     """The durable upgrade door, reachable from anywhere — including the dashboard.
