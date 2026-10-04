@@ -409,12 +409,40 @@ async def _metrics_middleware(request: Request, call_next):
             # their own bucket so the buy funnel stays countable.
             path = "/v1/billing/<redacted>"
         ip_bucket = f"path:{path}" if path in REACH_PATHS or path.startswith("/mcp") else None
-        metrics.record_event("http", path=path, method=request.method,
+        metrics.record_event("http", path=path,
+                             method=request.scope.get("al.orig_method", request.method),
                               status=response.status_code, ip_hash=_ip_hash(request),
                               ip_bucket=ip_bucket)
     except Exception:
         pass
     return response
+
+
+@app.middleware("http")
+async def _head_get_equivalence(request: Request, call_next):
+    """Serve HEAD as a headers-only GET.
+
+    starlette 1.x no longer auto-adds HEAD to GET routes, so every HEAD probe
+    (sitemap validators, CDN revalidation, some crawlers) drew a 405 while GET
+    on the same path served 200 — observed live on /sitemap.xml. Rewriting the
+    method at the OUTERMOST middleware (this is defined last, so it wraps the
+    others) means redirects, canonical injection and routing all see an
+    ordinary GET; we then drain the body and return headers only, preserving
+    content-length so the response is byte-identical to a GET minus the body.
+
+    The original method is stashed in scope so metrics can still tell HEAD
+    probes apart from real page GETs.
+    """
+    if request.method != "HEAD":
+        return await call_next(request)
+    request.scope["al.orig_method"] = "HEAD"
+    request.scope["method"] = "GET"
+    response = await call_next(request)
+    headers = dict(response.headers)
+    async for _ in response.body_iterator:
+        pass  # drain — leaving it half-read would break keep-alive reuse
+    return Response(status_code=response.status_code, headers=headers)
+
 
 @app.get("/health")
 def health():
