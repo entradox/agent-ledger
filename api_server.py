@@ -429,6 +429,15 @@ async def _rapidapi_workspace_middleware(request: Request, call_next):
     provided = request.headers.get("x-rapidapi-proxy-secret", "")
     if not secret or not provided or not hmac.compare_digest(provided, secret):
         return await call_next(request)
+    # The Rapid Runtime does not send AL-API-Version and marketplace
+    # subscribers cannot be asked to: once the proxy secret verifies, this
+    # request is trusted gateway traffic, so pin it to the current version
+    # rather than 400 on a header the rail can never supply.
+    request.scope["headers"] = [
+        (k, v) for k, v in request.scope["headers"]
+        if k != b"al-api-version"]
+    request.scope["headers"].append(
+        (b"al-api-version", AL_API_VERSION.encode()))
     user = (request.headers.get("x-rapidapi-user") or "").strip()
     if user and len(user) <= RAPIDAPI_MAX_USER_LEN:
         import workspace_engine

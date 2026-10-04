@@ -155,3 +155,23 @@ def test_injected_key_reaches_reads_and_budget_writes(env):
 def test_missing_user_header_falls_through_unmodified(env):
     r = _track(env, extra_headers={"X-RapidAPI-Proxy-Secret": PROXY_SECRET})
     assert r.status_code == 401, r.text  # valid secret, no user → no rail
+
+
+def test_verified_gateway_call_needs_no_al_api_version(env):
+    # The Rapid Runtime never sends AL-API-Version and a marketplace
+    # subscriber cannot be asked to. Once the proxy secret verifies, the
+    # middleware pins the version itself — without this, every subscriber
+    # call dies on version_header and the rail is dead on arrival.
+    r = env.client.post("/v1/track",
+                        json={"agent_id": "no-version-agent",
+                              "rail": "manual", "amount_cents": 5},
+                        headers=_rapidapi_headers("user-nov"))
+    assert r.status_code == 200, r.text
+    assert env.workspace_engine.get_workspace_by_rapidapi_user("user-nov") is not None
+
+
+def test_unverified_caller_still_needs_al_api_version(env):
+    r = env.client.post("/v1/track",
+                        json={"agent_id": "plain-agent",
+                              "rail": "manual", "amount_cents": 5})
+    assert r.status_code == 400, r.text
