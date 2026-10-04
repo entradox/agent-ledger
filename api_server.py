@@ -1937,7 +1937,10 @@ PRIVACY_BODY = """
 <h2>What is stored</h2>
 <p>Per spend entry: the agent id, the payment rail, the service label, the amount, token counts,
 the model name and a timestamp. Per workspace: the workspace id, a hash of the workspace key, the
-plan and billing state, and — if you register one — an alert webhook URL. Keys and secrets are stored as hashes or as files readable only by the service.</p>
+plan and billing state, and — if you register one — an alert webhook URL. If you subscribe through
+a marketplace (RapidAPI), we also store the marketplace account identifier it sends us so your
+subscription maps to a workspace. Keys and secrets are stored as hashes or as files readable only
+by the service.</p>
 
 <h2>What is never stored</h2>
 <p>Prompts and model responses. There is no field for them: the ledger records cost metadata, and
@@ -1948,9 +1951,10 @@ anything sensitive in a service name.</p>
 
 <h2>Who processes it</h2>
 <p>Railway hosts the service and its storage volume. Stripe processes payments and receives the
-billing details you give it — we never see your card number. Alert webhooks, if you register one,
-carry cost metadata to the URL you chose. The product does not send email to arbitrary addresses on
-your behalf. Nothing else receives your data.</p>
+billing details you give it — we never see your card number. RapidAPI (Nokia) processes marketplace
+subscriptions and tells us your marketplace account identifier when you call through its gateway.
+Alert webhooks, if you register one, carry cost metadata to the URL you chose. The product does not
+send email to arbitrary addresses on your behalf. Nothing else receives your data.</p>
 
 <h2>What we do not do</h2>
 <p>We do not sell, rent or share your data, and we do not use it to train models.</p>
