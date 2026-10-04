@@ -126,6 +126,39 @@ X402_DISABLED_REASON = "not initialized"
 resource_server = None
 HTTPRequestContext = None
 
+# Bazaar discovery declaration (x402 spec, specs/extensions/bazaar.md).
+# The facilitator catalogs a resource ONLY when the settled PaymentPayload
+# carries this extension — a plain settle indexes nothing. Module-level so
+# tests can validate the shape against the SDK's own parser without building
+# the resource server (which needs facilitator credentials).
+_BAZAAR_DISCOVERY = {
+    "info": {
+        "input": {
+            "type": "http",
+            "method": "POST",
+            "bodyType": "json",
+            "body": {},
+        },
+        "output": {
+            "type": "json",
+            "example": {
+                "workspace_id": "ws_example",
+                "workspace_key": "wk_shown_once",
+                "plan": "starter",
+            },
+        },
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "input": {"type": "object"},
+            "output": {"type": "object"},
+        },
+        "required": ["input"],
+    },
+}
+
 
 class X402Unavailable(RuntimeError):
     """x402 is not configured/initialized on this service."""
@@ -173,6 +206,18 @@ def _init():
         facilitator = HTTPFacilitatorClientSync(facilitator_cfg)
         core = x402ResourceServerSync(facilitator_clients=[facilitator])
         core.register(X402_NETWORK, ExactEvmServerScheme())
+        # Bazaar discovery extension: the CDP facilitator catalogs a resource
+        # only when the settled PaymentPayload carries the bazaar declaration —
+        # plain settlements never reach the index (confirmed live 2026-10-04:
+        # 4 settlements, discovery/search still 0 hits). Declaring it here puts
+        # the extension in the 402's `extensions` block; clients echo it back
+        # in the payload and the facilitator extracts it at settle.
+        try:
+            from x402.extensions.bazaar import bazaar_resource_server_extension
+            core.register_extension(bazaar_resource_server_extension)
+        except Exception:
+            pass  # discovery metadata must never disable the pay route
+        bazaar_ext = dict(_BAZAAR_DISCOVERY)
         routes = {
             ROUTE_KEY: RouteConfig(
                 accepts=PaymentOption(
@@ -191,6 +236,7 @@ def _init():
                             "bound to the paying wallet.",
                 service_name="AgentLedger",
                 tags=["agent-economy", "ledger", "billing", "workspace"],
+                extensions={"bazaar": bazaar_ext},
             ),
         }
         server = x402HTTPResourceServerSync(core, routes)
