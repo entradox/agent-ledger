@@ -174,6 +174,10 @@ def get_workspace_by_wallet(wallet_address: str) -> Optional[dict]:
     return _lookup_by_index("by_wallet", _normalize_wallet(wallet_address))
 
 
+def get_workspace_by_rapidapi_user(rapidapi_user: str) -> Optional[dict]:
+    return _lookup_by_index("by_rapidapi_user", rapidapi_user)
+
+
 def wallet_has_used_trial(wallet_address: str) -> bool:
     """True when this wallet already bought its one-time $0.01 x402 trial.
 
@@ -189,12 +193,13 @@ def wallet_has_used_trial(wallet_address: str) -> bool:
 def create_workspace(*, owner_email: Optional[str] = None,
                       google_sub: Optional[str] = None,
                       wallet_address: Optional[str] = None,
+                      rapidapi_user: Optional[str] = None,
                       grant_scarcity: bool = True,
                       is_demo: bool = False,
                       ) -> tuple[str, Optional[str]]:
     """Idempotent per identity dimension: calling again with the same
-    google_sub or wallet_address returns the SAME workspace (no duplicate
-    minted) and `None` for the key.
+    google_sub, wallet_address or rapidapi_user returns the SAME workspace
+    (no duplicate minted) and `None` for the key.
 
     It returns None rather than a fresh key deliberately. The raw key only
     ever exists at mint time (only its hash is stored — that is the entire
@@ -215,6 +220,10 @@ def create_workspace(*, owner_email: Optional[str] = None,
         existing = get_workspace_by_wallet(wallet_address)
         if existing:
             return existing["workspace_id"], None
+    if rapidapi_user:
+        existing = get_workspace_by_rapidapi_user(rapidapi_user)
+        if existing:
+            return existing["workspace_id"], None
 
     workspace_id = "ws_" + secrets.token_urlsafe(16)
     raw_key = "wk_live_" + secrets.token_urlsafe(32)
@@ -233,6 +242,7 @@ def create_workspace(*, owner_email: Optional[str] = None,
         "owner_email": owner_email,
         "google_sub": google_sub,
         "wallet_address": wallet_address,
+        "rapidapi_user": rapidapi_user,
         "workspace_key_hash": _hash(raw_key),
         "stripe_customer_id": None,
         "plan": "pro" if is_scarcity else "free",
@@ -259,6 +269,39 @@ def create_workspace(*, owner_email: Optional[str] = None,
         (_index_dir("by_google_sub") / _hash(google_sub)).write_text(workspace_id)
     if wallet_address:
         (_index_dir("by_wallet") / _hash(wallet_address)).write_text(workspace_id)
+    if rapidapi_user:
+        (_index_dir("by_rapidapi_user") / _hash(rapidapi_user)).write_text(workspace_id)
+    return workspace_id, raw_key
+
+
+def _rapidapi_key_path(rapidapi_user: str) -> Path:
+    d = DATA_DIR / "rapidapi"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / _hash(rapidapi_user)
+
+
+def rapidapi_credential(rapidapi_user: str) -> tuple[str, str]:
+    """Resolve a RapidAPI marketplace subscriber to (workspace_id,
+    workspace_key), minting both on first sight.
+
+    The raw key is persisted in DATA_DIR/rapidapi/<sha256(user)> — the Rapid
+    Runtime authenticates by proxy secret, so the key exists purely to
+    satisfy the workspace-key gates downstream and is never handed to the
+    subscriber. If the workspace exists but the key file is gone, reissue is
+    safe here: no other party ever held the raw key on this rail.
+    """
+    existing = get_workspace_by_rapidapi_user(rapidapi_user)
+    if existing is not None:
+        workspace_id = existing["workspace_id"]
+        path = _rapidapi_key_path(rapidapi_user)
+        if path.exists():
+            return workspace_id, path.read_text().strip()
+        raw_key = reissue_key(workspace_id)
+        path.write_text(raw_key)
+        return workspace_id, raw_key
+    workspace_id, raw_key = create_workspace(rapidapi_user=rapidapi_user,
+                                             grant_scarcity=False)
+    _rapidapi_key_path(rapidapi_user).write_text(raw_key)
     return workspace_id, raw_key
 
 

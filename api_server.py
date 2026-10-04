@@ -382,6 +382,73 @@ async def _canonical_middleware(request: Request, call_next):
         return Response(content=body, status_code=200, headers=headers)
 
 
+# ── RapidAPI marketplace rail ────────────────────────────────────────────
+# The Rapid Runtime authenticates subscribers FOR us: a valid
+# X-RapidAPI-Proxy-Secret proves the request crossed RapidAPI's edge (they
+# set/strip these headers there — a direct caller's copies mean nothing),
+# X-RapidAPI-User names the subscriber, X-RapidAPI-Subscription names their
+# plan. Resolve the subscriber to a workspace (minting on first call) and
+# inject its workspace_key, so every downstream gate works unchanged and the
+# subscriber never handles a credential at all.
+RAPIDAPI_MAX_USER_LEN = 128
+
+
+def _rapidapi_sync_tier(workspace_id: str, rapidapi_user: str,
+                        subscription: str) -> None:
+    """Reconcile the workspace's tier with the marketplace plan the
+    subscriber currently holds. Upgrades only touch free workspaces; the
+    downgrade path only touches tiers THIS rail granted (period_source
+    'rapidapi') — a Stripe- or x402-paid workspace is never demoted by a
+    marketplace header, and a cancelled marketplace subscriber does not get
+    to keep a paid tier the gateway stopped billing for."""
+    import workspace_engine
+    record = workspace_engine.get_workspace(workspace_id)
+    if record is None:
+        return
+    paid = {p.strip().lower() for p in
+            os.environ.get("AL_RAPIDAPI_PAID_PLANS", "pro,mega,ultra").split(",")
+            if p.strip()}
+    if subscription and subscription.lower() in paid:
+        if record.get("plan") == "free":
+            workspace_engine.mark_pro(
+                workspace_id, stripe_customer_id=f"rapidapi:{rapidapi_user}",
+                period_source="rapidapi", tier="starter")
+    elif (record.get("pro_period_source") == "rapidapi"
+            and record.get("plan") in workspace_engine.PAID_TIERS):
+        record["plan"] = "free"
+        record["agent_cap"] = workspace_engine.WORKSPACE_FREE_AGENT_CAP
+        record["pro_until"] = None
+        workspace_engine._write_workspace(record)
+
+
+@app.middleware("http")
+async def _rapidapi_workspace_middleware(request: Request, call_next):
+    """Inert unless AL_RAPIDAPI_PROXY_SECRET is configured; a missing or
+    wrong secret leaves the request exactly as it arrived."""
+    secret = os.environ.get("AL_RAPIDAPI_PROXY_SECRET", "")
+    provided = request.headers.get("x-rapidapi-proxy-secret", "")
+    if not secret or not provided or not hmac.compare_digest(provided, secret):
+        return await call_next(request)
+    user = (request.headers.get("x-rapidapi-user") or "").strip()
+    if user and len(user) <= RAPIDAPI_MAX_USER_LEN:
+        import workspace_engine
+        workspace_id, raw_key = workspace_engine.rapidapi_credential(user)
+        # Replace any client-sent workspace_key: on this rail the proxy
+        # secret is the authority, not a header the subscriber typed.
+        request.scope["headers"] = [
+            (k, v) for k, v in request.scope["headers"]
+            if k != b"x-workspace-key"]
+        request.scope["headers"].append(
+            (b"x-workspace-key", raw_key.encode()))
+        try:
+            _rapidapi_sync_tier(
+                workspace_id, user,
+                request.headers.get("x-rapidapi-subscription", ""))
+        except Exception:
+            pass  # tier reconciliation must never block a paid caller
+    return await call_next(request)
+
+
 def _ip_hash(request: "Request") -> Optional[str]:
     """sha256(client_ip + AL_METRICS_SALT), truncated — never store raw IPs.
     Refuses to hash at all when the salt is unset: an unsalted sha256 over the

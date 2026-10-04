@@ -1,0 +1,724 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AgentLedger API",
+    "version": "0.4.3",
+    "x-guidance": "AgentLedger is per-agent AI spend tracking with ENFORCED budget caps. Two ways in, both machine-only. (1) FREE, no wallet: POST /start mints a workspace_key (shown once) with no signup and no card \u2014 GET /start only renders the form and does NOT mint. Claim an agent with the key in the body of POST /v1/track, set a cap with POST /v1/budget, then route traffic through /proxy/{provider}/... so an over-budget call is refused with 402 BEFORE the provider is contacted. (2) PAID, no human: POST /v1/billing/x402 with a wallet-signed x402 payment mints a workspace bound to the paying wallet. NOTE: a workspace_key claims NEW agents; an agent_secret writes to an existing one. Plain POST /v1/track can reject the ledger write that would cross a cap but cannot un-spend a charge that already happened \u2014 only the proxy/wrapper path stops money.",
+    "description": "AgentLedger \u2014 per-agent spend control for AI agents. Track spend across x402/MPP/API-key rails, enforce budget caps BEFORE the provider call, and get alerts + audit trails. Workspace credentials are provisioned automatically per RapidAPI subscriber \u2014 no signup, no card. Docs: https://aiagentscity.com/quickstart"
+  },
+  "paths": {
+    "/v1/track": {
+      "post": {
+        "summary": "Create Track",
+        "operationId": "create_track_v1_track_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/budget": {
+      "post": {
+        "summary": "Create Budget",
+        "operationId": "create_budget_v1_budget_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/check": {
+      "post": {
+        "summary": "Check Spend Route",
+        "description": "May this agent spend this much right now? Read-only: the answer comes\nfrom spend_policy.decide(), the same function the proxy's 402 gate uses,\nand nothing is recorded or reserved. Credentials as for reads.",
+        "operationId": "check_spend_route_v1_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/report/{agent_id}": {
+      "get": {
+        "summary": "Get Report",
+        "operationId": "get_report_v1_report__agent_id__get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/report/{agent_id}/share": {
+      "post": {
+        "summary": "Mint Share Link",
+        "description": "Mint a read-only, expiring link to this agent's report page.\n\nAuthorized by the agent's own secret OR its workspace_key: this is a READ\ngrant, so either credential that can already read the report may share it.\nThe token is scoped to THIS agent_id \u2014 it cannot write, cannot rotate, and\ncannot read another agent's report. TTL default 7 days, hard max 90.",
+        "operationId": "mint_share_link_v1_report__agent_id__share_post",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "ttl_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 7,
+              "title": "Ttl Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/{agent_id}": {
+      "get": {
+        "summary": "Get Alerts",
+        "operationId": "get_alerts_v1_alerts__agent_id__get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tokens/{agent_id}": {
+      "get": {
+        "summary": "Token Report",
+        "description": "Token burn report: totals in/out, by model, per period. Separate from\ndollar spend \u2014 answers 'what is this agent burning on?'",
+        "operationId": "token_report_v1_tokens__agent_id__get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/summary": {
+      "get": {
+        "summary": "Workspace Summary",
+        "description": "Every agent in the workspace with 30-day spend, budget status, the daily\nseries, and the alert feed. Workspace key only.",
+        "operationId": "workspace_summary_v1_workspace_summary_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BudgetRequest": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "monthly_cents": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Monthly Cents"
+          },
+          "daily_cents": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Daily Cents",
+            "default": 0
+          },
+          "monthly_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Monthly Tokens",
+            "default": 0
+          },
+          "daily_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Daily Tokens",
+            "default": 0
+          },
+          "agent_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Secret"
+          },
+          "workspace_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "monthly_cents"
+        ],
+        "title": "BudgetRequest"
+      },
+      "CheckRequest": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "amount_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Cents"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "tokens_in": {
+            "type": "integer",
+            "title": "Tokens In",
+            "default": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "title": "Tokens Out",
+            "default": 0
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id"
+        ],
+        "title": "CheckRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NpmCheckRequest": {
+        "properties": {
+          "package": {
+            "type": "string",
+            "maxLength": 214,
+            "title": "Package"
+          }
+        },
+        "type": "object",
+        "required": [
+          "package"
+        ],
+        "title": "NpmCheckRequest"
+      },
+      "ProbeRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ProbeRequest"
+      },
+      "RotateSecretRequest": {
+        "properties": {
+          "workspace_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Key"
+          }
+        },
+        "type": "object",
+        "title": "RotateSecretRequest"
+      },
+      "SimulateRequest": {
+        "properties": {
+          "monthly_cap_cents": {
+            "type": "integer",
+            "title": "Monthly Cap Cents"
+          },
+          "already_spent_cents": {
+            "type": "integer",
+            "title": "Already Spent Cents"
+          },
+          "estimated_call_cents": {
+            "type": "integer",
+            "title": "Estimated Call Cents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "monthly_cap_cents",
+          "already_spent_cents",
+          "estimated_call_cents"
+        ],
+        "title": "SimulateRequest"
+      },
+      "TrackRequest": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "rail": {
+            "type": "string",
+            "title": "Rail"
+          },
+          "amount_cents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Cents"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service"
+          },
+          "tokens_in": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tokens In",
+            "default": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tokens Out",
+            "default": 0
+          },
+          "cache_hit_in": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Hit In",
+            "default": 0
+          },
+          "cache_write_5m_in": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Write 5M In",
+            "default": 0
+          },
+          "cache_write_1h_in": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Write 1H In",
+            "default": 0
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "agent_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Secret"
+          },
+          "workspace_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "rail"
+        ],
+        "title": "TrackRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WebhookRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "WebhookRequest"
+      }
+    }
+  },
+  "x-service-info": {
+    "docs": {
+      "llms": "/llms.txt"
+    }
+  }
+}

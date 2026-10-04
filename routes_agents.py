@@ -64,6 +64,14 @@ class BudgetRequest(BaseModel):
     workspace_key: Optional[str] = None
 
 
+def _effective_workspace_key(request: Request, body_key: Optional[str]) -> str:
+    """The native path carries workspace_key in the request body; the
+    RapidAPI rail injects it as the x-workspace-key header instead (the
+    marketplace credential is never handed to the subscriber). Either is
+    valid — body first so an explicit key always wins."""
+    return body_key or request.headers.get("x-workspace-key") or ""
+
+
 def _claim_or_401(agent_id: str, provided_secret: Optional[str],
                  workspace_key: Optional[str] = None):
     """Shared auth gate for every write endpoint. Claiming a NEW agent_id
@@ -211,10 +219,11 @@ def create_track(req: TrackRequest, request: Request):
     # a secret the 402 would never return (measured live 2026-10-02: a first
     # track over the daily default orphaned the credential; only a
     # workspace-key rotate-secret recovered it).
-    if (req.amount_cents is not None and req.workspace_key
+    workspace_key = _effective_workspace_key(request, req.workspace_key)
+    if (req.amount_cents is not None and workspace_key
             and not agent_exists(req.agent_id)):
         import identity, workspace_engine
-        ws_id = identity.resolve_workspace_key(req.workspace_key)
+        ws_id = identity.resolve_workspace_key(workspace_key)
         ws = workspace_engine.get_workspace(ws_id) if ws_id else None
         default = (ws or {}).get("default_budget") or {}
         monthly, daily = default.get("monthly_cents", 0), default.get("daily_cents", 0)
@@ -227,7 +236,7 @@ def create_track(req: TrackRequest, request: Request):
                      "existing agent, or claim a smaller first write.",
                 code="budget_exceeded"))
 
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret, workspace_key)
     idem_key = request.headers.get("Idempotency-Key")
     #
     # BUILD-4: a tokens-only write is priced here, from the same table the
@@ -354,7 +363,7 @@ def create_track(req: TrackRequest, request: Request):
         if created:
             try:
                 import identity
-                ws = identity.resolve_workspace_key(req.workspace_key)
+                ws = identity.resolve_workspace_key(workspace_key)
                 if ws:
                     metrics.record_onboarding("agent_claimed", ws)
                     metrics.record_onboarding("track_written", ws)
@@ -390,7 +399,9 @@ def create_budget(req: BudgetRequest, request: Request):
     # SECURITY ORDER: same as /v1/track — auth before gate; failed writes
     # release the in-flight row. Secret never enters the cache.
     idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(req.agent_id, req.agent_secret, req.workspace_key)
+    secret, created = _claim_or_401(
+        req.agent_id, req.agent_secret,
+        _effective_workspace_key(request, req.workspace_key))
     cached = _idempotency_gate(request, req.agent_id, "budget")
     if cached is not None:
         return cached
