@@ -438,10 +438,10 @@ PAGE_HOME = """<div class="agent-surface">
   <h2>Recent ships, dated.</h2>
   <p class="lede">The changelog is the proof the stack is alive — every entry is a shipped outcome, not a progress update.</p>
   <div class="chlog" style="margin-top:14px">
-    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>Access vs spend.</b> A positioning page: <span class="ver">/manifesto</span> — Kiteworks governs what agents can touch, AgentLedger governs what agents can spend. Complementary halves, and only one of them has an owner yet. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP verified end-to-end.</b> Handshake and <span class="ver">tools/list</span> confirmed for all five products — 12, 8, 6, 4 and 9 tools. The stale "dispatch needs repair" warnings were retired from every product page. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted.</b> <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> resolve instead of 404ing. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on __NETWORK_LABEL__.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-10-04</div><div class="t"><b>RapidAPI marketplace rail.</b> Proxy-secret auth, per-subscriber workspaces, plan sync — plus the x402 <span class="ver">bazaar</span> discovery extension on settle. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-10-03</div><div class="t"><b>Machine-readable pricing.</b> <span class="ver">/pricing.md</span> and <span class="ver">/okf/index.md</span> agent surfaces live. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-10-02</div><div class="t"><b>Red-team fixes landed.</b> Webhook SSRF closed, atomic budget caps, proxy credential leaks sealed. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-26</div><div class="t"><b>Spend decision via MCP.</b> <span class="ver">ledger_check_spend</span>, <span class="ver">ledger_price</span>, <span class="ver">ledger_proxy_attach</span>; new workspaces capped by default. <span class="ver">agent-ledger</span></div></div>
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/changelog">Full changelog →</a></div>
   <footer class="site">
@@ -688,6 +688,25 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
+  - 2026-10-04: RapidAPI marketplace rail — proxy-secret auth, per-subscriber
+    workspace, plan sync; x402 bazaar discovery extension declared on settle;
+    HEAD requests served headers-only
+  - 2026-10-03: /pricing.md + /okf/index.md agent surfaces live
+  - 2026-10-02: red-team fixes — webhook SSRF closed, atomic budget caps,
+    proxy credential leaks sealed; a first write no longer strands the caller
+  - 2026-09-26: the spend decision is reachable from MCP — POST /v1/check +
+    ledger_check_spend (ask before you spend), ledger_price (pre-flight
+    pricing), ledger_proxy_attach (attach the brake); new workspaces capped
+    by default; unpriced models fail closed; 14 ledger tools live
+  - 2026-09-24: agent-ledger v0.4.2 + v0.4.3 money-honesty fixes — a settled
+    payment may only raise a tier, never remove capability; a refused plan
+    request creates nothing and costs nothing
+  - 2026-09-21: pay door + demo live (/pricing, /upgrade, dashboard pay
+    control; /demo runs real enforcement — no provider key, no money); the
+    $0.01 x402 pass is a one-time trial per wallet, refused before settlement
+  - 2026-09-21: /benefits mounted on aiagentscity.com; /manifesto live; one
+    canonical address per page — the railway host no longer competes
+  - 2026-09-20: trust surfaces real — terms, refund policy, about
   - 2026-09-20: MCP endpoints verified end-to-end (handshake + tools/list) for all
     five products — ledger 12, watch 8, perimeter 6, trustscan 4, cited 9; the
     earlier "native MCP dispatch being repaired" notes were retired because the
@@ -709,6 +728,15 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
+    <div class="e"><div class="d">2026-10-04</div><div class="t"><b>RapidAPI marketplace rail.</b> Proxy-secret auth, per-subscriber workspaces and plan sync — AgentLedger is listable on RapidAPI. The x402 <span class="ver">bazaar</span> discovery extension is declared on settle, and HEAD requests now serve headers-only responses for validators. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-10-03</div><div class="t"><b>Machine-readable pricing.</b> <span class="ver">/pricing.md</span> and <span class="ver">/okf/index.md</span> agent surfaces live; the free tier reads $0 instead of "Free — Free". <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-10-02</div><div class="t"><b>Red-team fixes landed.</b> Webhook SSRF closed, budget caps made atomic, proxy credential leaks sealed. A first write no longer strands the caller — looser default caps, no orphaned claims. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-26</div><div class="t"><b>The spend decision is reachable from MCP.</b> New <span class="ver">POST /v1/check</span> endpoint and <span class="ver">ledger_check_spend</span> tool return the pre-call budget decision — ask before you spend. <span class="ver">ledger_price</span> prices a model before the call; <span class="ver">ledger_proxy_attach</span> attaches the brake from MCP. New workspaces are capped by default, and unpriced models fail closed instead of free. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-24</div><div class="t"><b>AgentLedger v0.4.2 + v0.4.3 — money-honesty fixes.</b> A settled payment may only raise a tier, never remove capability. A refused plan request creates nothing and costs nothing. Suppressed downgrades are findable instead of misfiled as failures, and no plan is sold under another name. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>The pay door and the demo are live.</b> <span class="ver">/pricing</span> + <span class="ver">/upgrade</span> with a real dashboard pay control; <span class="ver">/demo</span> runs real enforcement — no provider key, no money. The $0.01 x402 pass is now a one-time trial per wallet, refused before settlement. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>/benefits mounted on aiagentscity.com.</b> The Benefits City surface resolves on the city domain, <span class="ver">/manifesto</span> is live, and every page now has one canonical address — the railway host no longer competes. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP endpoints verified end-to-end for all five products.</b> Handshake + <span class="ver">tools/list</span> pass for ledger (12), watch (8), perimeter (6), trustscan (4) and cited (9); the earlier "native MCP dispatch being repaired" notices were retired — the gateway path every client uses works. <span class="ver">platform</span></div></div>
+    <div class="e"><div class="d">2026-09-20</div><div class="t"><b>Trust surfaces are real.</b> Terms, refund policy and About replaced with accurate content, and the x402 offer is shown at pricing — the pages a paying customer reads now tell the truth. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite MCP endpoints mounted on aiagentscity.com.</b> The documented <span class="ver">/mcp/agent-watch</span>, <span class="ver">/mcp/perimeter-watch</span>, <span class="ver">/mcp/cited</span> and <span class="ver">/mcp/trustscan</span> routes now resolve to the owning backends instead of 404ing; TrustScan is fully wired (4 tools, live). Agent Watch, Perimeter Watch and Cited list tools correctly via the city gateway. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-19</div><div class="t"><b>Satellite tool calls now execute via the city gateway.</b> The three v1.30.0 backends time out every native MCP <span class="ver">tools/call</span> server-side, so the gateway translates tool calls to each product's documented REST API and returns proper MCP results: Agent Watch (8 tools), Perimeter Watch (6 tools), Cited (9 tools) all callable today. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-16</div><div class="t"><b>x402 live on __NETWORK_LABEL__.</b> $0.01 USDC → 24h of AgentLedger Pro. Agents buy with zero human clicks — the first purchase completed end-to-end. <span class="ver">agent-ledger</span></div></div>
