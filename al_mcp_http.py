@@ -653,8 +653,17 @@ def ledger_examples(pattern: str) -> dict:
 
 
 def get_asgi_app():
-    """Return the streamable-http ASGI app for mounting into api_server."""
-    return mcp.http_app(path="/", transport="streamable-http")
+    """Return the streamable-http ASGI app for mounting into api_server.
+
+    stateless_http=True: /mcp/ absorbs ~2.6K POSTs/day, mostly crawlers and
+    one-shot agents that initialize a session and never send the closing
+    DELETE. The default streamable-http session manager keeps an in-memory
+    session + event store per connection forever, so RSS climbed ~1.5GB/day
+    until the next deploy (prod memory series, Oct 2026). Stateless mode
+    handles each request independently — no session table to leak. Every
+    tool here is request/response; none rely on session state."""
+    return mcp.http_app(path="/", transport="streamable-http",
+                        stateless_http=True)
 
 
 # --- Product Skill Surface (SEP-2640 shape) --------------------------------

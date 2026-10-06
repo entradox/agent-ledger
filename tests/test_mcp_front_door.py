@@ -289,9 +289,10 @@ def test_live_mcp_surface_serves_the_mint(tmp_path, monkeypatch):
                        "clientInfo": {"name": "d1322-probe", "version": "1"}}})
         assert init.status_code == 200, f"initialize failed: {init.status_code}"
         sid = init.headers.get("mcp-session-id")
-        assert sid, "no mcp-session-id returned"
-
-        h2 = dict(h, **{"mcp-session-id": sid})
+        # Session-ful transports hand back a session id to carry forward; the
+        # stateless mount (memory fix, see al_mcp_http.get_asgi_app) returns
+        # none — both are valid. Carry it iff the server issued one.
+        h2 = dict(h, **({"mcp-session-id": sid} if sid else {}))
         listing = client.post("/mcp/", headers=h2,
                               json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         tools = J.loads(re.search(r"data: (\{.*\})", listing.text).group(1))
