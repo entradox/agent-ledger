@@ -84,7 +84,12 @@ def _html_get_paths() -> list:
         if "GET" not in methods:
             continue
         out.append(path)
-    return sorted(set(out))
+    # NOINDEX_PATHS are deliberately not indexable — /dashboard carries a
+    # workspace key and must serve x-robots-tag: noindex with NO canonical
+    # (see test_the_private_credential_page_*). The sweep covers indexable
+    # pages only; a page is indexable iff it is not in the noindex set.
+    from api_server import NOINDEX_PATHS
+    return sorted(set(out) - set(NOINDEX_PATHS))
 
 
 CANONICAL_RE = re.compile(r'<link\s+rel="canonical"\s+href="([^"]+)"')
