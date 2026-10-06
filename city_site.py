@@ -12,6 +12,12 @@ toggled per page via the Human | Agent segmented control.
 """
 from __future__ import annotations
 
+import os
+
+# Operator-pasted site-verification tags (affiliate networks, directories) — injected
+# verbatim so a new verification is an env set, not a code change. Trusted input only.
+VERIFY_TAGS = os.environ.get("SITE_VERIFICATION_TAGS", "").strip()
+
 CSS = """  :root{
     --paper:#FAFAF8; --card:#FFFFFF; --ink:#1B1B18; --muted:#6E6E68; --faint:#A3A39B;
     --line:#E9E7E1; --line-soft:#F1EFE9;
@@ -281,6 +287,7 @@ SHELL = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>__TITLE__</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="__DESC__">
+__VERIFY__
 <style>
 """ + CSS + """
 </style></head>
@@ -352,6 +359,7 @@ def render(active: str, title: str, desc: str, body: str) -> str:
     html = SHELL
     html = html.replace("__TITLE__", title)
     html = html.replace("__DESC__", desc)
+    html = html.replace("__VERIFY__", VERIFY_TAGS)
     html = html.replace("__NAV__", nav(active))
     html = html.replace("__BODY__", body)
     return html
