@@ -2649,6 +2649,21 @@ try:
                     scope = dict(scope)
                     scope["path"] = "/mcp/"
                     scope["raw_path"] = b"/mcp/"
+                # Stateless mount (al_mcp_http.get_asgi_app) has no session
+                # manager, so the SDK answers GET /mcp* with 405 where the
+                # session-ful transport answered 406. Discovery probes and
+                # docs pinned the 406 — answer it here, on the exact ledger
+                # paths only (satellite /mcp/<slug> paths are intercepted by
+                # the outer proxy before this middleware ever runs).
+                if (scope.get("method") == "GET"
+                        and scope.get("path") in ("/mcp", "/mcp/")):
+                    body = b"Not Acceptable"
+                    await send({"type": "http.response.start", "status": 406,
+                                "headers": [(b"content-type", b"text/plain"),
+                                            (b"content-length",
+                                             str(len(body)).encode())]})
+                    await send({"type": "http.response.body", "body": body})
+                    return
                 if scope.get("method") == "POST" and str(path).startswith("/mcp"):
                     headers = list(scope.get("headers") or [])
                     _ct = ""
