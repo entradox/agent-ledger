@@ -517,6 +517,13 @@ async def _head_get_equivalence(request: Request, call_next):
     headers = dict(response.headers)
     async for _ in response.body_iterator:
         pass  # drain — leaving it half-read would break keep-alive reuse
+    # Restore the real method BEFORE the response is sent: uvicorn validates
+    # GET semantics from the shared scope — an empty body against the page's
+    # real content-length raised "Response content shorter than
+    # Content-Length" and dropped the connection on EVERY head probe
+    # (deploy logs, Oct 2026 — the traceback flood also pushed the replica
+    # past Railway's 500 logs/sec cap, discarding real messages).
+    request.scope["method"] = "HEAD"
     return Response(status_code=response.status_code, headers=headers)
 
 
