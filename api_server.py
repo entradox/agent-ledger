@@ -1337,12 +1337,18 @@ def skill_md():
                     media_type="text/markdown; charset=utf-8")
 
 
+# Version strings are the LIVE /health of each service, observed 2026-10-07, NOT
+# the September registry dict this list was first copied from — three of the five
+# had drifted (agent-ledger claimed v0.4.1 vs live 0.4.3). Re-probe /health before
+# changing any of these, and re-date this comment when you do. A stale version on a
+# discovery surface is a false claim a crawler will repeat.
+CITY_CATALOG_VERSIONS_OBSERVED = "2026-10-07"
 CITY_CATALOG = [
     {"id": "agent-ledger", "title": "AgentLedger",
      "tagline": "Spending limits for AI agents",
      "mcp_url": "https://aiagentscity.com/mcp/",
      "human_url": "https://aiagentscity.com/agent-ledger",
-     "version": "v0.4.1", "status": "live",
+     "version": "v0.4.3", "status": "live",
      "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
                "ledger_track", "ledger_set_budget", "ledger_check_spend",
                "ledger_report", "ledger_alerts", "ledger_list_agents",
@@ -1352,7 +1358,7 @@ CITY_CATALOG = [
      "tagline": "Monitoring for the agent economy",
      "mcp_url": "https://aiagentscity.com/mcp/agent-watch",
      "human_url": "https://aiagentscity.com/agent-watch",
-     "version": "v1.30.0", "status": "live",
+     "version": "v0.1.0", "status": "live",
      "status_note": "Tool calls execute via the city gateway, which translates "
                     "them to the documented REST API. The satellite backend's "
                     "native MCP tool dispatch is intermittent (server-side read "
@@ -1365,7 +1371,7 @@ CITY_CATALOG = [
      "tagline": "Passive external-perimeter monitoring",
      "mcp_url": "https://aiagentscity.com/mcp/perimeter-watch",
      "human_url": "https://aiagentscity.com/perimeter-watch",
-     "version": "v1.30.0", "status": "live",
+     "version": "v1.0", "status": "live",
      "status_note": "Tool calls execute via the city gateway, which translates "
                     "them to the documented REST API. The satellite backend's "
                     "native MCP tool dispatch times out server-side — fix in "
@@ -1377,7 +1383,7 @@ CITY_CATALOG = [
      "tagline": "Does AI recommend your practice?",
      "mcp_url": "https://aiagentscity.com/mcp/cited",
      "human_url": "https://aiagentscity.com/cited",
-     "version": "v1.30.0", "status": "live",
+     "version": "v1.0", "status": "live",
      "status_note": "Tool calls execute via the city gateway, which translates "
                     "them to the documented REST API. The satellite backend's "
                     "native MCP tool dispatch times out server-side — fix in "
@@ -1390,7 +1396,7 @@ CITY_CATALOG = [
      "tagline": "Scan before you trust",
      "mcp_url": "https://aiagentscity.com/mcp/trustscan",
      "human_url": "https://aiagentscity.com/trust-scan",
-     "version": "v4.0.3", "status": "live",
+     "version": "v0.1.0", "status": "live",
      "tools": ["trust_scan_server", "trust_scan_file",
                "skills_list_tool", "read_skill"]},
 ]
@@ -1442,6 +1448,10 @@ def _products_payload() -> dict:
                        "usable, agent-callable products from one operator.",
         "operator": "Parmanand LLC (AI Agent City)",
         "count": len(CITY_CATALOG),
+        # Satellite versions are probed over HTTP and cannot be derived in-process,
+        # so the payload carries the date they were observed — a version claim with
+        # no date is a claim nobody can age.
+        "versions_observed": CITY_CATALOG_VERSIONS_OBSERVED,
         "products": [
             {"id": s["id"], "title": s["title"], "tagline": s["tagline"],
              "status": s["status"], "version": s["version"],

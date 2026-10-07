@@ -148,6 +148,29 @@ def test_discovery_rate_limit_still_actually_limits(client, monkeypatch):
         api_server._CITY_RATE.clear()
 
 
+def test_catalog_agent_ledger_version_matches_the_running_app(client):
+    """The catalog's agent-ledger entry must agree with the app's OWN APP_VERSION.
+
+    This is the invariant that would have caught the drift found on 2026-10-07: the
+    catalog was copied from a September registry dict and claimed v0.4.1 while the
+    code served v0.4.3. Derive it from APP_VERSION (the single source /health uses),
+    never hardcode a second copy — but do NOT compare against CITY_CATALOG itself,
+    which is the tautology this suite already had to be rewritten for.
+    """
+    d = client.get("/v1/products").json()
+    led = next(p for p in d["products"] if p["id"] == "agent-ledger")
+    assert led["version"].lstrip("v") == api_server.APP_VERSION, \
+        f"catalog says {led['version']}, app serves {api_server.APP_VERSION}"
+
+
+def test_catalog_declares_when_its_versions_were_observed(client):
+    """Satellite versions cannot be derived in-process, so the payload must say WHEN
+    they were probed. A version claim with no date is a claim nobody can age."""
+    d = client.get("/v1/products").json()
+    assert d["versions_observed"] == api_server.CITY_CATALOG_VERSIONS_OBSERVED
+    assert d["versions_observed"], "versions_observed must not be empty"
+
+
 def test_mcp_catalog_refactor_lists_exactly_the_expected_servers(client):
     """/.well-known/mcp.json now reads CITY_CATALOG (one source of truth) —
     the refactor must not have dropped or renamed a server, and must not have
