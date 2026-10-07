@@ -171,6 +171,24 @@ def test_catalog_declares_when_its_versions_were_observed(client):
     assert d["versions_observed"], "versions_observed must not be empty"
 
 
+def test_mcp_catalog_and_products_agree_on_versions(client):
+    """mcp.json and /v1/products are built by SEPARATE code paths from CITY_CATALOG.
+    A drift in either builder is a live contradiction between two discovery surfaces
+    a crawler may read. (This is not tautological: the two dicts are constructed
+    independently, so a change to one field mapping does not move the other.)
+
+    Also pins the versions as LITERALS — the 2026-10-07 finding was five stale version
+    strings, and a change here must be a conscious act, not a silent carry-over."""
+    expected = {
+        "agent-ledger": "v0.4.3", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
+        "cited": "v1.0", "trustscan": "v0.1.0",
+    }
+    cat = {p["id"]: p["version"] for p in client.get("/v1/products").json()["products"]}
+    mcp = {s["id"]: s["version"] for s in client.get("/.well-known/mcp.json").json()["servers"]}
+    assert cat == mcp, f"catalog vs mcp.json disagree: {cat} != {mcp}"
+    assert cat == expected, f"versions drifted from the frozen set: {cat} != {expected}"
+
+
 def test_mcp_catalog_refactor_lists_exactly_the_expected_servers(client):
     """/.well-known/mcp.json now reads CITY_CATALOG (one source of truth) —
     the refactor must not have dropped or renamed a server, and must not have
