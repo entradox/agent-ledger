@@ -62,6 +62,50 @@ MAX_CLIENT_REFERENCE_ID = 200
 # pathlib.__truediv__ discards the left operand on an absolute right operand.
 _WORKSPACE_ID_RE = re.compile(r"ws_[A-Za-z0-9_-]{1,200}")
 
+# The Stripe account is SHARED across products — GasPermit, Perimeter Watch,
+# Agent Watch and Contractor Reciprocity all have webhook endpoints on it, and
+# Stripe fans every subscribed event out to every endpoint. Until D-1571 this
+# handler recorded `checkout_abandoned` for ANY expired session: 57 of the 89
+# all-time rows were GasPermit's $29 probe sessions, and the funnel read as
+# buyer intent for a product that was never ours. `payment_link` is the
+# discriminator — it is present on every session Stripe creates from a Payment
+# Link (every AgentLedger session is link-created), and this deployment carries
+# no Stripe secret, so line-item/product resolution is not available and the
+# link id is the only payload-native product key there is.
+_DEFAULT_STARTER_PLINK_ID = "plink_1UD8hQAYgZaqWHnhiT4bKfrM"
+
+
+def _our_payment_links() -> frozenset:
+    ids = {os.environ.get("AL_STRIPE_STARTER_PLINK_ID",
+                          _DEFAULT_STARTER_PLINK_ID).strip()}
+    team = os.environ.get("AL_STRIPE_TEAM_PLINK_ID", "").strip()
+    if team:
+        ids.add(team)
+    return frozenset(i for i in ids if i)
+
+
+def _session_ownership(sess: dict) -> str:
+    """'ours' | 'foreign' | 'unknown' — shared-account session attribution.
+
+    'foreign' requires POSITIVE evidence the session is not ours, and the
+    only such evidence in the payload is a payment link outside the allowlist
+    — a session made by a sibling product's link can never be our sale,
+    whatever ref it carries. client_reference_id CANNOT prove foreignness:
+    the payer controls it as a URL query param, so a non-workspace value is
+    ambiguous (our sale with a garbage ref), and an unattributable PAID
+    session must keep reaching grant_failures.jsonl — the adversarial suite
+    pins that contract. 'unknown' sessions stay eligible for the money path
+    but are excluded from the funnel steps, where the only cost of a wrong
+    call is a polluted counter.
+    """
+    plink = str(sess.get("payment_link") or "").strip()
+    if plink:
+        return "ours" if plink in _our_payment_links() else "foreign"
+    ref = str(sess.get("client_reference_id") or "").strip()
+    if ref and _WORKSPACE_ID_RE.fullmatch(ref):
+        return "ours"
+    return "unknown"
+
 
 def _record_tier_mismatch(incoming_tier: str, current_tier: str, session_id: str,
                           workspace_id: str, amount: Optional[int] = None) -> None:
@@ -408,10 +452,14 @@ def _resolve_lifecycle_workspace(obj: dict, customer_id: str) -> Optional[str]:
          (covers a period when the index was not yet written).
     Returns None when it cannot be resolved; callers decide the consequence.
     """
-    wid = resolve_paying_workspace(
-        {"client_reference_id": obj.get("client_reference_id") or ""}, "")
-    if wid:
-        return wid
+    ref = str(obj.get("client_reference_id") or "").strip()
+    if ref and _WORKSPACE_ID_RE.fullmatch(ref):
+        # Only a workspace-shaped ref is worth resolving — anything else is a
+        # sibling product's value, and feeding it to resolve_paying_workspace
+        # writes a spurious shape-rejection row into the repair queue.
+        wid = resolve_paying_workspace({"client_reference_id": ref}, "")
+        if wid:
+            return wid
     if customer_id:
         import workspace_engine
         rec = workspace_engine.get_workspace_by_stripe_customer(customer_id)
@@ -425,6 +473,39 @@ def _resolve_lifecycle_workspace(obj: dict, customer_id: str) -> Optional[str]:
             if (rec.get("owner_email") or "").lower() == email.lower():
                 return rec["workspace_id"]
     return None
+
+
+def _lifecycle_unresolved_note(obj: dict, customer_id: str, kind: str,
+                               detail: str) -> None:
+    """Unattributed lifecycle event on a SHARED Stripe account.
+
+    Once the subscription events are enabled on this endpoint, Stripe will
+    deliver every sibling product's subscription/invoice objects here too.
+    An unresolved one is therefore most likely a sibling's customer, not our
+    lost payer — filing it in grant_failures.jsonl would fill the repair
+    queue with events nobody can repair (same counting error tier_mismatch
+    was split out for). It stays COUNTABLE via a plain event instead.
+    Exception: if the customer email matches a payer we recorded, the event
+    may genuinely be ours and it keeps its repair-queue row.
+    """
+    email = (obj.get("customer_email")
+             or (obj.get("customer_details") or {}).get("email") or "").lower()
+    ours = False
+    if email and CUSTOMERS_FILE.exists():
+        try:
+            ours = any((json.loads(l).get("email") or "").lower() == email
+                       for l in CUSTOMERS_FILE.read_text().splitlines()
+                       if l.strip())
+        except Exception:
+            ours = True      # unreadable ledger: fail toward the repair queue
+    if ours:
+        _record_grant_failure(kind, obj.get("id", ""), email, detail,
+                              customer_id)
+    else:
+        try:
+            metrics.record_event("lifecycle_unresolved", detail=kind)
+        except Exception:
+            pass
 
 
 def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dict]:
@@ -443,9 +524,9 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
         # honour the period, do not revoke on the event.
         wid = _resolve_lifecycle_workspace(obj, customer_id)
         if not wid:
-            _record_grant_failure("cancel_unresolved", obj.get("id", ""), "",
-                                  "subscription.deleted: no workspace for customer",
-                                  customer_id)
+            _lifecycle_unresolved_note(
+                obj, customer_id, "cancel_unresolved",
+                "subscription.deleted: no workspace for customer")
             return {"received": True, "revoked": False,
                     "reason": "workspace unresolved"}
         period_end = _period_end_from(obj)
@@ -527,9 +608,12 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
             except Exception as exc:
                 _record_grant_failure("invoice_paid_failed", obj.get("id", ""),
                                       "", str(exc), wid)
-        if reason == "subscription_cycle" and amount:
+        if wid and reason == "subscription_cycle" and amount:
             # New recurring money. This is the line that makes months 2..N
-            # visible; before D-1269 they were recorded nowhere.
+            # visible; before D-1269 they were recorded nowhere. Gated on `wid`
+            # (D-1571): on the shared account an unattributed renewal is a
+            # sibling product's revenue, and counting it inflates ours the
+            # same way unfiltered checkout_abandoned inflated the funnel.
             try:
                 metrics.record_event("subscription_renewed",
                                      amount_cents=int(amount))
@@ -547,10 +631,9 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
         # from a customer who is actively trying to pay.
         wid = _resolve_lifecycle_workspace(obj, customer_id)
         if not wid:
-            _record_grant_failure("payment_failed_unresolved",
-                                  obj.get("id", ""), "",
-                                  "invoice.payment_failed: no workspace for customer",
-                                  customer_id)
+            _lifecycle_unresolved_note(
+                obj, customer_id, "payment_failed_unresolved",
+                "invoice.payment_failed: no workspace for customer")
             return {"received": True, "grace": False,
                     "reason": "workspace unresolved"}
         import workspace_engine
@@ -630,11 +713,14 @@ async def stripe_webhook(request: Request):
         # a checkout session that opened (and hasn't hit a terminal state)
         # counts as revenue-funnel entry — leading indicator of purchase intent.
         # completed/expired excluded so Stripe retries and dead sessions never
-        # inflate the funnel (Morgan review, 2026-09-09).
-        try:
-            metrics.record_event("checkout_started")
-        except Exception:
-            pass
+        # inflate the funnel (Morgan review, 2026-09-09). Ownership-gated
+        # (D-1571): a sibling product's opened session is not our intent signal.
+        sess0 = (event.get("data") or {}).get("object") or {}
+        if _session_ownership(sess0) == "ours":
+            try:
+                metrics.record_event("checkout_started")
+            except Exception:
+                pass
 
     if event_type == "checkout.session.expired":
         # Backstop, not a real-time signal: Stripe expires an unpaid session
@@ -642,12 +728,30 @@ async def stripe_webhook(request: Request):
         # day old. The client beacon (start_checkout_click) is what catches the
         # click itself; this catches the case where the buyer never came back.
         sess = (event.get("data") or {}).get("object") or {}
-        try:
-            metrics.record_onboarding("checkout_abandoned",
-                                      sess.get("client_reference_id") or "")
-        except Exception:
-            pass
+        # D-1571: only OUR sessions may enter the abandonment funnel. On the
+        # shared account this branch fires for every sibling product too —
+        # unfiltered, it counted 57 GasPermit probe sessions as AgentLedger
+        # buyer intent. "unknown" is excluded: no positive attribution means
+        # it is exactly the class of session that polluted the counter.
+        if _session_ownership(sess) == "ours":
+            try:
+                metrics.record_onboarding("checkout_abandoned",
+                                          sess.get("client_reference_id") or "")
+            except Exception:
+                pass
         return {"received": True, "ignored": event_type}
+
+    if event_type in ("checkout.session.completed",
+                      "checkout.session.async_payment_succeeded",
+                      "checkout.session.async_payment_failed"):
+        sess = (event.get("data") or {}).get("object") or {}
+        if _session_ownership(sess) == "foreign":
+            # A sibling product's session on the shared account. Positive
+            # foreign evidence only — ambiguous sessions fall through to the
+            # normal path so unattributable MONEY still reaches the repair
+            # queue. 200, always: a 4xx sends Stripe into a redelivery loop on
+            # events we legitimately received.
+            return {"received": True, "ignored": "foreign_session"}
 
     if event_type == "checkout.session.async_payment_succeeded":
         # The delayed-method settlement. Stripe: "Automatic fulfillment with
