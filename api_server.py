@@ -1337,8 +1337,228 @@ def skill_md():
                     media_type="text/markdown; charset=utf-8")
 
 
+# Version strings are the LIVE /health of each service, observed 2026-10-07, NOT
+# the September registry dict this list was first copied from — three of the five
+# had drifted (agent-ledger claimed v0.4.1 vs live 0.4.3). Re-probe /health before
+# changing any of these, and re-date this comment when you do. A stale version on a
+# discovery surface is a false claim a crawler will repeat.
+CITY_CATALOG_VERSIONS_OBSERVED = "2026-10-07"
+CITY_CATALOG = [
+    {"id": "agent-ledger", "title": "AgentLedger",
+     "tagline": "Spending limits for AI agents",
+     "mcp_url": "https://aiagentscity.com/mcp/",
+     "human_url": "https://aiagentscity.com/agent-ledger",
+     "version": "v0.4.3", "status": "live",
+     "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
+               "ledger_track", "ledger_set_budget", "ledger_check_spend",
+               "ledger_report", "ledger_alerts", "ledger_list_agents",
+               "ledger_start", "ledger_api_docs", "ledger_examples",
+               "skills_list_tool", "read_skill"]},
+    {"id": "agent-watch", "title": "Agent Watch",
+     "tagline": "Monitoring for the agent economy",
+     "mcp_url": "https://aiagentscity.com/mcp/agent-watch",
+     "human_url": "https://aiagentscity.com/agent-watch",
+     "version": "v0.1.0", "status": "live",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (8/8 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced.",
+     "tools": ["aw_health", "aw_check_endpoint", "aw_census",
+               "aw_list_monitored", "aw_alerts", "aw_watch",
+               "skills_list_tool", "read_skill"]},
+    {"id": "perimeter-watch", "title": "Perimeter Watch",
+     "tagline": "Passive external-perimeter monitoring",
+     "mcp_url": "https://aiagentscity.com/mcp/perimeter-watch",
+     "human_url": "https://aiagentscity.com/perimeter-watch",
+     "version": "v1.0", "status": "live",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (6/6 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced. "
+                    "Free snapshot form: https://entradox.github.io/perimeter-watch-site/",
+     "tools": ["pw_health", "pw_snapshot", "pw_watch_status", "pw_stats",
+               "skills_list_tool", "read_skill"]},
+    {"id": "cited", "title": "Cited",
+     "tagline": "Does AI recommend your practice?",
+     "mcp_url": "https://aiagentscity.com/mcp/cited",
+     "human_url": "https://aiagentscity.com/cited",
+     "version": "v1.0", "status": "live",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (9/9 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced. "
+                    "Free scan form: https://entradox.github.io/cited-site/",
+     "tools": ["cited_health", "cited_scan", "cited_report",
+               "cited_watch_status", "cited_stats", "cited_api_docs",
+               "cited_examples", "skills_list_tool", "read_skill"]},
+    {"id": "trustscan", "title": "TrustScan",
+     "tagline": "Scan before you trust",
+     "mcp_url": "https://aiagentscity.com/mcp/trustscan",
+     "human_url": "https://aiagentscity.com/trust-scan",
+     "version": "v0.1.0", "status": "live",
+     "tools": ["trust_scan_server", "trust_scan_file",
+               "skills_list_tool", "read_skill"]},
+]
+
+# Read-only, unauthenticated, no PII — discovery needs no workspace. Kept
+# generous so a crawler can enumerate the city without tripping a limit.
+CITY_DISCOVERY_RATE_LIMIT = int(os.environ.get("CITY_DISCOVERY_RATE_LIMIT", "60"))
+CITY_DISCOVERY_RATE_WINDOW = 3600
+# Bounded on purpose. A per-IP dict on an UNauthenticated public route is itself
+# a memory-exhaustion vector: every spoofed/rotating source IP inserts a key that
+# nothing ever removes. The existing satellite limiter has the same shape and the
+# same gap; this one caps the key count and evicts stale buckets so a crawler
+# cannot grow it without bound.
+CITY_RATE_MAX_KEYS = 5000
+_CITY_RATE: dict[str, list[float]] = {}
+
+
+def _city_discovery_guard(request: Request) -> None:
+    ip = client_ip(request)
+    now = time.time()
+    hits = [t for t in _CITY_RATE.get(ip, []) if now - t < CITY_DISCOVERY_RATE_WINDOW]
+    if len(hits) >= CITY_DISCOVERY_RATE_LIMIT:
+        raise HTTPException(429, "Discovery rate limit reached; try again later.")
+    hits.append(now)
+    _CITY_RATE[ip] = hits
+
+    # Evict buckets with no live hits once the table is at its cap. Sweeping only
+    # under pressure keeps the common path O(1).
+    if len(_CITY_RATE) > CITY_RATE_MAX_KEYS:
+        for k in [k for k, v in _CITY_RATE.items()
+                  if not v or now - v[-1] >= CITY_DISCOVERY_RATE_WINDOW]:
+            del _CITY_RATE[k]
+        # Still over cap with every bucket live: drop the coldest, so the cap is
+        # a hard ceiling rather than a suggestion.
+        while len(_CITY_RATE) > CITY_RATE_MAX_KEYS:
+            # Key on the bucket's LAST timestamp, treating an empty bucket as
+            # coldest. HONEST STATUS: this branch is UNREACHABLE today — the sweep
+            # above always removes `not v` buckets first, and the normal write path
+            # only ever assigns a non-empty list (hits always ends with the
+            # timestamp just appended). It is here so a FUTURE writer of [] cannot
+            # turn the guard into a 500. It is defence in depth, and it is NOT
+            # covered by a behavioural test, because no input can reach it: an
+            # adversarial review flagged the theoretical case and a mutation of
+            # this line cannot change any observed outcome.
+            _empty = float("-inf")
+            oldest = min(_CITY_RATE, key=lambda k: _CITY_RATE[k][-1] if _CITY_RATE[k] else _empty)
+            del _CITY_RATE[oldest]
+
+
+def _products_payload() -> dict:
+    """The city's catalog as data — the single source for every product,
+    endpoint, tool list and status. /v1/products and the PAP discovery
+    document are two renderings of THIS dict, never two hand-written lists."""
+    return {
+        "name": "AI Agent City",
+        "url": "https://aiagentscity.com",
+        "description": "One site, two readers: a human-readable product index "
+                       "and a machine-readable catalog. Five live, independently "
+                       "usable, agent-callable products from one operator.",
+        "operator": "Parmanand LLC (AI Agent City)",
+        "count": len(CITY_CATALOG),
+        # Satellite versions are probed over HTTP and cannot be derived in-process,
+        # so the payload carries the date they were observed — a version claim with
+        # no date is a claim nobody can age.
+        "versions_observed": CITY_CATALOG_VERSIONS_OBSERVED,
+        "products": [
+            {"id": s["id"], "title": s["title"], "tagline": s["tagline"],
+             "status": s["status"], "version": s["version"],
+             "mcp_url": s["mcp_url"], "human_url": s["human_url"],
+             "tool_count": len(s["tools"]), "tools": s["tools"],
+             **({"status_note": s["status_note"]} if s.get("status_note") else {})}
+            for s in CITY_CATALOG
+        ],
+        "discovery": {
+            "llms_txt": "https://aiagentscity.com/llms.txt",
+            "openapi": "https://aiagentscity.com/openapi.json",
+            "mcp_catalog": "https://aiagentscity.com/.well-known/mcp.json",
+            "pricing": "https://aiagentscity.com/v1/pricing",
+            "pap": "https://aiagentscity.com/.well-known/personal-agent.json",
+        },
+    }
+
+
+@app.get("/v1/products")
+def products_json(request: Request):
+    """Machine-readable index of every product in the city.
+
+    This is the catalog an agent needs in order to discover what exists here
+    and choose — it answers the standing gap that a human had /about but an
+    agent had five unconnected servers. Same source of truth as
+    /.well-known/mcp.json and the PAP discovery document.
+    """
+    _city_discovery_guard(request)
+    return JSONResponse(content=_products_payload())
+
+
+@app.get("/.well-known/personal-agent.json")
+def personal_agent_discovery(request: Request):
+    """Personal Agent Protocol discovery document (v0.1-shaped, PROVISIONAL).
+
+    PROVISIONAL — HONESTY NOTE. PAP was announced 2026-10-06 and its v0.1
+    specification is NOT published. Sierra's announcement domain
+    (personalagentprotocol.com) still returns HTTP 401, and no spec repo,
+    licence or governance exists. The field names below are therefore a
+    best-effort reading of the announcement's prose, NOT a conformance claim.
+    The `paper_spec_published` field reports this machine-readably so no
+    consumer mistakes this for an implemented standard.
+
+    What IS real here: the discovery shape itself. PAP states a personal
+    agent "starts on the website, where it can discover what the company
+    offers and how to reach it" — and this file serves exactly that, from the
+    same data as /v1/products. When PAP v0.1 lands, this is the one file that
+    needs remapping; nothing else in the city depends on the field names.
+    """
+    _city_discovery_guard(request)
+    p = _products_payload()
+    return JSONResponse(content={
+        "illustration": True,
+        "provisional": True,
+        "paper_spec_published": False,
+        "spec": "Personal Agent Protocol v0.1 (announced 2026-10-06; NOT yet published)",
+        "basis": "Field names are a reading of the Sierra/Meta announcement prose, "
+                 "not the unpublished v0.1 specification. Re-verify when v0.1 ships.",
+        "business": {
+            "name": p["name"],
+            "url": p["url"],
+            "description": p["description"],
+            "operator": p["operator"],
+        },
+        "sign_in": {
+            "grant": "oauth",
+            "note": "No OAuth authorization endpoint is published. The real, "
+                    "working credential paths are anonymous and need no human: "
+                    "POST /v1/billing/x402 (a wallet is the identity) or "
+                    "POST /start (free workspace, no signup, no card).",
+            "access_the_customer_chooses": ["read", "write"],
+            "real_credential_paths": {
+                "agent_self_serve_x402": "https://aiagentscity.com/v1/billing/x402",
+                "free_workspace": "https://aiagentscity.com/start",
+            },
+        },
+        "interfaces": [
+            {"route": "api",
+             "styles": ["openapi", "mcp"],
+             "openapi": "https://aiagentscity.com/openapi.json",
+             "mcp": "https://aiagentscity.com/mcp/",
+             "preferred_for": ["ledger.track", "ledger.budget", "ledger.check"]},
+            {"route": "website",
+             "url": "https://aiagentscity.com",
+             "guest_allowed": True,
+             "notes": "Human-readable index of every product. No account needed to read.",
+             "pages": {"products": "https://aiagentscity.com/products",
+                       "developers": "https://aiagentscity.com/developers",
+                       "llms_txt": "https://aiagentscity.com/llms.txt"}},
+        ],
+        "products": [
+            {"id": s["id"], "title": s["title"], "tagline": s["tagline"],
+             "mcp_url": s["mcp_url"], "human_url": s["human_url"],
+             "status": s["status"], "tool_count": len(s["tools"])}
+            for s in CITY_CATALOG
+        ],
+        "catalog": "https://aiagentscity.com/v1/products",
+    })
+
+
 AGENT_JSON = {
-    "schema_version": "1.0",
     "name": "AgentLedger",
     "description": "Per-agent spend management: track spend across x402/MPP/API-key "
                     "rails, set budget caps, get anomaly alerts, keep an audit trail.",
@@ -1473,12 +1693,13 @@ def mcp_wellknown_json():
     """City-wide MCP catalog: all five servers, true tool lists.
 
     Distinct from /.well-known/mcp/server-card.json (which is the richer
-    registry card for AgentLedger alone). Tool names and counts below were
-    read from each server's live tools/list on 2026-09-19. The three
-    v1.30.0 satellite servers' native MCP tool dispatch times out
-    server-side ("read operation timed out"); the city gateway translates
-    their tool calls to the documented REST APIs, so they are listed as
-    live with an honest status note rather than hidden.
+    registry card for AgentLedger alone). Tool names and counts live in
+    CITY_CATALOG (one source of truth, shared with /v1/products and the
+    Personal Agent Protocol discovery document). The three v1.30.0 satellite
+    servers' native MCP tool dispatch times out server-side ("read operation
+    timed out"); the city gateway translates their tool calls to the
+    documented REST APIs, so they are listed as live with an honest status
+    note rather than hidden.
     """
     return JSONResponse(content={
         "name": "io.aiagentscity/catalog",
@@ -1486,55 +1707,10 @@ def mcp_wellknown_json():
         "description": "Every MCP server on aiagentscity.com: one city URL "
                        "per product, proxied to the owning backend.",
         "servers": [
-            {"id": "agent-ledger",
-             "url": "https://aiagentscity.com/mcp/",
-             "version": "v0.4.1", "status": "live",
-             "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
-                       "ledger_track", "ledger_set_budget", "ledger_check_spend",
-                       "ledger_report",
-                       "ledger_alerts", "ledger_list_agents", "ledger_start",
-                       "ledger_api_docs", "ledger_examples",
-                       "skills_list_tool", "read_skill"]},
-            {"id": "agent-watch",
-             "url": "https://aiagentscity.com/mcp/agent-watch",
-             "version": "v1.30.0", "status": "live",
-             "status_note": "Tool calls execute via the city gateway, which "
-                            "translates them to the documented REST API. The "
-                            "satellite backend's native MCP tool dispatch is "
-                            "intermittent (server-side read timeouts observed "
-                            "2026-09-19) — fix in progress on the satellite "
-                            "service.",
-             "tools": ["aw_health", "aw_check_endpoint", "aw_census",
-                       "aw_list_monitored", "aw_alerts", "aw_watch",
-                       "skills_list_tool", "read_skill"]},
-            {"id": "perimeter-watch",
-             "url": "https://aiagentscity.com/mcp/perimeter-watch",
-             "version": "v1.30.0", "status": "live",
-             "status_note": "Tool calls execute via the city gateway, which "
-                            "translates them to the documented REST API. The "
-                            "satellite backend's native MCP tool dispatch "
-                            "times out server-side — fix in progress on the "
-                            "satellite service. The free snapshot form works: "
-                            "https://entradox.github.io/perimeter-watch-site/",
-             "tools": ["pw_health", "pw_snapshot", "pw_watch_status",
-                       "pw_stats", "skills_list_tool", "read_skill"]},
-            {"id": "cited",
-             "url": "https://aiagentscity.com/mcp/cited",
-             "version": "v1.30.0", "status": "live",
-             "status_note": "Tool calls execute via the city gateway, which "
-                            "translates them to the documented REST API. The "
-                            "satellite backend's native MCP tool dispatch "
-                            "times out server-side — fix in progress on the "
-                            "satellite service. The free scan form works: "
-                            "https://entradox.github.io/cited-site/",
-             "tools": ["cited_health", "cited_scan", "cited_report",
-                       "cited_watch_status", "cited_stats", "cited_api_docs",
-                       "cited_examples", "skills_list_tool", "read_skill"]},
-            {"id": "trustscan",
-             "url": "https://aiagentscity.com/mcp/trustscan",
-             "version": "v4.0.3", "status": "live",
-             "tools": ["trust_scan_server", "trust_scan_file",
-                       "skills_list_tool", "read_skill"]},
+            {"id": s["id"], "url": s["mcp_url"], "version": s["version"],
+             "status": s["status"], **({"status_note": s["status_note"]} if s.get("status_note") else {}),
+             "tools": s["tools"]}
+            for s in CITY_CATALOG
         ],
         "documentation": "https://aiagentscity.com/llms.txt",
         "payment": {"protocol": "x402",
