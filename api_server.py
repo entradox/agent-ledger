@@ -1399,6 +1399,12 @@ CITY_CATALOG = [
 # generous so a crawler can enumerate the city without tripping a limit.
 CITY_DISCOVERY_RATE_LIMIT = int(os.environ.get("CITY_DISCOVERY_RATE_LIMIT", "60"))
 CITY_DISCOVERY_RATE_WINDOW = 3600
+# Bounded on purpose. A per-IP dict on an UNauthenticated public route is itself
+# a memory-exhaustion vector: every spoofed/rotating source IP inserts a key that
+# nothing ever removes. The existing satellite limiter has the same shape and the
+# same gap; this one caps the key count and evicts stale buckets so a crawler
+# cannot grow it without bound.
+CITY_RATE_MAX_KEYS = 5000
 _CITY_RATE: dict[str, list[float]] = {}
 
 
@@ -1410,6 +1416,18 @@ def _city_discovery_guard(request: Request) -> None:
         raise HTTPException(429, "Discovery rate limit reached; try again later.")
     hits.append(now)
     _CITY_RATE[ip] = hits
+
+    # Evict buckets with no live hits once the table is at its cap. Sweeping only
+    # under pressure keeps the common path O(1).
+    if len(_CITY_RATE) > CITY_RATE_MAX_KEYS:
+        for k in [k for k, v in _CITY_RATE.items()
+                  if not v or now - v[-1] >= CITY_DISCOVERY_RATE_WINDOW]:
+            del _CITY_RATE[k]
+        # Still over cap with every bucket live: drop the coldest, so the cap is
+        # a hard ceiling rather than a suggestion.
+        while len(_CITY_RATE) > CITY_RATE_MAX_KEYS:
+            oldest = min(_CITY_RATE, key=lambda k: _CITY_RATE[k][-1])
+            del _CITY_RATE[oldest]
 
 
 def _products_payload() -> dict:

@@ -45,6 +45,15 @@ def client():
     return TestClient(api_server.app)
 
 
+class _FakeReq:
+    """Minimal stand-in for what client_ip() reads, so the limiter can be driven
+    directly (400 distinct source IPs) without 400 HTTP round-trips."""
+
+    def __init__(self, ip: str):
+        self.headers = {"x-forwarded-for": ip}
+        self.client = type("C", (), {"host": ip})()
+
+
 def test_products_catalog_lists_exactly_the_expected_products(client):
     r = client.get("/v1/products")
     assert r.status_code == 200, f"/v1/products -> {r.status_code}"
@@ -107,6 +116,36 @@ def test_products_and_pap_doc_cannot_disagree_on_the_product_set(client):
     cat = client.get("/v1/products").json()
     pap = client.get("/.well-known/personal-agent.json").json()
     assert {p["id"] for p in cat["products"]} == {p["id"] for p in pap["products"]}
+
+
+def test_discovery_rate_table_is_bounded(client, monkeypatch):
+    """The discovery guard keys on client IP on an UNAUTHENTICATED route. Without a
+    cap, a rotating source grows `_CITY_RATE` one key per request forever — the guard
+    itself becomes the memory-exhaustion vector. Assert a hard ceiling."""
+    monkeypatch.setattr(api_server, "CITY_RATE_MAX_KEYS", 50)
+    api_server._CITY_RATE.clear()
+    try:
+        for i in range(400):
+            api_server._city_discovery_guard(_FakeReq(f"10.0.0.{i}"))
+        assert len(api_server._CITY_RATE) <= 50, \
+            f"rate table grew to {len(api_server._CITY_RATE)} keys (cap 50)"
+    finally:
+        api_server._CITY_RATE.clear()
+
+
+def test_discovery_rate_limit_still_actually_limits(client, monkeypatch):
+    """Bounding the table must not disable the limit it exists to enforce."""
+    monkeypatch.setattr(api_server, "CITY_DISCOVERY_RATE_LIMIT", 3)
+    api_server._CITY_RATE.clear()
+    try:
+        req = _FakeReq("203.0.113.9")
+        for _ in range(3):
+            api_server._city_discovery_guard(req)          # allowed
+        with pytest.raises(Exception) as exc:
+            api_server._city_discovery_guard(req)          # 4th must be refused
+        assert "429" in str(exc.value) or "rate limit" in str(exc.value).lower()
+    finally:
+        api_server._CITY_RATE.clear()
 
 
 def test_mcp_catalog_refactor_lists_exactly_the_expected_servers(client):
