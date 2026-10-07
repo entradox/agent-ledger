@@ -1359,11 +1359,9 @@ CITY_CATALOG = [
      "mcp_url": "https://aiagentscity.com/mcp/agent-watch",
      "human_url": "https://aiagentscity.com/agent-watch",
      "version": "v0.1.0", "status": "live",
-     "status_note": "Tool calls execute via the city gateway, which translates "
-                    "them to the documented REST API. The satellite backend's "
-                    "native MCP tool dispatch is intermittent (server-side read "
-                    "timeouts observed 2026-09-19) — fix in progress on the "
-                    "satellite service.",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (8/8 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced.",
      "tools": ["aw_health", "aw_check_endpoint", "aw_census",
                "aw_list_monitored", "aw_alerts", "aw_watch",
                "skills_list_tool", "read_skill"]},
@@ -1372,11 +1370,10 @@ CITY_CATALOG = [
      "mcp_url": "https://aiagentscity.com/mcp/perimeter-watch",
      "human_url": "https://aiagentscity.com/perimeter-watch",
      "version": "v1.0", "status": "live",
-     "status_note": "Tool calls execute via the city gateway, which translates "
-                    "them to the documented REST API. The satellite backend's "
-                    "native MCP tool dispatch times out server-side — fix in "
-                    "progress on the satellite service. The free snapshot form "
-                    "works: https://entradox.github.io/perimeter-watch-site/",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (6/6 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced. "
+                    "Free snapshot form: https://entradox.github.io/perimeter-watch-site/",
      "tools": ["pw_health", "pw_snapshot", "pw_watch_status", "pw_stats",
                "skills_list_tool", "read_skill"]},
     {"id": "cited", "title": "Cited",
@@ -1384,11 +1381,10 @@ CITY_CATALOG = [
      "mcp_url": "https://aiagentscity.com/mcp/cited",
      "human_url": "https://aiagentscity.com/cited",
      "version": "v1.0", "status": "live",
-     "status_note": "Tool calls execute via the city gateway, which translates "
-                    "them to the documented REST API. The satellite backend's "
-                    "native MCP tool dispatch times out server-side — fix in "
-                    "progress on the satellite service. The free scan form "
-                    "works: https://entradox.github.io/cited-site/",
+     "status_note": "Live 2026-10-07: initialize + tools/list + tools/call all "
+                    "succeed through the city gateway (9/9 tools). The earlier "
+                    "server-side dispatch timeouts are no longer reproduced. "
+                    "Free scan form: https://entradox.github.io/cited-site/",
      "tools": ["cited_health", "cited_scan", "cited_report",
                "cited_watch_status", "cited_stats", "cited_api_docs",
                "cited_examples", "skills_list_tool", "read_skill"]},
@@ -1432,7 +1428,17 @@ def _city_discovery_guard(request: Request) -> None:
         # Still over cap with every bucket live: drop the coldest, so the cap is
         # a hard ceiling rather than a suggestion.
         while len(_CITY_RATE) > CITY_RATE_MAX_KEYS:
-            oldest = min(_CITY_RATE, key=lambda k: _CITY_RATE[k][-1])
+            # Key on the bucket's LAST timestamp, treating an empty bucket as
+            # coldest. HONEST STATUS: this branch is UNREACHABLE today — the sweep
+            # above always removes `not v` buckets first, and the normal write path
+            # only ever assigns a non-empty list (hits always ends with the
+            # timestamp just appended). It is here so a FUTURE writer of [] cannot
+            # turn the guard into a 500. It is defence in depth, and it is NOT
+            # covered by a behavioural test, because no input can reach it: an
+            # adversarial review flagged the theoretical case and a mutation of
+            # this line cannot change any observed outcome.
+            _empty = float("-inf")
+            oldest = min(_CITY_RATE, key=lambda k: _CITY_RATE[k][-1] if _CITY_RATE[k] else _empty)
             del _CITY_RATE[oldest]
 
 
