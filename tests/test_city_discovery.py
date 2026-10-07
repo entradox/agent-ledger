@@ -35,7 +35,7 @@ EXPECTED_COUNT = 5
 # Tool counts per product, as actually served. A count that silently drops is a
 # user-visible regression on a public surface.
 EXPECTED_TOOL_COUNTS = {
-    "agent-ledger": 13, "agent-watch": 8, "perimeter-watch": 6,
+    "agent-ledger": 14, "agent-watch": 8, "perimeter-watch": 6,
     "cited": 9, "trustscan": 4,
 }
 
@@ -199,3 +199,61 @@ def test_mcp_catalog_refactor_lists_exactly_the_expected_servers(client):
     assert {s["id"] for s in d["servers"]} == EXPECTED_PRODUCT_IDS
     assert len(d["servers"]) == EXPECTED_COUNT
     assert "up.railway.app" not in r.text
+
+def test_catalog_lists_exactly_the_tools_the_mcp_server_actually_serves():
+    """The catalog's tool list must equal the MCP server's OWN registry.
+
+    Why this is not tautological, and why the obvious version of this test was
+    worthless: CITY_CATALOG is a hand-written literal list, while this reads the
+    FastMCP registry that the @mcp.tool decorators built. They are two independent
+    objects, so drift in either one is caught.
+
+    The bug this exists for, found live on 2026-10-07: the catalog advertised
+    `ledger_list_agents`, which does not exist. An agent that read the catalog and
+    called it got "Unknown tool". Worse, that specific name was removed from the MCP
+    surface on 2026-09-26 precisely because advertising it told every arriving agent
+    that a cross-tenant listing exists and that its key is called admin_secret
+    (al_mcp_http.py:458) — so the stale list re-published a hint that had been
+    deliberately withdrawn.
+
+    A real tools/call cannot be asserted in-suite: the city gateway translates
+    satellite calls to REST, so a call returns 200 even when the native tool name
+    does not exist (verified — `ts_health` returned 200 while `ts_health` was absent,
+    because the translation layer answered). That is why the live check lives in
+    scripts/audit_city_tools.py, and this test guards the registry itself.
+    """
+    import asyncio
+    import al_mcp_http
+
+    served = sorted(t.name for t in asyncio.run(al_mcp_http.mcp.list_tools()))
+    claimed = next(p["tools"] for p in api_server.CITY_CATALOG
+                   if p["id"] == "agent-ledger")
+
+    phantom = [t for t in claimed if t not in served]
+    missing = [t for t in served if t not in claimed]
+    assert not phantom, f"catalog advertises tools that do not exist: {phantom}"
+    assert not missing, f"MCP serves tools the catalog does not advertise: {missing}"
+    assert len(claimed) == EXPECTED_TOOL_COUNTS["agent-ledger"]
+
+
+def test_no_discovery_surface_re_advertises_the_removed_owner_tool():
+    """/llms.txt is the surface a scanning agent reads first. It carried the same
+    phantom `ledger_list_agents  — owner-only (admin_secret param)` line: the tool,
+    the parameter name, and the claim that a cross-tenant listing exists. All three
+    were deliberately withdrawn on 2026-09-26."""
+    assert "ledger_list_agents" not in api_server.LLMS_TXT
+    assert "admin_secret" not in api_server.LLMS_TXT
+
+
+def test_llms_txt_versions_match_the_catalog():
+    """Two hand-maintained version lists in one file drift. The /llms.txt body
+    advertised v1.30.0 for three satellites and v4.0.3 for trustscan while the
+    catalog (corrected 2026-10-07) said v0.1.0/v1.0/v1.0/v0.1.0. Every version the
+    catalog states must appear in the manifest; a crawler reading both should not
+    find two different answers."""
+    txt = api_server.LLMS_TXT
+    for p in api_server.CITY_CATALOG:
+        assert p["version"] in txt, (
+            f"{p['id']} version {p['version']} is in the catalog but not /llms.txt")
+    for stale in ("v1.30.0", "v4.0.3", "v0.4.1"):
+        assert stale not in txt, f"/llms.txt still advertises the stale version {stale}"

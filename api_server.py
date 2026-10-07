@@ -903,15 +903,19 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
 
-Tools exposed at POST /mcp/ (13):
+Tools exposed at POST /mcp/ (v0.4.3, 14):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
   ledger_report         — get a spend report (agent_secret or workspace_key param)
+  ledger_proxy_attach   — point provider traffic at the budget-enforcing proxy so caps
+                          are checked BEFORE the provider is called (open read; returns
+                          base_url + headers, your provider credential stays with you)
   ledger_alerts         — get alerts for an agent (agent_secret or workspace_key param)
+  ledger_price          — price a call from the same table the caps use, so a capped
+                          agent can report its cost honestly and plan before spending (open read)
   ledger_rotate_secret  — recover a lost agent_secret (workspace_key param; old secret dies at once)
   ledger_revoke_secret  — invalidate an agent's secret without deleting its history (workspace_key param)
-  ledger_list_agents    — owner-only (admin_secret param)
   ledger_start          — mint a workspace over MCP (no human)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|metering|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
@@ -926,28 +930,29 @@ is proxied to the owning backend. POST JSON-RPC to the URL (Accept:
 application/json, text/event-stream; no auth needed to connect).
 Tool lists below are each server's live tools/list (2026-09-19).
 
-- agent-watch:        /mcp/agent-watch        (v1.30.0, 8 tools)
+- agent-watch:        /mcp/agent-watch        (v0.1.0, 8 tools)
   aw_health, aw_check_endpoint, aw_census, aw_list_monitored,
   aw_alerts, aw_watch, skills_list_tool, read_skill
   STATUS live: tool calls execute via the city gateway, which translates
-  them to the documented REST API. The satellite backend's native MCP
-  tool dispatch times out server-side ("read operation timed out") — fix
-  in progress on the satellite service.
+  them to the documented REST API. Re-probed 2026-10-07: the backend's native
+  MCP dispatch completes initialize + tools/list + tools/call, so the gateway
+  translation is a fast path rather than a workaround.
 
-- perimeter-watch:    /mcp/perimeter-watch    (v1.30.0, 6 tools)
+- perimeter-watch:    /mcp/perimeter-watch    (v1.0, 6 tools)
   pw_health, pw_snapshot, pw_watch_status, pw_stats,
   skills_list_tool, read_skill
-  STATUS live: same gateway translation as agent-watch. The free browser
-  snapshot form works today:
+  STATUS live: same gateway translation as agent-watch, and native dispatch
+  completes too (re-probed 2026-10-07). The free browser snapshot form works today:
   https://entradox.github.io/perimeter-watch-site/
 
-- cited:              /mcp/cited              (v1.30.0, 9 tools)
+- cited:              /mcp/cited              (v1.0, 9 tools)
   cited_health, cited_scan, cited_report, cited_watch_status,
   cited_stats, cited_api_docs, cited_examples, skills_list_tool, read_skill
-  STATUS live: same gateway translation as agent-watch. The free browser
-  scan form works today: https://entradox.github.io/cited-site/
+  STATUS live: same gateway translation as agent-watch, and native dispatch
+  completes too (re-probed 2026-10-07). The free browser scan form works today:
+  https://entradox.github.io/cited-site/
 
-- trustscan:          /mcp/trustscan          (v4.0.3, 4 tools, LIVE)
+- trustscan:          /mcp/trustscan          (v0.1.0, 4 tools, LIVE)
   trust_scan_server — security-scan an MCP server or skill package before
   trusting it (invisible-Unicode prompt injection, dangerous code
   patterns MCP001-MCP006, hardcoded secrets, typosquat names);
@@ -956,6 +961,8 @@ Tool lists below are each server's live tools/list (2026-09-19).
   dangerous patterns, and secrets. Read-only.
   skills_list_tool, read_skill
   (alias /mcp/trust-scan resolves to the same server)
+  Re-probed 2026-10-07: native MCP dispatch completes initialize + tools/list +
+  tools/call through the gateway.
 
 Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
 take agent_secret/workspace_key parameters and enforce the same access rule
@@ -1050,10 +1057,13 @@ def server_json():
 def mcp_server_card():
     """Static MCP server card (SEP-1649 shape).
 
-    Generated from the live tools/list rather than hand-written, so directory
+    Read from the committed server-card.json, which is itself generated from a
+    captured tools/list and then checked into the repo. It is therefore a
+    snapshot, NOT computed per request — if the served tools change, regenerate
+    the file. (An earlier version of this docstring said "generated from the live
+    tools/list", which implied a freshness this route does not have.) Directory
     scanners that cannot complete an automated scan (auth wall, WAF, bot rules)
-    still get accurate tools + schemas. Smithery and similar registries read
-    this path when scanning is blocked.
+    read this path when scanning is blocked.
     """
     p = Path(__file__).parent / "server-card.json"
     if not p.exists():
@@ -1342,6 +1352,11 @@ def skill_md():
 # had drifted (agent-ledger claimed v0.4.1 vs live 0.4.3). Re-probe /health before
 # changing any of these, and re-date this comment when you do. A stale version on a
 # discovery surface is a false claim a crawler will repeat.
+#
+# This is the ONE hand-maintained copy. Two places used to carry their own stale
+# duplicates and now delegate here instead: the /llms.txt body (which advertised
+# v1.30.0/v4.0.3 for four satellites) and the MCP dispatch comments. If you add a
+# third surface that names a version, read it from CITY_CATALOG; do not retype it.
 CITY_CATALOG_VERSIONS_OBSERVED = "2026-10-07"
 CITY_CATALOG = [
     {"id": "agent-ledger", "title": "AgentLedger",
@@ -1349,11 +1364,17 @@ CITY_CATALOG = [
      "mcp_url": "https://aiagentscity.com/mcp/",
      "human_url": "https://aiagentscity.com/agent-ledger",
      "version": "v0.4.3", "status": "live",
+     # tools = the server's OWN tools/list, captured 2026-10-07. Keep it equal to
+     # that; the audit below fails the suite if it ever drifts.
+     # ledger_list_agents is deliberately ABSENT: it was removed from the MCP
+     # surface on 2026-09-26 because advertising it told every arriving agent that
+     # a cross-tenant listing exists and that its key is called admin_secret
+     # (al_mcp_http.py:458). Re-adding it here would re-publish that hint.
      "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
                "ledger_track", "ledger_set_budget", "ledger_check_spend",
-               "ledger_report", "ledger_alerts", "ledger_list_agents",
-               "ledger_start", "ledger_api_docs", "ledger_examples",
-               "skills_list_tool", "read_skill"]},
+               "ledger_report", "ledger_proxy_attach", "ledger_alerts",
+               "ledger_price", "ledger_start", "ledger_api_docs",
+               "ledger_examples", "skills_list_tool", "read_skill"]},
     {"id": "agent-watch", "title": "Agent Watch",
      "tagline": "Monitoring for the agent economy",
      "mcp_url": "https://aiagentscity.com/mcp/agent-watch",
@@ -1695,9 +1716,10 @@ def mcp_wellknown_json():
     Distinct from /.well-known/mcp/server-card.json (which is the richer
     registry card for AgentLedger alone). Tool names and counts live in
     CITY_CATALOG (one source of truth, shared with /v1/products and the
-    Personal Agent Protocol discovery document). The three v1.30.0 satellite
-    servers' native MCP tool dispatch times out server-side ("read operation
-    timed out"); the city gateway translates their tool calls to the
+    Personal Agent Protocol discovery document). The satellite servers' native
+    MCP tool dispatch was timing out server-side when the gateway translation
+    was introduced; re-probed 2026-10-07 it completes on all four, so the
+    translation is now a fast path. The city gateway translates their tool calls to the
     documented REST APIs, so they are listed as live with an honest status
     note rather than hidden.
     """
@@ -3077,10 +3099,14 @@ class _SatelliteMcpProxy:
             await send({"type": "http.response.body", "body": body})
             return
 
-        # v1.30.0 satellite backends time out every native MCP tools/call
-        # server-side; translate known tools to their documented REST
-        # equivalents. Anything untranslatable falls through to the native
-        # byte-proxy below (with the buffered body replayed).
+        # Translate known satellite tools to their documented REST equivalents.
+        # (This was introduced because the backends timed out every native MCP
+        # tools/call server-side. Re-probed 2026-10-07: all four satellites now
+        # complete initialize + tools/list + tools/call, so the translation is a
+        # fast path, not a workaround for a broken one. It is kept because it is
+        # faster and does not depend on upstream MCP behaviour.)
+        # Anything untranslatable falls through to the native byte-proxy below
+        # (with the buffered body replayed).
         prefix = self._match_prefix(scope.get("path", ""))
         if (scope.get("method") == "POST" and prefix is not None
                 and sat_translate.translatable(prefix)):
