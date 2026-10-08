@@ -56,12 +56,16 @@ def test_about_serves_a_page_that_names_the_operator(page):
     Before this, /about 301'd to "/" — every footer link labelled "An AI Agent
     City product" landed on the homepage, so a buyer could not answer "who built
     this?" anywhere on the site. The page must name the legal operator.
+
+    Contact is a role mailbox, never a personal address (2026-10-08 compliance
+    remediation: scrub names and personal email from every external surface).
     """
     r = page.get("/about", follow_redirects=False)
     assert r.status_code == 200, f"/about should serve a page, got {r.status_code}"
     body = r.text
     assert "Parmanand LLC" in body, "/about must name the legal operator"
-    assert "entradox@icloud.com" in body, "/about must carry a contact address"
+    assert "support@aiagentscity.com" in body, "/about must carry a contact address"
+    assert "@icloud.com" not in body, "/about must not expose a personal mailbox"
 
 
 def test_pre_existing_live_routes_still_200(page):
@@ -77,11 +81,16 @@ def test_no_generated_page_advertises_a_railway_host(page):
 
 
 def test_umbrella_root_has_no_operator_identity(page):
-    """The 2026-09-14 directive: strip company name and email off any page
-    that is not a specific product's own page. AgentLedger's own page keeps
-    its operator line (its own compliance surface); the umbrella index and
-    the other four product pages must not carry it."""
+    """The 2026-09-14 directive: strip company name and personal email off any
+    page that is not a specific product's own page.
+
+    Amended 2026-10-08: the personal mailbox is gone everywhere (role mailbox
+    support@aiagentscity.com replaced it). What these pages must still not carry
+    is the *personal* identity — no iCloud address, no personal name. The legal
+    entity and the role mailbox are allowed to appear on the umbrella legal
+    pages only (/terms, /privacy), never on a product page.
+    """
     for route in ["/", "/perimeter-watch", "/cited", "/agent-watch", "/trust-scan"]:
         body = page.get(route).text
+        assert "@icloud.com" not in body, f"{route} still leaks the personal email"
         assert "Parmanand LLC" not in body, f"{route} still names the operator"
-        assert "entradox@icloud.com" not in body, f"{route} still leaks the contact email"

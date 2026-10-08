@@ -195,4 +195,4 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 
 ## Contact
 
-entradox@icloud.com
+support@aiagentscity.com

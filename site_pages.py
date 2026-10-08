@@ -629,7 +629,7 @@ marketing numbers. When something is not working, the status note says what work
 what does not, with a date.</p>
 
 <h2>Contact</h2>
-<p>General and support: <a href="mailto:entradox@icloud.com">entradox@icloud.com</a><br>
+<p>General and support: <a href="mailto:support@aiagentscity.com">support@aiagentscity.com</a><br>
 Refunds, billing and privacy/deletion requests go to the same address.</p>
 <p>We aim to answer within two business days.</p>
 
@@ -695,7 +695,7 @@ old one. Keys are never placed in URLs by our own pages — the dashboard sends
 your key as a request header.</p>
 
 <h2>Reporting a vulnerability</h2>
-<p>Email <a href="mailto:entradox@icloud.com">entradox@icloud.com</a> with the
+<p>Email <a href="mailto:support@aiagentscity.com">support@aiagentscity.com</a> with the
 subject line <code>SECURITY</code>, including what you found and how to
 reproduce it. We will confirm receipt, tell you what we intend to do, and credit
 you if you want the credit. Please do not test against other people's

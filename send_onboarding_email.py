@@ -61,7 +61,7 @@ Then just ask your agent in plain language: "Track a $3.50 spend for
 writer-bot on the mpp rail" — it calls ledger_track automatically (same
 agent_secret rules apply).
 
-Questions? entradox@icloud.com
+Questions? support@aiagentscity.com
 """
 
 
