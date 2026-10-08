@@ -81,7 +81,11 @@ MCP_TOOLS_MD = f"""## MCP Tools
 | `ledger_check_spend` | read | ask BEFORE spending: allowed/denied, reason code, estimate, headroom; same decision the proxy enforces (`agent_secret` or `workspace_key`) |
 | `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies (`agent_secret` or `workspace_key`) |
 | `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts (`agent_secret` or `workspace_key`) |
-| `ledger_list_agents` | read, owner-only | full cross-tenant listing, needs `admin_secret` |
+| `ledger_price` | read | what will this call cost — priced from the same table the caps use |
+| `ledger_start` | write | free workspace with no credential — call FIRST if you have no credentials yet |
+| `ledger_proxy_attach` | write | point provider traffic at the proxy so caps enforce BEFORE the provider is called |
+| `ledger_rotate_secret` | write | mint a NEW `agent_secret`, invalidating the old one (`workspace_key`) |
+| `ledger_revoke_secret` | write | invalidate an `agent_secret` without deleting its history (`workspace_key`) |
 | `ledger_api_docs` | read | this documentation, filtered by topic |
 | `ledger_examples` | read | complete runnable recipe snippets |
 

@@ -573,7 +573,8 @@ never sees the call.</p>
 <h2>3 · MCP — for Claude Code, Codex and Cursor</h2>
 <pre><code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></pre>
 <p class="mut">Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>,
-<code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_list_agents</code>,
+<code>ledger_check_spend</code>, <code>ledger_report</code>, <code>ledger_alerts</code>,
+<code>ledger_price</code>, <code>ledger_proxy_attach</code>, <code>ledger_start</code>,
 <code>ledger_api_docs</code>, <code>ledger_examples</code>, <code>ledger_rotate_secret</code>,
 <code>ledger_revoke_secret</code>.
 First call:</p>
