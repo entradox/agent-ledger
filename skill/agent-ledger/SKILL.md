@@ -35,7 +35,9 @@ money?", and a cap is enforced, not merely reported.
 | `ledger_check_spend` | Ask BEFORE you spend: `amount_cents` (any rail) or `model` + tokens. Returns `allowed`, a reason code and the headroom left. Same decision the proxy enforces; records nothing. |
 | `ledger_report` | Spend over a rolling window: total, by rail, by model, budget status, anomalies. |
 | `ledger_alerts` | Budget warnings (80% threshold) and spending spikes. |
-| `ledger_list_agents` | Owner-only cross-tenant listing — see what exists before creating anything. |
+| `ledger_price` | What will this call cost — priced from the same table the caps use. |
+| `ledger_proxy_attach` | Point provider traffic at the proxy so caps enforce BEFORE the provider is called. |
+| `ledger_start` | Free workspace, no credential — call FIRST if you have no credentials yet. |
 | `ledger_rotate_secret` | Mint a NEW `agent_secret` for an agent_id your workspace owns, invalidating the old one. |
 | `ledger_revoke_secret` | Invalidate an agent_secret WITHOUT deleting its spend history. |
 | `ledger_api_docs` | Self-serve docs — quickstart, MCP tools, REST endpoints, budget caps. |

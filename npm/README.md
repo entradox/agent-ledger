@@ -7,7 +7,7 @@
 [![Live API](https://img.shields.io/badge/API-live-success)](https://aiagentscity.com/health)
 [![Landing](https://img.shields.io/badge/status-page-blue)](https://aiagentscity.com/status)
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
-[![Version](https://img.shields.io/badge/version-0.4.1-blue)](https://aiagentscity.com/server.json)
+[![Version](https://img.shields.io/badge/version-0.4.3-blue)](https://aiagentscity.com/server.json)
 
 > 🎯 **Free tier: 3 agents per workspace, no card, no login.** `POST /start` mints the workspace and shows the key once.
 
@@ -129,8 +129,8 @@ Not using a Python SDK? Point any OpenAI- or Anthropic-compatible client at
 }
 ```
 
-Tools: `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`,
-`ledger_list_agents`, `ledger_api_docs`, `ledger_examples`.
+Tools: `ledger_track`, `ledger_set_budget`, `ledger_check_spend`, `ledger_report`, `ledger_alerts`,
+`ledger_price`, `ledger_proxy_attach`, `ledger_api_docs`, `ledger_examples`.
 
 Agent-facing API reference: [`llms.txt`](https://aiagentscity.com/llms.txt)
 Runnable code recipes: [`recipes.md`](./recipes.md)
