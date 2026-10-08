@@ -24,9 +24,19 @@ NOTE on why a tools/call check cannot be used here: the city gateway translates
 satellite tool calls to REST, so calling a NONEXISTENT tool still returns HTTP 200
 with a payload (verified: `ts_health` returned 200 while absent). Only tools/list
 distinguishes a real tool from a translated name, which is what this script reads.
+The ROOT mount (/mcp/, agent-ledger itself) is native FastMCP, so a real
+tools/call there is trustworthy — phase 2 uses it to audit what ledger_api_docs
+actually serves.
+
+Found again 2026-10-07 (same day, post-merge): the four audited surfaces were
+clean but the SAME phantom lived on the registry server-card, inside the
+ledger_api_docs tool output (which also named `admin_secret`), on the
+/agent-ledger and /quickstart pages, and in the packaged READMEs. Phase 2 exists
+so no surface has to be added to the audit by hand again.
 """
 import argparse
 import json
+import re
 import sys
 import urllib.request
 
@@ -137,6 +147,79 @@ def main() -> int:
             if stale in llms:
                 print(f"  llms.txt still contains the withdrawn/stale token {stale!r}")
                 failures += 1
+
+    # ── Phase 2: the surfaces the catalog audit never covered ─────────────
+    # Tokens that must appear on NO public surface: the withdrawn tool and the
+    # credential it advertised.
+    FORBIDDEN = ("ledger_list_agents", "admin_secret")
+    print()
+    print(f"{'surface':38}verdict")
+    print("-" * 64)
+    for path in ("/.well-known/mcp/server-card.json", "/agent-ledger",
+                 "/quickstart", "/status"):
+        try:
+            st, body = get(path)
+        except Exception as e:
+            print(f"{path:38}UNVERIFIED ({e})")
+            failures += 1
+            continue
+        hits = [t for t in FORBIDDEN if t in body]
+        if st != 200:
+            print(f"{path:38}HTTP {st}   UNVERIFIED")
+            failures += 1
+        elif hits:
+            print(f"{path:38}FORBIDDEN {hits}")
+            failures += 1
+        else:
+            print(f"{path:38}clean")
+
+    # The registry card's tools[] must equal the root mount's real tools/list —
+    # it is a committed snapshot, and drift is how the phantom got published.
+    try:
+        st, card_body = get("/.well-known/mcp/server-card.json")
+        card_tools = {t["name"] for t in json.loads(card_body)["tools"]}
+    except Exception:
+        card_tools = None
+    _, _, hdrs = post("/mcp/", {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                "params": {"protocolVersion": "2025-06-18",
+                                           "capabilities": {},
+                                           "clientInfo": {"name": "audit",
+                                                          "version": "1"}}})
+    sid = hdrs.get("mcp-session-id") or hdrs.get("Mcp-Session-Id")
+    post("/mcp/", {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+    _, raw, _ = post("/mcp/", {"jsonrpc": "2.0", "id": 2,
+                               "method": "tools/list", "params": {}}, sid)
+    root_served = parse_names(raw)
+    if card_tools is None or root_served is None:
+        print(f"{'server-card vs tools/list':38}UNVERIFIED")
+        failures += 1
+    elif card_tools != set(root_served):
+        print(f"{'server-card vs tools/list':38}DRIFT "
+              f"card-only={sorted(card_tools - set(root_served))} "
+              f"served-only={sorted(set(root_served) - card_tools)}")
+        failures += 1
+    else:
+        print(f"{'server-card vs tools/list':38}equal ({len(card_tools)})")
+
+    # ledger_api_docs is what an agent reads to learn this surface — its output
+    # must not name the phantom, the credential, or any ledger_* name the
+    # registry does not serve.
+    _, raw, _ = post("/mcp/", {"jsonrpc": "2.0", "id": 3,
+                               "method": "tools/call",
+                               "params": {"name": "ledger_api_docs",
+                                          "arguments": {"topic": "mcp"}}}, sid)
+    if root_served is None:
+        pass  # already counted above
+    else:
+        docs_tokens = set(re.findall(r"ledger_[a-z_]+", raw))
+        docs_phantom = docs_tokens - set(root_served)
+        docs_forbidden = [t for t in FORBIDDEN if t in raw]
+        if docs_phantom or docs_forbidden:
+            print(f"{'ledger_api_docs output':38}LIES "
+                  f"phantom={sorted(docs_phantom)} forbidden={docs_forbidden}")
+            failures += 1
+        else:
+            print(f"{'ledger_api_docs output':38}clean")
 
     print()
     if failures:
