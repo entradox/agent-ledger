@@ -21,7 +21,7 @@ Your principal runs AI agents (Claude Code, Codex, custom agents) and wants to c
    - Wrapper: `pip install aiagentscity-ledger`, then `agentledger.wrap(client, agent_id="<name>", agent_secret="<secret>")`.
    - MCP: add `https://aiagentscity.com/mcp/` to your MCP clients; tools `ledger_track`, `ledger_set_budget`, `ledger_report`, `ledger_alerts`.
 4. Prove it works: make a call whose estimated max cost exceeds the remaining budget and confirm you get `402` with a message naming the cap (proxy paths add "Nothing was sent upstream.").
-5. Webhooks: `POST https://aiagentscity.com/v1/webhooks` with `AL-API-Version: {AL_API_VERSION}` and `X-Workspace-Key: <key>` headers, body `{"url":"<your url>","events":["budget.warning","budget.exceeded","anomaly.detected"]}` for push alerts.
+5. Webhooks: `POST https://aiagentscity.com/v1/webhooks` with `AL-API-Version: {AL_API_VERSION}` and `X-Workspace-Key: <key>` headers, body `{"url":"<your url>","events":["budget.warning","budget.exceeded","anomaly.detected","approval.requested","approval.decided"]}` for push alerts.
 
 ## Honest limits (tell your principal)
 - Only traffic through the proxy/wrapper is truly enforceable. The plain API can reject the ledger write but cannot un-spend provider charges. Route the traffic or the cap is advisory.

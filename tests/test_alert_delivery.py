@@ -258,7 +258,8 @@ def test_list_then_delete(env, sink):
     listed = tc.get("/v1/webhooks", headers={"X-Workspace-Key": key}).json()
     assert listed["count"] == 1 and listed["webhooks"][0]["id"] == created["id"]
     assert created["events"] == ["alert.raised", "budget.warning",
-                                 "budget.exceeded", "anomaly.detected"]
+                                 "budget.exceeded", "anomaly.detected",
+                                 "approval.requested", "approval.decided"]
     assert tc.delete(f"/v1/webhooks/{created['id']}",
                      headers={"X-Workspace-Key": key}).status_code == 200
     assert tc.get("/v1/webhooks", headers={"X-Workspace-Key": key}).json()["count"] == 0

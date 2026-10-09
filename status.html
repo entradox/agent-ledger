@@ -135,7 +135,8 @@ workspace key is shown once, on the spot.</p>
   checkboxes, delivery log) or straight at the API — <code>POST /v1/webhooks</code> with
   <code>{"url": "https://..."}</code> and an optional <code>events</code> subset of
   <code>alert.raised</code>, <code>budget.warning</code>, <code>budget.exceeded</code>,
-  <code>anomaly.detected</code> (omit it for all four). <code>GET /v1/webhooks/deliveries</code>
+  <code>anomaly.detected</code>, <code>approval.requested</code>,
+  <code>approval.decided</code> (omit it for all six). <code>GET /v1/webhooks/deliveries</code>
   shows what was delivered and what failed. Payloads carry cost metadata only — never a
   secret, a prompt or a response.</li>
   <li><b>Shareable reports</b> — a signed, expiring, revocable link per agent that opens in any browser. Text it to your co-founder.</li>

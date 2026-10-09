@@ -293,6 +293,33 @@ def test_under_cap_track_does_not_consume_permit(env):
     assert ledger_engine.list_approvals("agent-a", state="approved")
 
 
+# --- the owner hears about it: alert fan-out --------------------------------
+
+def test_request_and_decide_emit_alerts(env):
+    al_mcp_http, _, ledger_engine, _, _ = env
+    raw_key, secret = _setup(env)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="svc",
+        reason="eval", agent_secret=secret)
+    feed = ledger_engine._alerts_path("agent-a").read_text()
+    assert '"type": "approval_requested"' in feed
+    assert r["approval_id"] in feed
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    feed = ledger_engine._alerts_path("agent-a").read_text()
+    assert '"type": "approval_approved"' in feed
+
+
+def test_approval_alert_types_map_to_events(env):
+    import alert_delivery
+    assert alert_delivery.event_for("approval_requested") == "approval.requested"
+    assert alert_delivery.event_for("approval_approved") == "approval.decided"
+    assert alert_delivery.event_for("approval_denied") == "approval.decided"
+    assert "approval.requested" in alert_delivery.EVENTS
+    assert "approval.decided" in alert_delivery.EVENTS
+
+
 # --- check_spend surfaces the lane ------------------------------------------
 
 def test_check_spend_reports_approved_permit_and_hint(env):

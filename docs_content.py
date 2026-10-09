@@ -165,7 +165,9 @@ failures alike, so a silent drop is visible rather than assumed.
 Events: `alert.raised` (anything unmapped — subscribing to it can never miss
 something), `budget.warning` (80% of a cap), `budget.exceeded` (a write was
 actually **blocked**; this is the only moment it is real, because the entry
-that would cross 100% never lands), and `anomaly.detected` (spend spike).
+that would cross 100% never lands), `anomaly.detected` (spend spike),
+`approval.requested` (an agent asked its owner for a one-shot spend
+permit), and `approval.decided` (the owner approved or denied it).
 
 Payloads carry cost metadata only — event, agent_id, message, timestamp,
 report URL. Never a credential, never a prompt, never a response. Destinations

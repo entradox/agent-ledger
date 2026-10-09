@@ -424,6 +424,13 @@ def request_approval(agent_id: str, amount_cents: int, service: str,
                                          timezone.utc).isoformat()}
     _approvals_dir(agent_id).mkdir(parents=True, exist_ok=True)
     (_approvals_dir(agent_id) / f"{approval_id}.json").write_text(json.dumps(permit, indent=2))
+    # Push the request to the workspace's alert feed + webhooks — a pending
+    # permit nobody hears about is a feature that looks broken. Dispatch is
+    # fire-and-forget; a dead endpoint can never fail this write.
+    _log_alert(agent_id, "approval_requested",
+               f"agent {agent_id} requests ${amount_cents/100:.2f} for "
+               f"'{service}' — permit {approval_id} "
+               + (f"({reason})" if reason else ""))
     return permit
 
 
@@ -501,6 +508,13 @@ def decide_approval(agent_id: str, approval_id: str, decision: str,
     permit["decided_by"] = decided_by
     _write_permit(agent_id, permit)
     log_agent_audit(agent_id, f"approval_{permit['state']}", decided_by)
+    # The agent polls its own alert feed for the outcome — one delivery path
+    # the requester and the owner's webhooks both already read.
+    _log_alert(agent_id, f"approval_{permit['state']}",
+               f"permit {approval_id} {permit['state']}: "
+               f"${permit['amount_cents']/100:.2f} for '{permit['service']}'"
+               + (f" — consumed by the next track within the amount"
+                  if permit["state"] == "approved" else ""))
     return permit
 
 

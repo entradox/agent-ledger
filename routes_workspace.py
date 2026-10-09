@@ -441,7 +441,7 @@ document.getElementById('upgrade').onclick = function(){
 // The endpoint existed and the marketing copy promised pushed alerts, but no
 // page linked to it: the only way to register a destination was to hand-craft
 // an API call from the docs. This is the missing surface.
-var WH_EVENTS = ['alert.raised','budget.warning','budget.exceeded','anomaly.detected'];
+var WH_EVENTS = ['alert.raised','budget.warning','budget.exceeded','anomaly.detected','approval.requested','approval.decided'];
 function whMsg(text, bad){
   var el = document.getElementById('whmsg');
   el.textContent = text || '';
