@@ -1255,9 +1255,9 @@ def x402_billing(request: Request):
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
     if raw_key is None:
         payload["message"] = (
-            "A workspace_key was already issued for this wallet and is shown "
-            "only once at mint time — it cannot be re-issued in this version. "
-            "This payment resolved to your existing workspace.")
+            "This payment resolved to your existing workspace; the original "
+            "workspace_key is shown once at mint. To rotate into a fresh key, "
+            "POST /v1/billing/x402/recover with a wallet signature.")
     # SECURITY: the raw workspace_key must never be persisted in the
     # idempotency cache — a replayable cached response would re-expose it to
     # anyone who can name the settlement tx_hash. Same rule (and same shape)
@@ -1275,3 +1275,78 @@ def x402_billing(request: Request):
         response_headers["Payment-Receipt"] = mpp_receipt["receipt"].to_payment_receipt()
     return JSONResponse(status_code=200, content=payload,
                         headers=response_headers)
+
+
+# ── Wallet-signed key recovery (D-1576) ──────────────────────────────────────
+# A workspace minted via POST /v1/billing/x402 binds to the payer wallet, and
+# the workspace_key is shown once at mint and never stored — an agent that
+# lost the key was permanently locked out of a workspace it paid for. The
+# wallet IS the identity, so the recovery proof is a signature, not a shared
+# secret: sign `agent-ledger:recover:{wallet}:{timestamp}` (EIP-191
+# personal_sign) and we reissue a fresh workspace_key, invalidating the old
+# one. eth_account ships in the image via x402[evm].
+RECOVER_MAX_SKEW_S = 600
+RECOVER_MESSAGE_PREFIX = "agent-ledger:recover:"
+
+
+@router.post("/v1/billing/x402/recover")
+async def x402_recover(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail=error_envelope(
+            400, "JSON body required: {wallet, timestamp, signature}",
+            code="recover_bad_body"))
+
+    wallet = str(body.get("wallet") or "").strip()
+    signature = str(body.get("signature") or "").strip()
+    try:
+        timestamp = int(body.get("timestamp"))
+    except (TypeError, ValueError):
+        timestamp = 0
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", wallet) or not signature:
+        raise HTTPException(400, detail=error_envelope(
+            400, "wallet must be a 0x-prefixed EVM address and signature a "
+                 "hex string", code="recover_bad_fields"))
+    if abs(time.time() - timestamp) > RECOVER_MAX_SKEW_S:
+        raise HTTPException(400, detail=error_envelope(
+            400, f"timestamp must be within {RECOVER_MAX_SKEW_S}s of now — "
+                 "sign a fresh challenge", code="recover_stale_timestamp"))
+
+    challenge = f"{RECOVER_MESSAGE_PREFIX}{wallet}:{timestamp}"
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        recovered = Account.recover_message(
+            encode_defunct(text=challenge), signature=signature)
+    except Exception:
+        raise HTTPException(401, detail=error_envelope(
+            401, "signature could not be recovered — sign "
+                 f"`{challenge}` with the wallet's private key "
+                 "(EIP-191 personal_sign)", code="recover_bad_signature"))
+    if recovered.lower() != wallet.lower():
+        raise HTTPException(401, detail=error_envelope(
+            401, "signature verifies but not for this wallet",
+            code="recover_wrong_wallet"))
+
+    import workspace_engine
+    record = workspace_engine.get_workspace_by_wallet(wallet)
+    if record is None:
+        # The signature proved ownership of the wallet — a 404 here tells the
+        # caller "this wallet never paid us", not "you failed auth".
+        raise HTTPException(404, detail=error_envelope(
+            404, "no workspace is bound to this wallet — it has not paid via "
+                 "x402 (or it paid before wallet binding)", code="recover_no_workspace"))
+
+    workspace_id = record["workspace_id"]
+    raw_key = workspace_engine.reissue_key(workspace_id)
+    logging.warning("x402 recover: wallet %s reissued key for workspace %s",
+                    wallet, workspace_id)
+    metrics.record_event("x402_recovered")
+    return {"workspace_id": workspace_id, "workspace_key": raw_key,
+            "plan": record.get("plan"), "tier": record.get("tier"),
+            "pro_until": record.get("pro_until"),
+            "note": "previous workspace_key is invalidated; store this one — "
+                    "it is shown once"}

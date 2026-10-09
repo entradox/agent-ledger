@@ -1662,6 +1662,13 @@ AGENT_JSON = {
                         "signup, no card, but capped at 3 agents; GET /start only "
                         "renders the form and does not mint).",
          "endpoint": "/v1/billing/x402", "method": "POST", "free": False},
+        {"id": "recover_workspace_x402",
+         "description": "Recover a LOST workspace_key for a wallet-paid workspace: "
+                        "sign `agent-ledger:recover:{wallet}:{unix_ts}` with the "
+                        "payer wallet (EIP-191 personal_sign, ts within 10 min) and "
+                        "POST {wallet, timestamp, signature} — a fresh key is issued "
+                        "and the old one invalidated.",
+         "endpoint": "/v1/billing/x402/recover", "method": "POST", "free": True},
         {"id": "track_spend", "description": "Record a spend entry for an agent",
          "endpoint": "/v1/track", "method": "POST", "free": True},
         {"id": "set_budget", "description": "Set monthly/daily budget caps for an agent",
