@@ -79,6 +79,9 @@ MCP_TOOLS_MD = f"""## MCP Tools
 | `ledger_track` | write | record a spend entry (`workspace_key` to claim a new `agent_id`, `agent_secret` thereafter) |
 | `ledger_set_budget` | write | set monthly/daily budget caps (same credentials as `ledger_track`) |
 | `ledger_check_spend` | read | ask BEFORE spending: allowed/denied, reason code, estimate, headroom; same decision the proxy enforces (`agent_secret` or `workspace_key`) |
+| `ledger_request_approval` | write | ask the workspace owner for a one-shot spend exception when the cap would refuse; creates a pending permit, expires in 1h (`agent_secret`, or `workspace_key` to claim) |
+| `ledger_approvals` | read | list permits — this agent's (`agent_secret`) or every agent's in the workspace (`workspace_key` — the supervisor view) |
+| `ledger_approval_decide` | write | approve/deny a pending permit (`workspace_key` only — an agent's own secret can request but can never decide) |
 | `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies (`agent_secret` or `workspace_key`) |
 | `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts (`agent_secret` or `workspace_key`) |
 | `ledger_price` | read | what will this call cost — priced from the same table the caps use |
@@ -104,6 +107,9 @@ GET  /start                        — get a workspace (no signup, no login);
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
 POST /v1/budget                    — set budget caps (workspace_key claims, agent_secret writes)
 POST /v1/check                     : may this agent spend X now? allowed + reason + headroom (read-only)
+POST /v1/approvals                 — request a one-shot spend permit (workspace_key claims, agent_secret writes)
+GET  /v1/approvals                 — list permits: ?agent_id= + credential, or X-Workspace-Key alone for the whole workspace
+POST /v1/approvals/{{approval_id}}/decide — approve/deny a pending permit (X-Workspace-Key only — never the agent's own secret)
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key

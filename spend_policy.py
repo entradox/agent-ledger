@@ -186,11 +186,38 @@ def check_spend(agent_id: str, amount_cents: Optional[int] = None, model: str = 
     # them here would deny what the proxy then forwards. Token caps DO bind a
     # model+tokens spend, which the agent will record through track().
     verdict = decide(agent_id, estimate, 0 if basis == "payload" else tokens)
+    # Surface the approval lane in every check — a denied answer should carry
+    # the escape hatch (request an approval) and an approved permit waiting to
+    # be spent should be visible even when the cap would deny.
+    approvals = {"pending": 0, "approved_covering": None}
+    try:
+        permits = le.list_approvals(agent_id)
+        approvals["pending"] = sum(1 for p in permits if p["state"] == "pending")
+        if estimate is not None:
+            covering = [p for p in permits
+                        if p["state"] == "approved"
+                        and int(p.get("amount_cents", 0)) >= estimate]
+            if covering:
+                approvals["approved_covering"] = covering[-1]["approval_id"]
+                verdict["allowed"] = True
+                verdict["reason"] = "approved_permit"
+    except Exception:
+        pass
+    if verdict["reason"] == "approved_permit":
+        message = (f"allowed: approved permit {approvals['approved_covering']} "
+                   f"covers this spend even though the cap would deny it — "
+                   f"it will be consumed by the next ledger_track.")
+    else:
+        message = _message(agent_id, verdict, estimate)
+        if not verdict["allowed"]:
+            message += (" You can also request a one-shot exception with "
+                        "ledger_request_approval.")
     return {"agent_id": agent_id,
             "allowed": verdict["allowed"],
             "decision": "allow" if verdict["allowed"] else "deny",
             "reason": verdict["reason"],
-            "message": _message(agent_id, verdict, estimate),
+            "message": message,
+            "approvals": approvals,
             "estimate_cents": estimate,
             "estimate_tokens": tokens or None,
             "basis": basis,

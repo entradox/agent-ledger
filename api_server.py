@@ -6,6 +6,9 @@ Endpoints:
   POST /v1/track                     — record a spend entry
   POST /v1/budget                    — set budget caps
   POST /v1/check                     : may this agent spend X now? (read-only)
+  POST /v1/approvals                 — request a one-shot spend permit
+  GET  /v1/approvals                 — list permits (agent or workspace scope)
+  POST /v1/approvals/{id}/decide     — owner approves/denies (workspace_key only)
   GET  /v1/report/{agent_id}         — spend report
   GET  /v1/alerts/{agent_id}         — alerts for agent
   GET  /v1/agents                    — list all tracked agents
@@ -37,7 +40,7 @@ from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.4.3"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.4"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 # ── OpenAPI augmentation for agent payment-directory discovery (D-1293) ──────
@@ -816,7 +819,21 @@ POST /v1/check                     : ask BEFORE spending: allowed true/false + r
      body: {"agent_id": str, and ONE of: "amount_cents": int (any rail, e.g. an x402 purchase) |
             "model": str + "tokens_in"/"tokens_out": int | "model": str + "payload": the request body}
      reasons: within_budget | over_monthly_cap | over_daily_cap | over_monthly_token_cap |
-              over_daily_token_cap | no_budget_set | unpriced_model
+              over_daily_token_cap | no_budget_set | unpriced_model | approved_permit
+POST /v1/approvals                 — request a one-shot spend permit for a spend the cap
+                                      would refuse; pending for 1h, consumed once by the
+                                      next track within its amount (workspace_key claims,
+                                      agent_secret writes)
+     body: {"agent_id": str, "amount_cents": int, "service": str, "reason": str (optional),
+            "workspace_key": str (required to CLAIM), "agent_secret": str (after first write)}
+GET  /v1/approvals                 — list permits: ?agent_id= + X-Agent-Secret or
+                                      X-Workspace-Key, or X-Workspace-Key alone for every
+                                      agent in the workspace (the supervisor view).
+                                      Query: state=pending|approved|denied|consumed|expired
+POST /v1/approvals/{approval_id}/decide — approve or deny a pending permit.
+                                      X-Workspace-Key only: an agent's own secret can
+                                      request but can NEVER decide.
+     body: {"agent_id": str, "decision": "approve"|"deny"}
 GET  /v1/report/{agent_id}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 POST /v1/report/{agent_id}/share   — mint a read-only, EXPIRING link to the human report page
                                       (agent_secret OR workspace_key; default 7 days, max 90)
@@ -903,7 +920,7 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
 
-Tools exposed at POST /mcp/ (v0.4.3, 14):
+Tools exposed at POST /mcp/ (v0.4.4, 17):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
@@ -916,6 +933,12 @@ Tools exposed at POST /mcp/ (v0.4.3, 14):
                           agent can report its cost honestly and plan before spending (open read)
   ledger_rotate_secret  — recover a lost agent_secret (workspace_key param; old secret dies at once)
   ledger_revoke_secret  — invalidate an agent's secret without deleting its history (workspace_key param)
+  ledger_request_approval — ask the owner for a one-shot spend exception when the cap
+                            would refuse (agent_secret or workspace_key to claim)
+  ledger_approvals      — list permits: this agent's (agent_secret) or the whole
+                          workspace's (workspace_key — the supervisor view)
+  ledger_approval_decide — approve/deny a pending permit (workspace_key only —
+                           an agent can never approve its own request)
   ledger_start          — mint a workspace over MCP (no human)
   ledger_api_docs       — self-serve docs by topic: quickstart|mcp|rest|budget|errors|idempotency|metering|all (open read)
   ledger_examples       — runnable recipe by pattern: python_tracking|budget_enforcement|weekly_report|retry_safe_writes (open read)
@@ -1363,7 +1386,7 @@ CITY_CATALOG = [
      "tagline": "Spending limits for AI agents",
      "mcp_url": "https://aiagentscity.com/mcp/",
      "human_url": "https://aiagentscity.com/agent-ledger",
-     "version": "v0.4.3", "status": "live",
+     "version": "v0.4.4", "status": "live",
      # tools = the server's OWN tools/list, captured 2026-10-07. Keep it equal to
      # that; the audit below fails the suite if it ever drifts.
      # ledger_list_agents is deliberately ABSENT: it was removed from the MCP
@@ -1372,6 +1395,8 @@ CITY_CATALOG = [
      # (al_mcp_http.py:458). Re-adding it here would re-publish that hint.
      "tools": ["ledger_rotate_secret", "ledger_revoke_secret",
                "ledger_track", "ledger_set_budget", "ledger_check_spend",
+               "ledger_request_approval", "ledger_approvals",
+               "ledger_approval_decide",
                "ledger_report", "ledger_proxy_attach", "ledger_alerts",
                "ledger_price", "ledger_start", "ledger_api_docs",
                "ledger_examples", "skills_list_tool", "read_skill"]},

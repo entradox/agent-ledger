@@ -33,6 +33,9 @@ money?", and a cap is enforced, not merely reported.
 | `ledger_track` | Record a spend entry. Send `tokens_in`/`tokens_out` + `model` and the server prices it — do not do the arithmetic yourself. |
 | `ledger_set_budget` | Set `monthly_cents`/`daily_cents`, plus token caps for agents billed in tokens. Warns at 80%, blocks when exceeded. |
 | `ledger_check_spend` | Ask BEFORE you spend: `amount_cents` (any rail) or `model` + tokens. Returns `allowed`, a reason code and the headroom left. Same decision the proxy enforces; records nothing. |
+| `ledger_request_approval` | Ask the workspace owner for a one-shot spend exception when the cap would refuse. Creates a pending permit (1h TTL). |
+| `ledger_approvals` | List permits — your own (agent_secret) or the whole workspace's (workspace_key — the supervisor view). |
+| `ledger_approval_decide` | Approve or deny a pending permit. `workspace_key` only — an agent can never approve its own request. An approved permit is consumed by the next over-cap track within its amount. |
 | `ledger_report` | Spend over a rolling window: total, by rail, by model, budget status, anomalies. |
 | `ledger_alerts` | Budget warnings (80% threshold) and spending spikes. |
 | `ledger_price` | What will this call cost — priced from the same table the caps use. |

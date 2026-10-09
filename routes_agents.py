@@ -24,6 +24,7 @@ from ledger_engine import (
     idempotency_begin, idempotency_store, idempotency_release,
     validate_agent_id as le_validate_agent_id, _ledger_path,
     ensure_agent_secret, MAX_AMOUNT_CENTS, VALID_RAILS, agent_exists,
+    APPROVAL_STATES,
 )
 import metrics
 
@@ -464,6 +465,112 @@ def check_spend_route(req: CheckRequest, request: Request):
     except Exception:
         pass
     return result
+
+
+# ── Spend approvals (D-1575) ────────────────────────────────────────────────
+# REST mirror of the three MCP tools: request a one-shot permit, list permits,
+# owner decides. Same engine calls, same credential rules — an agent_secret
+# can request but can never decide.
+
+
+class ApprovalRequest(BaseModel):
+    agent_id: str
+    amount_cents: int = Field(gt=0)
+    service: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="", max_length=500)
+    agent_secret: Optional[str] = None
+    workspace_key: Optional[str] = None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    agent_id: str
+    decision: str
+    workspace_key: Optional[str] = None
+
+
+@router.post("/v1/approvals")
+def create_approval(req: ApprovalRequest, request: Request):
+    """Ask the workspace owner for a one-shot spend exception. Creates a
+    pending permit (1h TTL); an approved permit is consumed by the next
+    ledger_track within its amount. Same claim rules as /v1/track."""
+    _log_event("approval_request")
+    _check_api_version(request)
+    workspace_key = _effective_workspace_key(request, req.workspace_key)
+    secret, created = _claim_or_401(req.agent_id, req.agent_secret, workspace_key)
+    idem = _idempotency_gate(request, req.agent_id, "approval_request")
+    if idem is not None:
+        return idem
+    import identity
+    from ledger_engine import request_approval
+    try:
+        permit = request_approval(req.agent_id, req.amount_cents, req.service,
+                                  req.reason,
+                                  workspace_id=identity.workspace_of_agent(
+                                      req.agent_id) or "")
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e),
+                                                     code="invalid_request"))
+    if created:
+        permit["agent_secret"] = secret
+    return permit
+
+
+@router.get("/v1/approvals")
+def get_approvals(request: Request, agent_id: str = "", state: str = ""):
+    """List permits: this agent's (x-agent-secret or x-workspace-key + agent_id)
+    or the whole workspace's (x-workspace-key alone — the supervisor view)."""
+    if state and state not in APPROVAL_STATES:
+        raise HTTPException(422, detail=error_envelope(
+            422, "state must be pending|approved|denied|consumed|expired",
+            code="invalid_state"))
+    import identity
+    from ledger_engine import list_approvals, list_workspace_approvals
+    ws_id = identity.resolve_workspace_key(
+        request.headers.get("x-workspace-key", ""))
+    if ws_id and not agent_id:
+        return {"workspace_id": ws_id, "state": state or "all",
+                "approvals": list_workspace_approvals(ws_id, state)}
+    if not agent_id:
+        raise HTTPException(422, detail=error_envelope(
+            422, "give agent_id (+credential) or x-workspace-key",
+            code="missing_scope"))
+    _authorize_agent_read(agent_id, request)
+    return {"agent_id": agent_id, "state": state or "all",
+            "approvals": list_approvals(agent_id, state)}
+
+
+@router.post("/v1/approvals/{approval_id}/decide")
+def decide_approval_route(approval_id: str, req: ApprovalDecisionRequest,
+                          request: Request):
+    """Approve or deny a pending permit — workspace_key only. The agent's own
+    secret can request but can never decide (an agent that approves its own
+    requests is not a control)."""
+    _log_event("approval_decide")
+    _check_api_version(request)
+    import identity
+    from ledger_engine import decide_approval
+    workspace_key = _effective_workspace_key(request, req.workspace_key)
+    ws_id = identity.resolve_workspace_key(workspace_key)
+    if not ws_id:
+        raise HTTPException(401, detail=error_envelope(
+            401, "deciding an approval requires the workspace_key that owns "
+                 "this agent_id", code="workspace_key_required"))
+    try:
+        le_validate_agent_id(req.agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e), code="invalid_agent_id"))
+    if not agent_exists(req.agent_id):
+        raise HTTPException(404, detail=error_envelope(
+            404, f"agent_id '{req.agent_id}' is not claimed", code="agent_not_claimed"))
+    if not identity.agent_belongs_to_workspace(req.agent_id, ws_id):
+        raise HTTPException(403, detail=error_envelope(
+            403, f"agent_id '{req.agent_id}' is not claimed in this workspace",
+            code="not_your_agent"))
+    try:
+        return decide_approval(req.agent_id, approval_id, req.decision, ws_id)
+    except ValidationError as e:
+        raise HTTPException(422, detail=error_envelope(422, str(e),
+                                                     code="invalid_request"))
 
 
 @router.get("/v1/report/{agent_id}")

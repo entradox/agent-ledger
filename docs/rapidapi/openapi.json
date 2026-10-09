@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AgentLedger API",
-    "version": "0.4.3",
+    "version": "0.4.4",
     "x-guidance": "AgentLedger is per-agent AI spend tracking with ENFORCED budget caps. Two ways in, both machine-only. (1) FREE, no wallet: POST /start mints a workspace_key (shown once) with no signup and no card \u2014 GET /start only renders the form and does NOT mint. Claim an agent with the key in the body of POST /v1/track, set a cap with POST /v1/budget, then route traffic through /proxy/{provider}/... so an over-budget call is refused with 402 BEFORE the provider is contacted. (2) PAID, no human: POST /v1/billing/x402 with a wallet-signed x402 payment mints a workspace bound to the paying wallet. NOTE: a workspace_key claims NEW agents; an agent_secret writes to an existing one. Plain POST /v1/track can reject the ledger write that would cross a cap but cannot un-spend a charge that already happened \u2014 only the proxy/wrapper path stops money.",
     "description": "AgentLedger \u2014 per-agent spend control for AI agents. Track spend across x402/MPP/API-key rails, enforce budget caps BEFORE the provider call, and get alerts + audit trails. Workspace credentials are provisioned automatically per RapidAPI subscriber \u2014 no signup, no card. Docs: https://aiagentscity.com/quickstart"
   },

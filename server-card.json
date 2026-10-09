@@ -1,7 +1,7 @@
 {
   "serverInfo": {
     "name": "AgentLedger",
-    "version": "0.4.3"
+    "version": "0.4.4"
   },
   "authentication": {
     "required": true,
@@ -296,6 +296,110 @@
         },
         "required": [
           "agent_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ledger_request_approval",
+      "description": "Ask your workspace owner for a one-shot spend exception before a\nledger_track that the cap would refuse.\n\nCreates a pending permit for exactly amount_cents on the given service.\nThe owner (a human, or a supervisor agent holding the workspace_key)\napproves or denies it with ledger_approval_decide. An APPROVED permit is\nconsumed by the next ledger_track for this agent whose amount fits inside\nit — the budget cap itself does not change. Permits expire after 1 hour\nundecided. Poll with ledger_approvals to see the decision.\n\nClaiming a brand-new agent_id requires workspace_key; otherwise pass the\nagent's agent_secret.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "the agent asking for the exception"
+          },
+          "amount_cents": {
+            "type": "integer",
+            "description": "the spend to be approved, in cents"
+          },
+          "service": {
+            "type": "string",
+            "description": "what the money is for (e.g. \"openai:gpt-5 batch eval\")"
+          },
+          "reason": {
+            "default": "",
+            "type": "string",
+            "description": "why, one line — shown to the approver"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "the agent's own secret (either this or workspace_key)"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "the owning workspace's key (either this or agent_secret)"
+          }
+        },
+        "required": [
+          "agent_id",
+          "amount_cents",
+          "service"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ledger_approvals",
+      "description": "List spend-approval permits — yours, or your whole workspace's.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "default": "",
+            "type": "string",
+            "description": "list this agent's permits (needs agent_secret or workspace_key)"
+          },
+          "workspace_key": {
+            "default": "",
+            "type": "string",
+            "description": "the owning workspace's key — lists ALL its agents'\n           permits when given alone"
+          },
+          "agent_secret": {
+            "default": "",
+            "type": "string",
+            "description": "the agent's own secret (agent view)"
+          },
+          "state": {
+            "default": "",
+            "type": "string",
+            "description": "optional filter: pending | approved | denied | consumed | expired"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "ledger_approval_decide",
+      "description": "Approve or deny a pending spend permit — workspace owner only.\n\nThe agent's own agent_secret can REQUEST an approval but can never decide\none: a credential that can approve its own requests is not a control.\ndecision must be 'approve' or 'deny'; only pending permits can be decided.\nAn approved permit is consumed by the agent's next ledger_track within\nits amount — it is a one-shot exception, not a raised cap.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "the agent that requested the permit"
+          },
+          "approval_id": {
+            "type": "string",
+            "description": "the apr_ id from ledger_request_approval / ledger_approvals"
+          },
+          "decision": {
+            "type": "string",
+            "description": "'approve' or 'deny'"
+          },
+          "workspace_key": {
+            "type": "string",
+            "description": "the key of the workspace that owns the agent"
+          }
+        },
+        "required": [
+          "agent_id",
+          "approval_id",
+          "decision",
+          "workspace_key"
         ],
         "type": "object"
       }
