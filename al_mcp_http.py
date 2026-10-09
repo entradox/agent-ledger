@@ -55,8 +55,8 @@ def _owned_or_error(agent_id: str, workspace_key: str):
         return None, {"error": str(e), "error_code": "invalid_agent_id"}
     workspace_id = identity.resolve_workspace_key(workspace_key or "")
     if not workspace_id:
-        return None, {"error": ("rotating or revoking an agent_secret requires the "
-                                "workspace_key that owns this agent_id"),
+        return None, {"error": ("this operation requires the workspace_key that "
+                                "owns this agent_id"),
                       "error_code": "workspace_key_required"}
     if not agent_exists(agent_id):
         return None, {"error": f"agent_id '{agent_id}' is not claimed",
@@ -436,6 +436,145 @@ def ledger_check_spend(agent_id: str, amount_cents: Optional[int] = None,
         pass
     _record_mcp_call()
     return result
+
+
+# ── Spend approvals (D-1575) ────────────────────────────────────────────────
+# A denied agent shouldn't be dead-ended. These three tools are the
+# human-in-the-loop / supervisor-agent lane: request a one-shot permit, the
+# workspace owner approves or denies, and the next ledger_track within the
+# approved amount is allowed even over cap — the permit is consumed, the cap
+# is unchanged.
+
+
+@mcp.tool(annotations={"title": "Request Spend Approval", "readOnlyHint": False,
+                        "destructiveHint": False, "idempotentHint": False})
+def ledger_request_approval(agent_id: str, amount_cents: int, service: str,
+                            reason: str = "", agent_secret: str = "",
+                            workspace_key: str = "") -> dict:
+    """Ask your workspace owner for a one-shot spend exception before a
+    ledger_track that the cap would refuse.
+
+    Creates a pending permit for exactly amount_cents on the given service.
+    The owner (a human, or a supervisor agent holding the workspace_key)
+    approves or denies it with ledger_approval_decide. An APPROVED permit is
+    consumed by the next ledger_track for this agent whose amount fits inside
+    it — the budget cap itself does not change. Permits expire after 1 hour
+    undecided. Poll with ledger_approvals to see the decision.
+
+    Claiming a brand-new agent_id requires workspace_key; otherwise pass the
+    agent's agent_secret.
+
+    Args:
+        agent_id: the agent asking for the exception
+        amount_cents: the spend to be approved, in cents
+        service: what the money is for (e.g. "openai:gpt-5 batch eval")
+        reason: why, one line — shown to the approver
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+    """
+    from ledger_engine import request_approval, ValidationError
+    secret, created, err = _claim_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+    import identity
+    ws_id = identity.workspace_of_agent(agent_id)
+    try:
+        permit = request_approval(agent_id, amount_cents, service, reason,
+                                  workspace_id=ws_id or "")
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_request"}
+    permit = dict(permit)
+    if created:
+        permit["agent_secret"] = secret
+        permit["_note"] = ("Save this agent_secret — required for every future "
+                           "write to this agent_id. It will not be shown again.")
+    permit["_next"] = ("Poll ledger_approvals(agent_id=...) for the decision, "
+                       "or wait for a ledger_alerts notification. If approved, "
+                       "the next ledger_track up to amount_cents succeeds even "
+                       "over cap and consumes the permit.")
+    _record_mcp_call()
+    return permit
+
+
+@mcp.tool(annotations={"title": "List Spend Approvals", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
+def ledger_approvals(agent_id: str = "", workspace_key: str = "",
+                     agent_secret: str = "", state: str = "") -> dict:
+    """List spend-approval permits — yours, or your whole workspace's.
+
+    Two scopes:
+      - agent view: agent_id + agent_secret → that agent's permits
+      - owner view: workspace_key → every permit across the workspace's
+        agents (the supervisor dashboard — what a human or supervisor agent
+        polls to see pending requests)
+
+    Args:
+        agent_id: list this agent's permits (needs agent_secret or workspace_key)
+        workspace_key: the owning workspace's key — lists ALL its agents'
+                       permits when given alone
+        agent_secret: the agent's own secret (agent view)
+        state: optional filter: pending | approved | denied | consumed | expired
+    """
+    import identity
+    from ledger_engine import (list_approvals, list_workspace_approvals,
+                               validate_agent_id, ValidationError)
+    if state and state not in ("pending", "approved", "denied", "consumed", "expired"):
+        return {"error": f"state must be one of pending/approved/denied/consumed/expired",
+                "error_code": "invalid_state"}
+    ws_id = identity.resolve_workspace_key(workspace_key or "")
+    if ws_id and not agent_id:
+        _record_mcp_call()
+        return {"workspace_id": ws_id, "state": state or "all",
+                "approvals": list_workspace_approvals(ws_id, state)}
+    if not agent_id:
+        return {"error": "give agent_id (+agent_secret) or workspace_key",
+                "error_code": "missing_scope"}
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+    _record_mcp_call()
+    return {"agent_id": agent_id, "state": state or "all",
+            "approvals": list_approvals(agent_id, state)}
+
+
+@mcp.tool(annotations={"title": "Approve or Deny a Spend Request",
+                        "readOnlyHint": False, "destructiveHint": True,
+                        "idempotentHint": True})
+def ledger_approval_decide(agent_id: str, approval_id: str, decision: str,
+                           workspace_key: str) -> dict:
+    """Approve or deny a pending spend permit — workspace owner only.
+
+    The agent's own agent_secret can REQUEST an approval but can never decide
+    one: a credential that can approve its own requests is not a control.
+    decision must be 'approve' or 'deny'; only pending permits can be decided.
+    An approved permit is consumed by the agent's next ledger_track within
+    its amount — it is a one-shot exception, not a raised cap.
+
+    Args:
+        agent_id: the agent that requested the permit
+        approval_id: the apr_ id from ledger_request_approval / ledger_approvals
+        decision: 'approve' or 'deny'
+        workspace_key: the key of the workspace that owns the agent
+    """
+    workspace_id, err = _owned_or_error(agent_id, workspace_key)
+    if err:
+        return err
+    from ledger_engine import decide_approval, ValidationError
+    try:
+        permit = decide_approval(agent_id, approval_id, decision, workspace_id)
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_request"}
+    if permit["state"] == "approved":
+        permit["_next"] = ("The permit is live for one hour from request. The "
+                           "agent's next ledger_track up to "
+                           f"{permit['amount_cents']} cents will succeed even "
+                           "over cap and consume it.")
+    _record_mcp_call()
+    return permit
 
 
 def _removed_ledger_list_agents(admin_secret: str = "") -> dict:

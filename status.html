@@ -135,7 +135,8 @@ workspace key is shown once, on the spot.</p>
   checkboxes, delivery log) or straight at the API — <code>POST /v1/webhooks</code> with
   <code>{"url": "https://..."}</code> and an optional <code>events</code> subset of
   <code>alert.raised</code>, <code>budget.warning</code>, <code>budget.exceeded</code>,
-  <code>anomaly.detected</code> (omit it for all four). <code>GET /v1/webhooks/deliveries</code>
+  <code>anomaly.detected</code>, <code>approval.requested</code>,
+  <code>approval.decided</code> (omit it for all six). <code>GET /v1/webhooks/deliveries</code>
   shows what was delivered and what failed. Payloads carry cost metadata only — never a
   secret, a prompt or a response.</li>
   <li><b>Shareable reports</b> — a signed, expiring, revocable link per agent that opens in any browser. Text it to your co-founder.</li>
@@ -179,7 +180,7 @@ client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID", agent_secret="as_.
   <code>agent-ledger init --agent YOUR_AGENT_ID</code> (printed once, also written to
   <code>.env</code>), or from the response to a first <code>POST /v1/track</code>
   that carries your <code>workspace_key</code> in the body.</p>
-  <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_check_spend</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_price</code>, <code>ledger_proxy_attach</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
+  <p>Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>, <code>ledger_check_spend</code>, <code>ledger_report</code>, <code>ledger_alerts</code>, <code>ledger_price</code>, <code>ledger_proxy_attach</code>, spend-approval tools <code>ledger_request_approval</code>, <code>ledger_approvals</code> and <code>ledger_approval_decide</code>, plus open docs tools <code>ledger_api_docs</code> and <code>ledger_examples</code>. Registered as <code>io.github.entradox/agent-ledger</code>.</p>
   <p><b>Try it in your agent:</b> "Track my Claude Code spend" · "Alert when any agent exceeds $50/day" · "Weekly P&amp;L report".</p>
 </div>
 

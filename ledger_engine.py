@@ -384,6 +384,156 @@ def revoke_agent_secret(agent_id: str, workspace_id: str = "") -> None:
     log_agent_audit(agent_id, "revoke_secret", workspace_id)
 
 
+# ── Spend approvals (D-1575) ────────────────────────────────────────────────
+# The human-in-the-loop / supervisor primitive: an agent that hits a cap asks
+# its workspace owner for a one-shot permit instead of being hard-refused.
+# Semantics are deliberately narrow: an APPROVED permit is consumed by the
+# next ledger_track within its amount for that agent — it is an exception to
+# the cap, not a raised cap, and it dies after one use or one hour.
+#
+# Store: one JSON file per permit under agents/<id>/approvals/apr_<id>.json —
+# same flat-file convention as the rest of the engine; state transitions are
+# file rewrites, never appends, so the latest write is the state.
+
+APPROVAL_TTL_SECONDS = 3600
+APPROVAL_STATES = frozenset({"pending", "approved", "denied", "consumed", "expired"})
+
+
+def _approvals_dir(agent_id: str) -> Path:
+    return _agent_dir(agent_id) / "approvals"
+
+
+def request_approval(agent_id: str, amount_cents: int, service: str,
+                     reason: str = "", workspace_id: str = "") -> dict:
+    """Create a pending spend permit. Caller auth happens in the route/tool —
+    by the time this runs the agent_id is claimed and credential-verified."""
+    validate_agent_id(agent_id)
+    if amount_cents <= 0 or amount_cents > MAX_AMOUNT_CENTS:
+        raise ValidationError(
+            f"amount_cents must be between 1 and {MAX_AMOUNT_CENTS}")
+    if not service or len(service) > 200:
+        raise ValidationError("service must be 1-200 chars")
+    approval_id = "apr_" + secrets.token_urlsafe(12)
+    now = datetime.now(timezone.utc).isoformat()
+    permit = {"approval_id": approval_id, "agent_id": agent_id,
+              "workspace_id": workspace_id, "amount_cents": amount_cents,
+              "service": service, "reason": (reason or "")[:500],
+              "state": "pending", "created_at": now, "decided_at": None,
+              "decided_by": None, "expires_at":
+                  datetime.fromtimestamp(_time.time() + APPROVAL_TTL_SECONDS,
+                                         timezone.utc).isoformat()}
+    _approvals_dir(agent_id).mkdir(parents=True, exist_ok=True)
+    (_approvals_dir(agent_id) / f"{approval_id}.json").write_text(json.dumps(permit, indent=2))
+    # Push the request to the workspace's alert feed + webhooks — a pending
+    # permit nobody hears about is a feature that looks broken. Dispatch is
+    # fire-and-forget; a dead endpoint can never fail this write.
+    _log_alert(agent_id, "approval_requested",
+               f"agent {agent_id} requests ${amount_cents/100:.2f} for "
+               f"'{service}' — permit {approval_id} "
+               + (f"({reason})" if reason else ""))
+    return permit
+
+
+def _read_permit(agent_id: str, approval_id: str) -> Optional[dict]:
+    p = _approvals_dir(agent_id) / f"{approval_id}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return None
+
+
+def _write_permit(agent_id: str, permit: dict) -> None:
+    (_approvals_dir(agent_id) / f"{permit['approval_id']}.json").write_text(
+        json.dumps(permit, indent=2))
+
+
+def _expire_if_stale(agent_id: str, permit: dict) -> dict:
+    if permit["state"] == "pending":
+        try:
+            if datetime.fromisoformat(permit["expires_at"]) < datetime.now(timezone.utc):
+                permit["state"] = "expired"
+                _write_permit(agent_id, permit)
+        except (KeyError, ValueError):
+            pass
+    return permit
+
+
+def list_approvals(agent_id: str, state: str = "") -> list:
+    """All permits for one agent, newest first; optional state filter."""
+    validate_agent_id(agent_id)
+    d = _approvals_dir(agent_id)
+    out = []
+    if d.exists():
+        for f in d.glob("apr_*.json"):
+            try:
+                permit = _expire_if_stale(agent_id, json.loads(f.read_text()))
+                if not state or permit["state"] == state:
+                    out.append(permit)
+            except Exception:
+                continue
+    return sorted(out, key=lambda p: p.get("created_at", ""), reverse=True)
+
+
+def list_workspace_approvals(workspace_id: str, state: str = "") -> list:
+    """All permits across every agent claimed in this workspace."""
+    agents_dir = DATA_DIR / "agents"
+    out = []
+    if agents_dir.exists():
+        for ad in agents_dir.iterdir():
+            ws_file = ad / "workspace_id.txt"
+            if ad.is_dir() and ws_file.exists() \
+                    and ws_file.read_text().strip() == workspace_id:
+                out.extend(list_approvals(ad.name, state))
+    return sorted(out, key=lambda p: p.get("created_at", ""), reverse=True)
+
+
+def decide_approval(agent_id: str, approval_id: str, decision: str,
+                    decided_by: str) -> dict:
+    """Approve or deny a pending permit. decided_by is the workspace_id that
+    signed off — recorded on the permit so the agent can see who decided."""
+    validate_agent_id(agent_id)
+    if decision not in ("approve", "deny"):
+        raise ValidationError("decision must be 'approve' or 'deny'")
+    permit = _expire_if_stale(agent_id, _read_permit(agent_id, approval_id))
+    if permit is None:
+        raise ValidationError(f"approval '{approval_id}' not found for '{agent_id}'")
+    if permit["state"] != "pending":
+        raise ValidationError(
+            f"approval '{approval_id}' is already {permit['state']} — only pending "
+            "permits can be decided")
+    permit["state"] = "approved" if decision == "approve" else "denied"
+    permit["decided_at"] = datetime.now(timezone.utc).isoformat()
+    permit["decided_by"] = decided_by
+    _write_permit(agent_id, permit)
+    log_agent_audit(agent_id, f"approval_{permit['state']}", decided_by)
+    # The agent polls its own alert feed for the outcome — one delivery path
+    # the requester and the owner's webhooks both already read.
+    _log_alert(agent_id, f"approval_{permit['state']}",
+               f"permit {approval_id} {permit['state']}: "
+               f"${permit['amount_cents']/100:.2f} for '{permit['service']}'"
+               + (f" — consumed by the next track within the amount"
+                  if permit["state"] == "approved" else ""))
+    return permit
+
+
+def _approved_permit_covering(agent_id: str, amount_cents: int) -> Optional[dict]:
+    """Oldest approved permit whose amount covers this spend, if any.
+    Runs inside _spend_lock from track() — never call it outside a context
+    where the permit-then-append pair is atomic."""
+    for permit in list_approvals(agent_id, state="approved"):
+        if int(permit.get("amount_cents", 0)) >= amount_cents:
+            return permit
+    return None
+
+
+def _consume_permit(agent_id: str, permit: dict) -> None:
+    permit["state"] = "consumed"
+    permit["consumed_at"] = datetime.now(timezone.utc).isoformat()
+    _write_permit(agent_id, permit)
+
+
 # ── Pro tier state ──────────────────────────────────────────────────────────
 # The Stripe webhook (checkout.session.completed, plan=pro) flips this flag on
 # the persistent volume; AL_PRO_ACTIVE=1 is an operator override. Until then
@@ -689,6 +839,7 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
     # The cap check and the append must be atomic: read-sum-then-append without
     # a lock lets every concurrent writer pass the check against the same stale
     # total and all spend at once (found in red-team review).
+    permit = None
     with _spend_lock:
         if rail == "tokens":
             if amount_cents != 0:
@@ -724,20 +875,31 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
                     f"(${MAX_AMOUNT_CENTS/100:,.0f})")
             budget = get_budget(agent_id)
             if budget and not force:
+                over_msg = None
                 if budget.monthly_cap_cents > 0:
                     projected = _month_spend(agent_id) + amount_cents
                     if projected > budget.monthly_cap_cents:
-                        raise BudgetExceededError(
+                        over_msg = (
                             f"blocked: this ${amount_cents/100:.2f} spend would put "
                             f"{agent_id} at ${projected/100:.2f}, over its monthly cap "
                             f"of ${budget.monthly_cap_cents/100:.2f}")
-                if budget.daily_cap_cents > 0:
+                if over_msg is None and budget.daily_cap_cents > 0:
                     projected_daily = _today_spend(agent_id) + amount_cents
                     if projected_daily > budget.daily_cap_cents:
-                        raise BudgetExceededError(
+                        over_msg = (
                             f"blocked: this ${amount_cents/100:.2f} spend would put "
                             f"{agent_id} at ${projected_daily/100:.2f} today, over its "
                             f"daily cap of ${budget.daily_cap_cents/100:.2f}")
+                if over_msg is not None:
+                    # An approved one-shot permit is the owner's explicit
+                    # exception: it rescues this spend. Only looked up when the
+                    # cap would actually refuse, so an under-cap write never
+                    # burns a granted exception.
+                    permit = _approved_permit_covering(agent_id, amount_cents)
+                    if permit is None:
+                        raise BudgetExceededError(
+                            over_msg + " — ask the owner for an approval "
+                            "(ledger_request_approval)")
 
         entry = SpendEntry(agent_id=agent_id, rail=rail, amount_cents=amount_cents,
                            service=service, meta=meta)
@@ -745,6 +907,8 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
         agent_dir.mkdir(parents=True, exist_ok=True)
         with open(_ledger_path(agent_id), "a") as f:
             f.write(json.dumps(entry.to_dict()) + "\n")
+        if permit is not None:
+            _consume_permit(agent_id, permit)
     if rail != "tokens":
         _check_budget(agent_id)
         # Spike detection runs on the write path so a customer hears about a

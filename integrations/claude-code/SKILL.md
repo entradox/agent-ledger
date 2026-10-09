@@ -26,6 +26,7 @@ and — when traffic goes through the proxy — actually stopped.
 | `ledger_alerts` | Budget warnings (80%), rejections, anomalies, unpriced models. |
 | `ledger_price` / `ledger_check_spend` | Ask BEFORE spending: cost of a call, allowed/denied + headroom. |
 | `ledger_start` / `ledger_proxy_attach` | Free workspace with no credential; route provider traffic through the enforcing proxy. |
+| `ledger_request_approval` / `ledger_approvals` / `ledger_approval_decide` | One-shot spend exceptions: the agent requests, the workspace owner approves or denies, the next over-cap track within the amount is allowed once. Owner key only for decisions. |
 | `ledger_rotate_secret` / `ledger_revoke_secret` | Recover from a lost or leaked `agent_secret`. Workspace key only. |
 | `ledger_api_docs` | Full API docs. Topic `metering` covers what gets counted and what gets stopped. |
 

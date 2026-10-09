@@ -576,7 +576,8 @@ never sees the call.</p>
 <code>ledger_check_spend</code>, <code>ledger_report</code>, <code>ledger_alerts</code>,
 <code>ledger_price</code>, <code>ledger_proxy_attach</code>, <code>ledger_start</code>,
 <code>ledger_api_docs</code>, <code>ledger_examples</code>, <code>ledger_rotate_secret</code>,
-<code>ledger_revoke_secret</code>.
+<code>ledger_revoke_secret</code>, <code>ledger_request_approval</code>,
+<code>ledger_approvals</code>, <code>ledger_approval_decide</code>.
 First call:</p>
 <pre><code>&gt; set a $20 monthly budget on my-claude-session
 &gt; how much has my-claude-session spent this month?</code></pre>

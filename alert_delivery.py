@@ -42,7 +42,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-EVENTS = ("alert.raised", "budget.warning", "budget.exceeded", "anomaly.detected")
+EVENTS = ("alert.raised", "budget.warning", "budget.exceeded",
+          "anomaly.detected", "approval.requested", "approval.decided")
 MAX_WEBHOOKS_PER_WORKSPACE = 10
 DELIVERY_TIMEOUT_SECONDS = 5
 # First attempt, then the retries. Overridable so tests don't sleep for 30s.
@@ -78,6 +79,10 @@ def event_for(alert_type: str) -> str:
         return "budget.exceeded"
     if "anomal" in alert_type or "spike" in alert_type:
         return "anomaly.detected"
+    if alert_type == "approval_requested":
+        return "approval.requested"
+    if alert_type in ("approval_approved", "approval_denied"):
+        return "approval.decided"
     return "alert.raised"
 
 
