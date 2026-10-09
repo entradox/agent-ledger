@@ -91,8 +91,13 @@ def test_enforcement_claims_carry_the_proxy_qualification(page):
 
 def test_the_terms_state_what_a_cap_actually_does(page):
     body = page.get("/terms").text
-    assert "rejects the ledger write" in body
-    assert "not the underlying charge" in body
+    # The served terms are HTML, and the sentence is hard-wrapped across a
+    # newline mid-phrase. A raw substring check therefore fails on a cosmetic
+    # reflow while the claim is present and correct — the assertion must be
+    # whitespace-insensitive, or it tests the line-wrapping rather than the claim.
+    flat = " ".join(body.split())
+    assert "rejects the ledger write" in flat
+    assert "not the underlying charge" in flat
 
 
 # ── the data-handling position is stated ───────────────────────────────────
