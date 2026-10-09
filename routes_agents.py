@@ -24,7 +24,7 @@ from ledger_engine import (
     idempotency_begin, idempotency_store, idempotency_release,
     validate_agent_id as le_validate_agent_id, _ledger_path,
     ensure_agent_secret, MAX_AMOUNT_CENTS, VALID_RAILS, agent_exists,
-    APPROVAL_STATES,
+    APPROVAL_STATES, budget_ratchet_violation,
 )
 import metrics
 
@@ -400,9 +400,24 @@ def create_budget(req: BudgetRequest, request: Request):
     # SECURITY ORDER: same as /v1/track — auth before gate; failed writes
     # release the in-flight row. Secret never enters the cache.
     idem_key = request.headers.get("Idempotency-Key")
-    secret, created = _claim_or_401(
-        req.agent_id, req.agent_secret,
-        _effective_workspace_key(request, req.workspace_key))
+    ws_key = _effective_workspace_key(request, req.workspace_key)
+    # Owner path first: the workspace_key that OWNS this agent authorizes the
+    # write directly (ensure_agent_secret itself only accepts agent_secret on
+    # a claimed agent). Everyone else goes through claim-or-secret and gets
+    # the ratchet — agent_secret may tighten caps, never loosen them.
+    import identity
+    owner = (agent_exists(req.agent_id) and identity.agent_belongs_to_workspace(
+        req.agent_id, identity.resolve_workspace_key(ws_key)))
+    if owner:
+        secret, created = None, False
+    else:
+        secret, created = _claim_or_401(req.agent_id, req.agent_secret, ws_key)
+        violation = budget_ratchet_violation(
+            req.agent_id, req.monthly_cents, req.daily_cents,
+            req.monthly_tokens, req.daily_tokens)
+        if violation:
+            raise HTTPException(422, detail=error_envelope(
+                422, violation, code="budget_ratchet"))
     cached = _idempotency_gate(request, req.agent_id, "budget")
     if cached is not None:
         return cached

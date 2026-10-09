@@ -193,8 +193,11 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
     (tokens_in/tokens_out). Set both if the agent uses both.
 
     Monthly cap is required; the rest are optional (0 = no limit).
-    Overwrites any existing budget for the agent. Claiming a brand-new
-    agent_id requires your workspace_key; that first call mints an
+    Overwrites any existing budget for the agent — with one rule: raising
+    or removing an existing cap requires the workspace_key. An agent_secret
+    can tighten its own caps but never loosen them; to grow an allowance
+    the agent asks its owner (see ledger_request_approval). Claiming a
+    brand-new agent_id requires your workspace_key; that first call mints an
     agent_secret (returned once — save it); later calls for that agent_id
     must pass the agent_secret back (no workspace_key needed again).
 
@@ -208,10 +211,26 @@ def ledger_set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0,
         workspace_key: required when claiming a brand-new agent_id; not
                        needed once the agent_id has been claimed
     """
-    from ledger_engine import set_budget, ValidationError
-    secret, created, err = _claim_or_error(agent_id, agent_secret, workspace_key)
-    if err:
-        return err
+    from ledger_engine import (set_budget, ValidationError,
+                               budget_ratchet_violation, agent_exists)
+    # Owner path first: the workspace_key that OWNS this agent authorizes the
+    # write directly (ensure_agent_secret only accepts agent_secret on a
+    # claimed agent, so without this branch an owner could never raise a cap
+    # back). Everyone else goes through claim-or-secret and gets the ratchet —
+    # agent_secret may tighten caps, never loosen them.
+    import identity
+    if agent_exists(agent_id) and identity.agent_belongs_to_workspace(
+            agent_id, identity.resolve_workspace_key(workspace_key or "")):
+        secret, created = None, False
+    else:
+        secret, created, err = _claim_or_error(agent_id, agent_secret,
+                                               workspace_key)
+        if err:
+            return err
+        violation = budget_ratchet_violation(
+            agent_id, monthly_cents, daily_cents, monthly_tokens, daily_tokens)
+        if violation:
+            return {"error": violation, "error_code": "budget_ratchet"}
     try:
         b = set_budget(agent_id, monthly_cents, daily_cents,
                        monthly_tokens=monthly_tokens, daily_tokens=daily_tokens)

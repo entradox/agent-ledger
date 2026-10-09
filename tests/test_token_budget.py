@@ -267,3 +267,42 @@ def test_report_endpoint_exposes_token_budget_status(client):
     r = tc.get("/v1/report/api-agent-5", headers={"X-Agent-Secret": secret})
     assert r.status_code == 200
     assert r.json()["budget_status"]["monthly_tokens_used"] == 300
+
+
+def test_negative_token_counts_rejected_at_engine(engine):
+    """Red-team 2026-10-09: the MCP path passed tokens_in/tokens_out through
+    to the engine with no sign check. A rail="tokens" row carrying
+    tokens_in=-1M subtracted from the monthly total — a token-cap bypass.
+    The engine now validates sign itself, so every caller shares the rule."""
+    ledger_engine, _ = engine
+    for bad in ({"tokens_in": -1, "tokens_out": 0},
+                {"tokens_in": 0, "tokens_out": -1},
+                {"tokens_in": -1_000_000, "tokens_out": 500}):
+        with pytest.raises(ledger_engine.ValidationError):
+            ledger_engine.track("neg-tok", "tokens", 0, "svc", **bad)
+    # Sanity: positive/zero rows still record
+    e = ledger_engine.track("neg-tok", "tokens", 0, "svc",
+                            tokens_in=100, tokens_out=0)
+    assert e.meta["tokens_in"] == 100
+
+
+def test_negative_tokens_cannot_reopen_consumed_cap(engine):
+    """The exploit shape: spend to the cap, then write a negative row to push
+    the running total back under it, then keep spending."""
+    ledger_engine, _ = engine
+    ledger_engine.set_budget("tok-cap", monthly_cents=0, monthly_tokens=100)
+    ledger_engine.track("tok-cap", "tokens", 0, "svc",
+                        tokens_in=80, tokens_out=20)
+    # At the cap now — the next real row must refuse ...
+    with pytest.raises(ledger_engine.BudgetExceededError):
+        ledger_engine.track("tok-cap", "tokens", 0, "svc", tokens_in=1)
+    # ... and a negative row must NOT be the way back under the cap.
+    with pytest.raises(ledger_engine.ValidationError):
+        ledger_engine.track("tok-cap", "tokens", 0, "svc", tokens_in=-99)
+
+
+def test_non_integer_token_counts_rejected(engine):
+    """A string that int() can't parse used to 500 the request path."""
+    ledger_engine, _ = engine
+    with pytest.raises(ledger_engine.ValidationError):
+        ledger_engine.track("bad-tok", "tokens", 0, "svc", tokens_in="abc")
