@@ -427,7 +427,7 @@ document.getElementById('upgrade').onclick = function(){
       if (url) { msg.textContent = 'Opening secure checkout…'; location.href = url; return; }
       btn.disabled = false;
       msg.textContent = (res.body && res.body.error && res.body.error.message) ||
-                        'Could not start checkout — email entradox@icloud.com and we will sort it.';
+                        'Could not start checkout — email support@aiagentscity.com and we will sort it.';
       msg.style.color = '#f85149';
     })
     .catch(function(){

@@ -1005,7 +1005,7 @@ $19/mo, up to 10 agents; Team = $79/mo, up to 50 agents; Enterprise = custom).
 An agent with a Base wallet can instead buy a 24-hour Pro pass over x402 —
 unlimited agents on the workspace its wallet resolves to, no signup or card.
 It does not auto-renew.
-Contact: entradox@icloud.com
+Contact: support@aiagentscity.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
 
@@ -1715,7 +1715,7 @@ AGENT_JSON = {
                         "agent_id stays claimed, so no other workspace can take it over.",
          "endpoint": "/v1/agents/{agent_id}/revoke-secret", "method": "POST", "free": True},
     ],
-    "contact": "entradox@icloud.com",
+    "contact": "support@aiagentscity.com",
     "legal": ("Parmanand LLC. Beta software, provided as-is. "
               "Privacy: /privacy · Terms: /terms. Cost metadata only — prompts "
               "and responses are never stored."),
@@ -1958,7 +1958,7 @@ def agents_txt():
         f"  {_agents_mpp_status()}\n"
         "\n"
         "CONTACT\n"
-        "  entradox@icloud.com\n"
+        "  support@aiagentscity.com\n"
     )
 
 
@@ -2161,7 +2161,7 @@ def trust_scan_page():
 _BOOT_TS = _time.time()
 
 _LEGAL_SHELL = """<!doctype html><html><head><meta charset="utf-8">
-<title>{title} — AgentLedger</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — AI Agent City</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;
 padding:40px 18px;line-height:1.7}}
@@ -2171,108 +2171,183 @@ h1{{font-size:24px;margin:8px 0 4px}} h2{{font-size:15px;margin:26px 0 6px}}
 p,li{{color:#c9d1d9;font-size:14px}} .mut{{color:#8b949e;font-size:12px}}
 a{{color:#79c0ff}}
 </style></head><body><div class="w">
-<div class="brand">AgentLedger</div>
+<div class="brand">AI Agent City</div>
 <h1>{title}</h1>
-<div class="mut">Last updated 2026-09-13 · plain-language summary, not legal advice.
-Questions: <a href="mailto:entradox@icloud.com">entradox@icloud.com</a></div>
+<div class="mut">Last updated 2026-10-08 · plain-language summary, not legal advice.
+Questions: <a href="mailto:support@aiagentscity.com">support@aiagentscity.com</a></div>
 {body}
-<p style="margin-top:28px"><a href="/">← AgentLedger</a></p>
+<p style="margin-top:28px"><a href="/">← AI Agent City</a></p>
 </div></body></html>"""
 
+# NOTE (2026-10-08, compliance remediation): these two documents sit at the UMBRELLA
+# host aiagentscity.com and previously described only AgentLedger. Visitors to
+# /perimeter-watch, /cited, /agent-watch, /trust-scan and /benefits were served
+# AgentLedger's terms. They are now written for the whole site: one entity, one
+# notice, one set of terms, each product's own data behaviour named explicitly.
+# Do not narrow this back to a single product.
 PRIVACY_BODY = """
-<h2>What is stored</h2>
-<p>Per spend entry: the agent id, the payment rail, the service label, the amount, token counts,
-the model name and a timestamp. Per workspace: the workspace id, a hash of the workspace key, the
-plan and billing state, and — if you register one — an alert webhook URL. If you subscribe through
-a marketplace (RapidAPI), we also store the marketplace account identifier it sends us so your
-subscription maps to a workspace. Keys and secrets are stored as hashes or as files readable only
-by the service.</p>
+<p class="mut">This notice covers the whole AI Agent City site and every product on it.</p>
+
+<h2>Who we are</h2>
+<p>AI Agent City (<a href="https://aiagentscity.com">aiagentscity.com</a>) is operated by
+<b>Parmanand LLC</b>, a Georgia limited liability company in the United States. We are the
+data controller for the information described below. Privacy questions, access requests and
+deletion requests: <a href="mailto:privacy@aiagentscity.com">privacy@aiagentscity.com</a>.</p>
+
+<h2>What the products collect</h2>
+<p>Each product collects only what it needs to work:</p>
+<ul>
+<li><b>AgentLedger</b> — per spend entry: agent id, payment rail, service label, amount,
+token counts, model name, timestamp. Per workspace: workspace id, a hash of the workspace
+key, plan and billing state, and any alert webhook you register. If you subscribe through a
+marketplace (RapidAPI), the marketplace account identifier it sends us, so your subscription
+maps to a workspace.</li>
+<li><b>Perimeter Watch</b> — the customer domains you add (only after written authorisation),
+and the email address used for briefs.</li>
+<li><b>Cited</b> — the business name, city and category you submit, and if you buy, the
+subscriber email and Stripe session id.</li>
+<li><b>Agent Watch</b> — the MCP endpoint URLs you ask us to monitor, and an alert email if
+you provide one. Its public registry census stores no submitter data.</li>
+<li><b>TrustScan</b> — the host names you ask us to check, transiently, for the duration of
+the check.</li>
+<li><b>Benefits City</b> — aggregate, non-identifying usage counts only.</li>
+</ul>
+<p>Across the site we also receive the technical information every web request carries, such
+as IP address and browser or app identifier.</p>
 
 <h2>What is never stored</h2>
-<p>Prompts and model responses. There is no field for them: the ledger records cost metadata, and
-the service has no code path that writes message content to storage. That is true of the hosted
-ledger today and is a design constraint on the proxy, which will meter cost without retaining
-payloads. The <i>service</i> and <i>model</i> fields are free-text labels you supply — do not put
-anything sensitive in a service name.</p>
+<p><b>Prompts and model responses are never stored</b> on AgentLedger. There is no field for
+them and no code path that writes message content to storage. We never receive card numbers —
+payments run through Stripe's hosted checkout. The <i>service</i> and <i>model</i> fields are
+free-text labels you supply; do not put anything sensitive in a service name.</p>
+
+<h2>Why we process it, and our lawful basis</h2>
+<p>We use this information to provide the service you asked for, to bill you, to keep the
+service secure, and to meet legal obligations. Where the EU or UK GDPR applies, our lawful
+bases are: <b>performance of a contract</b> (Article 6(1)(b)) for the service and billing;
+<b>legitimate interests</b> (Article 6(1)(f)) for security, abuse prevention and aggregate
+counters; and <b>consent</b> (Article 6(1)(a)) where we ask for it. You may object to
+processing based on legitimate interests at any time by writing to us.</p>
 
 <h2>Who processes it</h2>
-<p>Railway hosts the service and its storage volume. Stripe processes payments and receives the
-billing details you give it — we never see your card number. RapidAPI (Nokia) processes marketplace
-subscriptions and tells us your marketplace account identifier when you call through its gateway.
-Alert webhooks, if you register one, carry cost metadata to the URL you chose. The product does not
-send email to arbitrary addresses on your behalf. Nothing else receives your data.</p>
+<p><b>Railway</b> hosts the services and their storage volumes. <b>Stripe</b> processes
+payments and receives the billing details you give it. <b>RapidAPI (Nokia)</b> processes
+marketplace subscriptions for AgentLedger. Alert webhooks you register carry cost metadata to
+the URL you chose. These providers process data on our behalf and may store it in the United
+States. We do not sell, rent or share your data, and we do not use it to train models.</p>
 
-<h2>What we do not do</h2>
-<p>We do not sell, rent or share your data, and we do not use it to train models.</p>
+<h2>International transfers</h2>
+<p>Our infrastructure is in the United States. If you use the site from the EU, the UK or
+elsewhere, your information is transferred to and processed in the US. We rely on the
+providers' standard contractual clauses and equivalent safeguards for those transfers.</p>
+
+<h2>Your rights</h2>
+<p>Depending on where you live, you may have the right to access, correct, delete, port or
+restrict the information we hold about you, to object to processing, and to withdraw consent.
+California residents have rights under the CCPA/CPRA, including the right to know and the
+right to delete; <b>we do not sell or share personal information</b> as those terms are
+defined by that law. To exercise any right, email
+<a href="mailto:privacy@aiagentscity.com">privacy@aiagentscity.com</a>. We aim to reply
+within 30 days. You may also complain to your local data-protection authority.</p>
 
 <h2>Retention and deletion</h2>
 <p>Ledger data is kept while your workspace exists. Deleting an agent removes its ledger and
-secret; the operator can delete a workspace and its data on request. Alert delivery receipts are
-kept to a rolling window.</p>
+secret; a workspace and its data can be deleted on request. Alert delivery receipts are kept
+to a rolling window. Aggregate counters are kept without IP addresses. Write to us to request
+deletion of anything else.</p>
 
 <h2>Cookies and tracking</h2>
-<p>The marketing page and API set no advertising cookies. Aggregate counters (workspaces minted,
-requests) are collected without storing IP addresses — the service hashes them with a salt and
-keeps only the hash.</p>
+<p>The marketing pages and APIs set no advertising cookies and use no third-party analytics
+or fingerprinting. Aggregate counters (workspaces minted, requests) are collected without
+storing IP addresses — the service hashes them with a salt and keeps only the hash.</p>
 
-<h2>Contact</h2>
-<p>AgentLedger is operated by Parmanand LLC. Privacy questions and deletion requests:
-<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>.</p>
+<h2>Children</h2>
+<p>The site is not directed at children and we do not knowingly collect their data.</p>
+
+<h2>Changes</h2>
+<p>If this notice changes, the date at the top changes with it.</p>
 """
 
 TERMS_BODY = """
-<h2>The service</h2>
-<p>AgentLedger is beta software provided as-is. It records agent spend, enforces the budget caps you
-configure, and reports on both. It is a bookkeeping and guardrail tool — not a payment processor, a
-bank, or a financial adviser, and not a guarantee that a third-party provider will not charge you.</p>
+<p class="mut">These terms cover the whole AI Agent City site and every product on it, and are
+between you and <b>Parmanand LLC</b>, a Georgia limited liability company (the operator of
+aiagentscity.com). By using the site or any product, you accept them.</p>
 
-<h2>What a budget cap does</h2>
-<p>A cap rejects the ledger write that would cross it, with HTTP 402. It stops the <i>recording</i>
-of a spend, not the underlying charge, unless the spend went through the AgentLedger proxy. Do not
-rely on a cap as your only protection against a runaway agent.</p>
+<h2>The products</h2>
+<p>AI Agent City is a set of agent-operations tools. Each product has its own page describing
+what it does; the products are AgentLedger (agent spend tracking and budget caps), Perimeter
+Watch (passive external-perimeter monitoring), Cited (AI-visibility checks), Agent Watch (MCP
+and paid-service monitoring), TrustScan (security-posture checks) and Benefits City (bank and
+card bonus listings). Where a product page states a limit, price or caveat, that statement
+forms part of these terms for that product.</p>
 
-<h2>Your responsibilities</h2>
-<p>You are responsible for the credentials you hold (workspace keys, agent secrets, provider API
-keys), for what your agents do, and for the accuracy of what they report. Keep your agent secrets
-secret; anyone holding one can write to that agent.</p>
+<h2>AgentLedger — spend tracking and what a budget cap does</h2>
+<p>AgentLedger records agent spend, enforces the budget caps you configure, and reports on
+both. It is a bookkeeping and guardrail tool — not a payment processor, a bank, or a financial
+adviser, and not a guarantee that a third-party provider will not charge you. A cap rejects the
+ledger write that would cross it, with HTTP 402. It stops the <i>recording</i> of a spend, not
+the underlying charge, unless the spend went through the AgentLedger proxy. Do not rely on a
+cap as your only protection against a runaway agent.</p>
+
+<h2>Perimeter Watch, Cited, Agent Watch and TrustScan — monitoring and scanning</h2>
+<p>These products report on external systems. You may only submit targets you own or are
+authorised to monitor; by submitting a target you confirm you have that authority. Perimeter
+Watch and TrustScan perform passive checks only — certificate-transparency logs, WHOIS, DNS
+resolution and ordinary TLS — and never probe or attempt to access a target. Agent Watch
+monitors endpoints you nominate. Results are informational, are not a security guarantee, and
+must not be relied on as the only basis for a decision. Where a module is degraded, the output
+says so rather than hiding it.</p>
 
 <h2>Acceptable use</h2>
-<p>Do not use the service to break the law, to attack other systems, or to resell it as your own
-without agreement. Per-entry amounts are capped, and rate and storage limits are enforced to keep
-the service available for everyone.</p>
+<p>Do not use the site or any product to break the law, to attack or probe systems you are not
+authorised to touch, to infringe anyone's rights, or to resell a product as your own without
+agreement. Per-entry amounts are capped and rate and storage limits are enforced to keep the
+services available for everyone.</p>
+
+<h2>Your responsibilities</h2>
+<p>You are responsible for the credentials you hold (workspace keys, agent secrets, provider
+API keys), for what your agents do, and for the accuracy of what they report. Keep your agent
+secrets secret; anyone holding one can write to that agent.</p>
 
 <h2>Plans and payment</h2>
-<p>The Free plan supports up to 3 agents per workspace. Starter is $19 per month for up to 10
-agents per workspace. Team is $79 per month for up to 50 agents per workspace. Enterprise pricing
-is custom. Paid plans are billed through Stripe and may be canceled at any time. The current plan
-features and limits shown on the
-<a href="/agent-ledger#pricing">AgentLedger pricing page</a> form part of these Terms, and any
-future change to plans, prices or limits will be reflected in both places at the same time.</p>
-
+<p>AgentLedger's Free plan supports up to 3 agents per workspace. Starter is $19 per month for
+up to 10 agents per workspace. Team is $79 per month for up to 50 agents per workspace.
+Enterprise pricing is custom. Paid plans are billed through Stripe and may be canceled at any
+time; cancellation stops future renewals. Other products are priced on their own pages. Any
+change to plans, prices or limits is reflected on the relevant page and here at the same time.</p>
 <p>Agents may also buy a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
-Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the workspace the
-paying wallet resolves to, and expires 24 hours after purchase. It does not renew automatically;
-continued access requires another payment.</p>
+Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the workspace
+the paying wallet resolves to, and expires 24 hours after purchase. It does not renew
+automatically; continued access requires another payment.</p>
 
-<h2 id="refunds">Refunds</h2>
-<p>You may cancel at any time to prevent future renewals. If this is your first paid purchase, you
-may request a refund within 14 days of purchase by emailing
-<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>. Refunds after that period are
-considered only for duplicate charges or service failures. Approved refunds are returned to the
-original payment method.</p>
-<p>The $0.01 x402 Pro pass is a single micro-payment and is non-refundable.</p>
+<h2 id="refunds">Refunds and cancellation</h2>
+<p>You may cancel any subscription at any time to prevent future renewals. If this is your
+first paid purchase, you may request a refund within 14 days of purchase by emailing
+<a href="mailto:support@aiagentscity.com">support@aiagentscity.com</a>. Refunds after that
+period are considered only for duplicate charges or service failures. Approved refunds are
+returned to the original payment method. The $0.01 x402 Pro pass is a single micro-payment and
+is non-refundable. Nothing in this section limits any refund right you have under the consumer
+law of your country of residence.</p>
 
 <h2>Availability and liability</h2>
-<p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
-extent the law allows, Parmanand LLC's total liability is limited to the amount you paid in the
-preceding three months. Nothing here excludes liability that cannot lawfully be excluded.</p>
+<p>The services are offered without warranty of uptime or fitness for a particular purpose. To
+the extent the law allows, Parmanand LLC's total liability is limited to the amount you paid in
+the preceding three months. Nothing here excludes liability that cannot lawfully be excluded,
+including for death or personal injury caused by negligence, or for fraud.</p>
+
+<h2>Governing law and disputes</h2>
+<p>These terms are governed by the laws of the State of Georgia, United States, without regard
+to conflict-of-laws rules. If you are a consumer resident elsewhere, you keep the protection of
+the mandatory consumer law of your own country, and nothing here removes your right to bring
+proceedings there.</p>
 
 <h2>Changes</h2>
-<p>These terms may change as the product does; material changes will be noted on this page with a
-new date. Continued use after a change is acceptance of it.</p>
+<p>These terms may change as the products do; material changes will be noted on this page with
+a new date. Continued use after a change is acceptance of it.</p>
 
 <h2>Contact</h2>
-<p><a href="mailto:entradox@icloud.com">entradox@icloud.com</a></p>
+<p>General and support: <a href="mailto:support@aiagentscity.com">support@aiagentscity.com</a><br>
+Privacy and data requests: <a href="mailto:privacy@aiagentscity.com">privacy@aiagentscity.com</a></p>
 """
 
 
