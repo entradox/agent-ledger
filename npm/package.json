@@ -1,6 +1,6 @@
 {
   "name": "aiagentscity-ledger",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Spending limits for AI agents: meter every call, cap the spend, and stop it before the provider is contacted.",
   "keywords": [
     "ai-agents",

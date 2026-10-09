@@ -102,6 +102,9 @@ GET  /health                       — liveness
 POST /v1/billing/x402              — self-serve workspace_key for an agent with a wallet
                                       (X-PAYMENT header; paying wallet = workspace identity)
                                       {_X402_SETTLEMENT}
+POST /v1/billing/x402/recover      — lost your workspace_key? sign
+                                      `agent-ledger:recover:{{wallet}}:{{unix_ts}}` (EIP-191
+                                      personal_sign) and we rotate in a fresh key
 GET  /start                        — get a workspace (no signup, no login);
                                       POST /start mints one and shows the key once
 POST /v1/track                     — record a spend entry (workspace_key claims, agent_secret writes)
