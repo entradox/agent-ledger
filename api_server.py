@@ -743,6 +743,7 @@ hold Stripe/Tempo settlement credentials.
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status (live health, version, uptime, counters)
 Buyer skill (how an agent buys this, as markdown): GET /skill.md
+Authentication (credential paths, as markdown): GET /auth.md
 Privacy: GET /privacy · Terms: GET /terms
 
 Data handling: cost metadata only — agent id, rail, service label, amount, token
@@ -1395,6 +1396,11 @@ agent's own data requires proof of access.
 | `agent_secret` | `X-Agent-Secret` | one agent |
 | `workspace_key` | `X-Workspace-Key` | every agent in a workspace |
 
+Every `/v1/*` **write** must also send `AL-API-Version: {AL_API_VERSION}`. A
+missing or stale value is rejected `400 version_header` — this is the header that
+bites first, because the example below fails without it. `/mcp/` is not
+version-gated.
+
 A **write** to a new `agent_id` claims it: send a `workspace_key` in the body of
 the first `POST /v1/track` or `POST /v1/budget`. The response mints an
 `agent_secret` **once** — save it. Every later write to that same `agent_id` must
@@ -1404,10 +1410,10 @@ A missing or invalid key on a new claim returns `401 workspace_key_required`.
 ## Getting a workspace — three ways, none needing a human to approve it
 
 1. **An agent buys one itself.** `POST /v1/billing/x402` with an `X-PAYMENT`
-   header carrying a signed x402 `exact` payment. Real USDC settles on Base
-   mainnet. The paying wallet **becomes** the workspace identity, and the response
-   returns `workspace_id` + `workspace_key` (shown once). No card, no email, no
-   human. Terms and the live price: `/.well-known/x402`.
+   header carrying a signed x402 `exact` payment. It {X402_SETTLEMENT}
+   The response returns `workspace_id` + `workspace_key` (shown once), bound to
+   the paying wallet. No card, no email, no human. Terms and the live price:
+   `/.well-known/x402`.
 2. **A free workspace.** `POST /start` — no signup, no login, no card, capped at
    3 agents. A 4th new `agent_id` returns `402` with the upgrade paths in the
    error body. `GET /start` renders the form only; it does not mint.
@@ -1433,7 +1439,11 @@ def auth_md_page():
     returned 404, so the one obvious guess for auth guidance dead-ended.
     text/markdown because the body IS markdown.
     """
-    return PlainTextResponse(AUTH_MD, media_type="text/markdown; charset=utf-8")
+    return PlainTextResponse(
+        AUTH_MD
+        .replace("{X402_SETTLEMENT}", _x402_settlement_words())
+        .replace("{AL_API_VERSION}", AL_API_VERSION),
+        media_type="text/markdown; charset=utf-8")
 
 
 # Version strings are the LIVE /health of each service, observed 2026-10-07, NOT
@@ -2113,6 +2123,7 @@ def sitemap_xml():
         ("/manifesto",    "0.7", "monthly"),
         ("/changelog",    "0.7", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
+        ("/auth.md",   "0.6", "monthly"),
         ("/status",       "0.6", "daily"),
         ("/reliability",  "0.5", "monthly"),
         ("/security",     "0.5", "monthly"),
@@ -2193,10 +2204,16 @@ def _city_response(path: str, request: Request) -> Response:
     const, title, desc = city_site.PAGES_META[path]
     if _accept_prefers_markdown(request):
         import site_pages
+        # Vary: Accept is load-bearing, not decoration — without it a shared
+        # cache (the Railway edge) can serve this markdown to a browser or the
+        # HTML page to an agent, and both are wrong. The twin carries ONE H1:
+        # the page's own title goes in a blockquote rather than a second
+        # heading, because okf_index_md() already opens with its own.
         return PlainTextResponse(
-            f"# {title}\n\n{desc}\n\n{site_pages.okf_index_md()}",
-            media_type="text/markdown; charset=utf-8")
-    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)))
+            f"> **{title}** — {desc}\n\n{site_pages.okf_index_md()}",
+            media_type="text/markdown; charset=utf-8", headers={"Vary": "Accept"})
+    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)),
+                        headers={"Vary": "Accept"})
 
 
 @app.get("/products", response_class=HTMLResponse)
