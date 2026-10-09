@@ -114,8 +114,14 @@ def _claim_or_401(agent_id: str, provided_secret: Optional[str],
 
 
 def _check_api_version(request: Request):
-    """Every /v1/* write must send AL-API-Version: <current>. Missing or
-    stale/invalid value -> 400 version_header (launch-kit v0.3 item 1.2)."""
+    """Gate for the agent-write routes — missing or stale AL-API-Version -> 400.
+
+    (launch-kit v0.3 item 1.2.) This docstring used to claim "every /v1/* write
+    must send AL-API-Version", which was never true: only the four routes that
+    CALL this helper are gated (track, budget, approvals, approvals/{id}/decide).
+    /v1/check, /v1/webhooks and /v1/billing/* are not. An over-broad claim about
+    a gate is how someone loses an hour debugging the wrong header.
+    """
     version = request.headers.get("AL-API-Version")
     if version != AL_API_VERSION:
         try:

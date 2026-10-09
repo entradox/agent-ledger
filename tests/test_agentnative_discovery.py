@@ -193,3 +193,13 @@ def test_auth_md_is_discoverable_from_the_indexes():
     c = _client()
     assert "/auth.md" in c.get("/okf/index.md").text
     assert "/auth.md" in c.get("/llms.txt").text
+
+
+def test_auth_md_renders_no_unsubstituted_token():
+    """The repo-wide INV-5 sweep in test_x402_discovery_network.py does NOT
+    enumerate /auth.md, so this closes that gap explicitly rather than by
+    assuming coverage: any `{TOKEN}` shape reaching the wire fails here."""
+    import re as _re
+    body = _client().get("/auth.md").text
+    leftovers = sorted(set(_re.findall(r"\{[A-Z_]+\}", body)))
+    assert not leftovers, f"/auth.md rendered unsubstituted tokens: {leftovers}"

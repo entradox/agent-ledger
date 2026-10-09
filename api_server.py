@@ -994,8 +994,10 @@ as GET /v1/report and GET /v1/alerts — there is no unauthenticated read path
 on either surface. Only the meta-doc tools (ledger_api_docs,
 ledger_examples) are open, and they expose no agent data.
 
-Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
-AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
+The agent-write routes POST /v1/track, POST /v1/budget, POST /v1/approvals and
+POST /v1/approvals/{id}/decide require AL-API-Version: {AL_API_VERSION} —
+missing/invalid values are rejected with 400 version_header. Other /v1/* paths
+(/v1/check, /v1/webhooks, /v1/billing/*) are not version-gated.
 The /mcp/ endpoint itself does not require this header (MCP tool calls are
 not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
@@ -1396,10 +1398,18 @@ agent's own data requires proof of access.
 | `agent_secret` | `X-Agent-Secret` | one agent |
 | `workspace_key` | `X-Workspace-Key` | every agent in a workspace |
 
-Every `/v1/*` **write** must also send `AL-API-Version: {AL_API_VERSION}`. A
-missing or stale value is rejected `400 version_header` — this is the header that
-bites first, because the example below fails without it. `/mcp/` is not
-version-gated.
+These four agent-write routes also require the header
+`AL-API-Version: {AL_API_VERSION}`:
+
+- `POST /v1/track`
+- `POST /v1/budget`
+- `POST /v1/approvals`
+- `POST /v1/approvals/{id}/decide`
+
+A missing or stale value is rejected `400 version_header` — this is the header
+that bites first, because the first call below fails without it. It is NOT a
+blanket rule for `/v1/*`: `/v1/check`, `/v1/webhooks` and `/v1/billing/*` are not
+gated, and `/mcp/` is not gated either.
 
 A **write** to a new `agent_id` claims it: send a `workspace_key` in the body of
 the first `POST /v1/track` or `POST /v1/budget`. The response mints an
