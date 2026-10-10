@@ -79,9 +79,14 @@ def _check(tc, secret, **body):
                    json={"agent_id": AGENT, **body})
 
 
-def _budget(tc, secret, monthly, daily=0, **extra):
+def _budget(tc, secret, monthly, daily=0, key=None, **extra):
+    # The redteam ratchet: an agent_secret may only TIGHTEN an existing cap —
+    # raising or removing one is an owner action. Tests that raise the default
+    # cap pass the workspace key, because that is what the route now requires;
+    # tighten-or-first-set calls keep using the agent_secret.
+    cred = {"workspace_key": key} if key else {"agent_secret": secret}
     r = tc.post("/v1/budget", headers=V, json={"agent_id": AGENT, "monthly_cents": monthly,
-                                               "daily_cents": daily, "agent_secret": secret,
+                                               "daily_cents": daily, **cred,
                                                **extra})
     assert r.status_code == 200, r.text
 
@@ -141,16 +146,16 @@ def test_the_boundary_is_the_same_as_the_ledgers(env):
 
 
 def test_the_daily_cap_is_checked_too(env):
-    tc, _, secret = env
-    _budget(tc, secret, 10_000, daily=50)
+    tc, key, secret = env
+    _budget(tc, secret, 10_000, daily=50, key=key)
     _spend(tc, secret, 30)
     body = _check(tc, secret, amount_cents=30).json()
     assert body["allowed"] is False and body["reason"] == "over_daily_cap"
 
 
 def test_token_caps_are_checked_when_tokens_are_named(env):
-    tc, _, secret = env
-    _budget(tc, secret, 10_000, monthly_tokens=1000)
+    tc, key, secret = env
+    _budget(tc, secret, 10_000, monthly_tokens=1000, key=key)
     body = _check(tc, secret, model="gpt-4o-mini", tokens_in=800, tokens_out=400).json()
     assert body["allowed"] is False and body["reason"] == "over_monthly_token_cap"
 
@@ -240,8 +245,8 @@ def test_a_token_cap_does_not_make_the_check_stricter_than_the_proxy(env):
     """The proxy never checks token caps before a call. A payload check that
     did would say 'deny' for a call the proxy forwards: the exact disagreement
     this endpoint exists to rule out."""
-    tc, _, secret = env
-    _budget(tc, secret, 10_000, monthly_tokens=10)
+    tc, key, secret = env
+    _budget(tc, secret, 10_000, monthly_tokens=10, key=key)
     payload = {"model": "gpt-4o-mini", "max_tokens": 100,
                "messages": [{"role": "user", "content": "hello"}]}
     verdict = _check(tc, secret, model="gpt-4o-mini", payload=payload).json()
