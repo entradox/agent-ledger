@@ -180,7 +180,7 @@ def test_mcp_catalog_and_products_agree_on_versions(client):
     Also pins the versions as LITERALS — the 2026-10-07 finding was five stale version
     strings, and a change here must be a conscious act, not a silent carry-over."""
     expected = {
-        "agent-ledger": "v0.4.5", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
+        "agent-ledger": "v0.4.6", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
         "cited": "v1.0", "trustscan": "v0.1.0",
     }
     cat = {p["id"]: p["version"] for p in client.get("/v1/products").json()["products"]}
