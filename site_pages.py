@@ -969,7 +969,7 @@ TrustScan, Cited. AgentLedger is the ledger service served by this process.
 - OpenAPI 3: /openapi.json
 - MCP manifest: /server.json  ·  /.well-known/mcp/server-card.json  ·  /.well-known/glama.json
 - LLM manifest: /llms.txt
-- Buyer skill: /skill.md  ·  /agents.txt
+- Buyer skill: /skill.md  ·  /agents.txt  ·  /auth.md
 - x402 payment challenge format: /.well-known/x402.json
 - Live status: /status
 - Sitemap: /sitemap.xml  ·  Robots: /robots.txt

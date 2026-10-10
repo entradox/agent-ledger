@@ -743,6 +743,7 @@ hold Stripe/Tempo settlement credentials.
 Machine-readable schema: GET /openapi.json (OpenAPI 3) · MCP manifest: GET /server.json
 Human/agent status page: GET /status (live health, version, uptime, counters)
 Buyer skill (how an agent buys this, as markdown): GET /skill.md
+Authentication (credential paths, as markdown): GET /auth.md
 Privacy: GET /privacy · Terms: GET /terms
 
 Data handling: cost metadata only — agent id, rail, service label, amount, token
@@ -993,8 +994,10 @@ as GET /v1/report and GET /v1/alerts — there is no unauthenticated read path
 on either surface. Only the meta-doc tools (ledger_api_docs,
 ledger_examples) are open, and they expose no agent data.
 
-Every /v1/* REST write (POST /v1/track, POST /v1/budget) must send
-AL-API-Version: {AL_API_VERSION} — missing/invalid values are rejected with 400.
+The agent-write routes POST /v1/track, POST /v1/budget, POST /v1/approvals and
+POST /v1/approvals/{id}/decide require AL-API-Version: {AL_API_VERSION} —
+missing/invalid values are rejected with 400 version_header. Other /v1/* paths
+(/v1/check, /v1/webhooks, /v1/billing/*) are not version-gated.
 The /mcp/ endpoint itself does not require this header (MCP tool calls are
 not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
@@ -1025,8 +1028,16 @@ def llms_txt():
             .replace("{MPP_ACCEPTANCE}", _mpp_acceptance_words())
             .replace("{MPP_OR}", _mpp_or_words()))
 
+# `Disallow: /v1/` keeps an unauthenticated crawler out of the API, but
+# /v1/products and /v1/pricing are the machine catalog that every discovery
+# document in this repo points at — the rule was blocking the very surfaces the
+# agent-native strategy is built on. robots.txt resolves by LONGEST match, so the
+# two `Allow:` lines win over the `/v1/` blanket for exactly those two paths and
+# nothing else; Google, Bing and the agent crawlers all implement that precedence.
 ROBOTS_TXT = """User-agent: *
 Allow: /
+Allow: /v1/products
+Allow: /v1/pricing
 Disallow: /dashboard
 Disallow: /v1/
 
@@ -1369,6 +1380,81 @@ def skill_md():
     return Response(_skill_markdown(),
                     media_type="text/markdown; charset=utf-8")
 
+# ── /auth.md — how an agent authenticates, as one markdown page ───────────────
+# The gap this closes: an agent could reach /llms.txt, /skill.md and the OpenAPI,
+# but the literal path a prober tries first for auth guidance — /auth.md — was a
+# 404. This is a POINTER document: every fact below is already committed in
+# llms.txt, /skill.md and the routes themselves; none of it is a second source of
+# truth. If a credential path changes, change it there and this follows.
+AUTH_MD = """# Authentication — AI Agent City
+
+There is **no unauthenticated read path**, on REST or on MCP. Every read of an
+agent's own data requires proof of access.
+
+## Credentials
+
+| Credential | Header | Scope |
+|---|---|---|
+| `agent_secret` | `X-Agent-Secret` | one agent |
+| `workspace_key` | `X-Workspace-Key` | every agent in a workspace |
+
+These four agent-write routes also require the header
+`AL-API-Version: {AL_API_VERSION}`:
+
+- `POST /v1/track`
+- `POST /v1/budget`
+- `POST /v1/approvals`
+- `POST /v1/approvals/{id}/decide`
+
+A missing or stale value is rejected `400 version_header` — this is the header
+that bites first, because the first call below fails without it. It is NOT a
+blanket rule for `/v1/*`: `/v1/check`, `/v1/webhooks` and `/v1/billing/*` are not
+gated, and `/mcp/` is not gated either.
+
+A **write** to a new `agent_id` claims it: send a `workspace_key` in the body of
+the first `POST /v1/track` or `POST /v1/budget`. The response mints an
+`agent_secret` **once** — save it. Every later write to that same `agent_id` must
+carry that `agent_secret`, and the `workspace_key` is never needed again for it.
+A missing or invalid key on a new claim returns `401 workspace_key_required`.
+
+## Getting a workspace — three ways, none needing a human to approve it
+
+1. **An agent buys one itself.** `POST /v1/billing/x402` with an `X-PAYMENT`
+   header carrying a signed x402 `exact` payment. It {X402_SETTLEMENT}
+   The response returns `workspace_id` + `workspace_key` (shown once), bound to
+   the paying wallet. No card, no email, no human. Terms and the live price:
+   `/.well-known/x402`.
+2. **A free workspace.** `POST /start` — no signup, no login, no card, capped at
+   3 agents. A 4th new `agent_id` returns `402` with the upgrade paths in the
+   error body. `GET /start` renders the form only; it does not mint.
+3. **A human subscribes.** `POST /v1/billing/checkout` with `X-Workspace-Id` and
+   `X-Workspace-Key` returns a Stripe link a human opens to pay. (`/start?plan=starter`
+   is the human door and does **not** subscribe.) Prices: `/pricing.md`.
+
+## Authoritative sources
+
+- Full buyer walkthrough: `/skill.md`
+- Every endpoint, with schemas: `/openapi.json`
+- Rail terms and the live price: `/.well-known/x402`
+- Agent-readable index of all surfaces: `/okf/index.md`
+- Machine-readable price sheet: `/pricing.md`
+"""
+
+
+@app.get("/auth.md")
+def auth_md_page():
+    """How an agent authenticates — the path a prober tries first, which 404'd.
+
+    An agent could reach /llms.txt, /skill.md and /openapi.json, but /auth.md
+    returned 404, so the one obvious guess for auth guidance dead-ended.
+    text/markdown because the body IS markdown.
+    """
+    return PlainTextResponse(
+        AUTH_MD
+        .replace("{X402_SETTLEMENT}", _x402_settlement_words())
+        .replace("{AL_API_VERSION}", AL_API_VERSION),
+        media_type="text/markdown; charset=utf-8")
+
 
 # Version strings are the LIVE /health of each service, observed 2026-10-07, NOT
 # the September registry dict this list was first copied from — three of the five
@@ -1516,7 +1602,13 @@ def _products_payload() -> dict:
             "llms_txt": "https://aiagentscity.com/llms.txt",
             "openapi": "https://aiagentscity.com/openapi.json",
             "mcp_catalog": "https://aiagentscity.com/.well-known/mcp.json",
-            "pricing": "https://aiagentscity.com/v1/pricing",
+            # NOT /v1/pricing — that is the MODEL price table (what Claude/GPT
+            # tokens cost, used for metering), not what this city charges. An agent
+            # that followed the old pointer learned Anthropic prices and never saw
+            # ours. Both are published; the keys now say which is which.
+            "pricing": "https://aiagentscity.com/pricing",
+            "pricing_md": "https://aiagentscity.com/pricing.md",
+            "model_price_table": "https://aiagentscity.com/v1/pricing",
             "pap": "https://aiagentscity.com/.well-known/personal-agent.json",
         },
     }
@@ -2041,6 +2133,7 @@ def sitemap_xml():
         ("/manifesto",    "0.7", "monthly"),
         ("/changelog",    "0.7", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
+        ("/auth.md",   "0.6", "monthly"),
         ("/status",       "0.6", "daily"),
         ("/reliability",  "0.5", "monthly"),
         ("/security",     "0.5", "monthly"),
@@ -2071,27 +2164,76 @@ def sitemap_xml():
     )
 
 
+def _accept_prefers_markdown(request: Request) -> bool:
+    """True when the client's Accept header prefers text/markdown over text/html.
+
+    `Accept: text/markdown` on a canonical URL is the documented agent convention
+    (RFC 7763 media type; acceptmarkdown.com): every HTTP client already speaks
+    `Accept`, so an agent pays no extra discovery step to ask for prose instead of
+    a page built for humans. Parses q-values rather than substring-matching, so
+    `text/markdown;q=0.5, text/html;q=0.9` still serves HTML, and a bare `*/*` or
+    `text/*` — every existing client — is unchanged.
+    """
+    best: dict = {}
+    for part in request.headers.get("accept", "").split(","):
+        bits = part.strip().split(";")
+        media = bits[0].strip().lower()
+        if not media:
+            continue
+        q = 1.0
+        for b in bits[1:]:
+            b = b.strip()
+            if b.startswith("q="):
+                try:
+                    q = float(b[2:])
+                except ValueError:
+                    q = 1.0
+        best[media] = max(q, best.get(media, 0.0))
+    md = best.get("text/markdown", 0.0)
+    html = max(best.get("text/html", 0.0), best.get("application/xhtml+xml", 0.0),
+               best.get("*/*", 0.0), best.get("text/*", 0.0))
+    return md > 0.0 and md >= html
+
+
 @app.get("/", response_class=HTMLResponse)
-def front_door():
+def front_door(request: Request):
     """The AI Agent City umbrella index: one site, two readers (human + agent
     surfaces, Human | Agent toggle). Ported from the two-surfaces mockup."""
-    return _city_response("/")
+    return _city_response("/", request)
 
 
-def _city_response(path: str) -> HTMLResponse:
+def _city_response(path: str, request: Request) -> Response:
+    """Human HTML, or the agent-readable twin when the client asks for markdown.
+
+    The twin is the SAME source as /okf/index.md — a pointer document to the real
+    machine surfaces, never a hand-written second copy of the page — so the two
+    cannot drift apart. Only the page's own title and lede are prepended, which is
+    what tells an agent which page it actually landed on.
+    """
     import city_site
     const, title, desc = city_site.PAGES_META[path]
-    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)))
+    if _accept_prefers_markdown(request):
+        import site_pages
+        # Vary: Accept is load-bearing, not decoration — without it a shared
+        # cache (the Railway edge) can serve this markdown to a browser or the
+        # HTML page to an agent, and both are wrong. The twin carries ONE H1:
+        # the page's own title goes in a blockquote rather than a second
+        # heading, because okf_index_md() already opens with its own.
+        return PlainTextResponse(
+            f"> **{title}** — {desc}\n\n{site_pages.okf_index_md()}",
+            media_type="text/markdown; charset=utf-8", headers={"Vary": "Accept"})
+    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)),
+                        headers={"Vary": "Accept"})
 
 
 @app.get("/products", response_class=HTMLResponse)
-def city_products():
+def city_products(request: Request):
     """The five-product stack page (two surfaces)."""
-    return _city_response("/products")
+    return _city_response("/products", request)
 
 
 @app.get("/manifesto", response_class=HTMLResponse)
-def city_manifesto():
+def city_manifesto(request: Request):
     """Access vs spend — the positioning page (D-1404 / brief item 5, top priority).
 
     Rides the Kiteworks news cycle (2026-09-17 marketplace launch) inside the 48-hour
@@ -2099,19 +2241,19 @@ def city_manifesto():
     competing with them?" with "no, we're the other half", and states plainly which
     claims we do and do not make. No invented traction, no enterprise claims.
     """
-    return _city_response("/manifesto")
+    return _city_response("/manifesto", request)
 
 
 @app.get("/developers", response_class=HTMLResponse)
-def city_developers():
+def city_developers(request: Request):
     """Machine-readable surfaces: MCP, REST, CLI, x402 (two surfaces)."""
-    return _city_response("/developers")
+    return _city_response("/developers", request)
 
 
 @app.get("/changelog", response_class=HTMLResponse)
-def city_changelog():
+def city_changelog(request: Request):
     """External-facing product releases only (two surfaces)."""
-    return _city_response("/changelog")
+    return _city_response("/changelog", request)
 
 
 @app.get("/agent-ledger", response_class=HTMLResponse)
@@ -2442,10 +2584,10 @@ def quickstart_page():
 
 
 @app.get("/compare", response_class=HTMLResponse)
-def compare_page():
+def compare_page(request: Request):
     """Why this is not a trace viewer — the honest version, with dated prices.
     Two-surface redesign of the same comparison."""
-    return _city_response("/compare")
+    return _city_response("/compare", request)
 
 
 @app.get("/reliability", response_class=HTMLResponse)

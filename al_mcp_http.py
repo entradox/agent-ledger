@@ -4,12 +4,33 @@
 TDQS-optimized tool definitions: full descriptions, parameter docs, and
 behavioral annotations for registry scoring and agent routing.
 """
+import json
 import os
+from pathlib import Path
 from typing import Optional
 from fastmcp import FastMCP
 import metrics
 
-mcp = FastMCP("agent-ledger")
+
+def _product_version() -> str:
+    """The version an agent sees in the MCP handshake — the PRODUCT's, not the framework's.
+
+    FastMCP defaults `serverInfo.version` to its own release, so the handshake read
+    `4.1.0` while every catalog that describes this product (/v1/products,
+    /.well-known/mcp.json, server.json, the official registry) read `0.4.x`. A
+    discovery surface that contradicts the others is exactly the false claim this
+    repo's own version comment warns about, and an agent has no way to tell which
+    number is the product. Read it from server.json — the same manifest the registry
+    publishes — so handshake and registry cannot drift apart. A missing or malformed
+    manifest yields a visibly wrong version, never a silent fallback to the framework's.
+    """
+    try:
+        return json.loads((Path(__file__).parent / "server.json").read_text())["version"]
+    except Exception:
+        return "0.0.0"
+
+
+mcp = FastMCP("agent-ledger", version=_product_version())
 
 
 def _record_mcp_call():
