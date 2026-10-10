@@ -110,7 +110,10 @@ def test_paid_workspace_is_actually_pro_afterwards(env):
         "a $19 payment did not produce a Pro workspace"
     )
     rec = ws.get_workspace(workspace_id)
-    assert rec["plan"] == "pro"
+    # $19/mo is the STARTER tier (cap 10) since the tiered pricing shipped —
+    # "pro" is the unbounded tier no Stripe amount maps to. assert on the tier
+    # the price book actually grants.
+    assert rec["plan"] == "starter"
     assert rec["stripe_customer_id"] == "cus_test_1"
     # A subscription supersedes a scarcity grant's clock, so the paying customer
     # must not inherit the grant's one-year expiry. D-1269 changed how that is
@@ -121,15 +124,24 @@ def test_paid_workspace_is_actually_pro_afterwards(env):
     assert rec["pro_until"] > time.time(), "the paid period must be in the future"
 
 
-def test_pro_workspace_gets_unbounded_agent_cap(env):
-    """Pro means the free-tier agent cap is lifted, not merely re-labelled."""
+def test_paid_workspace_raises_the_agent_cap(env):
+    """A paid workspace must not stay at the free-tier cap.
+
+    Written when $19 bought unbounded Pro ("cap is lifted"); the tiered price
+    book now makes $19 Starter, which raises the cap to STARTER_AGENT_CAP
+    rather than removing it. The assertion still pins the same promise — a
+    payer gets strictly more than the 3 a free workspace gets.
+    """
     c, ws, _ = env
     workspace_id, _ = _free_workspace(ws)
     before = ws.get_workspace(workspace_id).get("agent_cap")
     assert before == 3, f"free tier should start at 3 agents, got {before}"
     _post(c, _completed(workspace_id))
     after = ws.get_workspace(workspace_id)
-    assert after["agent_cap"] is None, f"cap not lifted (was {before})"
+    assert after["agent_cap"] == ws.STARTER_AGENT_CAP, (
+        f"cap not raised to the Starter tier (was {before}, got "
+        f"{after['agent_cap']})")
+    assert after["agent_cap"] > before
 
 
 def test_customer_row_written_for_payer(env):
@@ -139,7 +151,7 @@ def test_customer_row_written_for_payer(env):
     rows = [json.loads(l) for l in (tmp / "customers.jsonl").read_text().splitlines() if l]
     assert len(rows) == 1, f"expected exactly 1 customer, got {len(rows)}"
     assert rows[0]["email"] == "buyer@example.com"
-    assert rows[0]["plan"] == "pro"
+    assert rows[0]["plan"] == "starter"
     assert rows[0]["amount_total"] == 1900
 
 

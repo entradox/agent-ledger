@@ -78,7 +78,9 @@ def test_a_real_payer_gets_pro(env):
     wid = signed_up(env)
     assert ws.is_workspace_pro(wid) is True, "not Pro after paying"
     rec = ws.get_workspace(wid)
-    assert rec["plan"] == "pro"
+    # $19/mo is the Starter tier under the current price book (cap 10); "pro"
+    # is the unbounded tier no Stripe amount maps to. Paid is what matters.
+    assert rec["plan"] == "starter"
     assert rec["stripe_customer_id"] == "cus_real"
 
 

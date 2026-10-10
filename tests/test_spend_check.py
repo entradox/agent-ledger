@@ -311,7 +311,7 @@ def test_mcp_tool_is_registered_and_read_only(env):
     tools = asyncio.run(result) if hasattr(result, "__await__") else result
     tool = {t.name: t for t in tools}.get("ledger_check_spend")
     assert tool is not None, "ledger_check_spend is not a registered MCP tool"
-    assert tool.annotations.read_only_hint is True
+    assert tool.annotations.readOnlyHint is True
 
 
 def test_mcp_and_rest_give_the_same_decision(env):

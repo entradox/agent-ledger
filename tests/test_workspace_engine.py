@@ -159,9 +159,17 @@ def test_reissue_key_unknown_workspace_raises(engine):
         engine.reissue_key("ws_does_not_exist")
 
 
-def test_no_automatic_caller_of_reissue_key(engine):
-    """Guard rail for this phase: reissue must not be wired into any
-    automatic path (spec: key rotation is explicitly out of scope)."""
+def test_no_unvetted_caller_of_reissue_key(engine):
+    """reissue_key must only be reachable through the wallet-signed recovery path.
+
+    This guard originally meant NO caller at all ("key rotation is explicitly
+    out of scope"). PR #17 changed the spec: POST /v1/billing/x402/recover calls
+    reissue_key behind an EIP-191 wallet signature — the caller proves ownership
+    of the wallet the workspace is bound to before a key rotates. The guard still
+    bites on everything else: any caller that is NOT that recovery endpoint,
+    or a call inside routes_billing that is not inside x402_recover, fails here.
+    """
+    import re
     import subprocess
     from pathlib import Path
     repo = Path(__file__).resolve().parent.parent
@@ -170,7 +178,27 @@ def test_no_automatic_caller_of_reissue_key(engine):
         capture_output=True, text=True).stdout.splitlines()
     callers = [h for h in hits
                if "/tests/" not in h and "workspace_engine.py" not in h]
-    assert callers == [], f"reissue_key called automatically from: {callers}"
+
+    # Every caller must live in routes_billing.py — the billing module owns the
+    # only sanctioned rotation path.
+    outside = [h for h in callers if "routes_billing.py" not in h]
+    assert outside == [], f"reissue_key called from an unvetted module: {outside}"
+
+    # And inside routes_billing it must be inside x402_recover specifically —
+    # the endpoint gated by a wallet signature — not any other function. The
+    # function's span ends at the first non-blank line back at column 0.
+    src = (repo / "routes_billing.py").read_text().splitlines()
+    recover_start = next(i for i, l in enumerate(src)
+                         if re.match(r"\s*async def x402_recover", l))
+    next_def = next((i for i in range(recover_start + 1, len(src))
+                     if src[i].strip() and not src[i][0].isspace()),
+                    len(src))  # x402_recover may be the last def in the file
+    for h in callers:
+        lineno = int(h.split(":")[1])
+        assert recover_start < lineno <= next_def, (
+            f"reissue_key call at routes_billing.py:{lineno} is NOT inside the "
+            "wallet-signed x402_recover endpoint — rotation reachable on an "
+            "unvetted path")
 
 
 def test_scarcity_claims_left_counts_workspaces_not_agents(monkeypatch):

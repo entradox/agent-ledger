@@ -15,7 +15,6 @@ Not against production: minting consumes launch-window slots and leaves junk row
 """
 import importlib
 import re
-import socket
 import sys
 import tempfile
 import threading
@@ -26,14 +25,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
-
-
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
 
 
 @pytest.fixture
@@ -47,37 +38,28 @@ def live(monkeypatch):
         importlib.reload(module)
 
     import uvicorn
-    # Port retry, and a real teardown. Both are here because this test was FLAKY when
-    # first written: it passed alone and failed inside the suite, once out of three runs,
-    # because `_free_port()` closes its socket before uvicorn binds it — another test
-    # can take the port in that window — and the fixture never stopped the server, so a
-    # previous run's thread could outlive the test and mutate the shared module state the
-    # next reload reads. A test that fails one run in three trains people to ignore red.
-    server = None
-    last = None
-    for _ in range(5):
-        port = _free_port()
-        server = uvicorn.Server(uvicorn.Config(api_server.app, host="127.0.0.1",
-                                               port=port, log_level="error"))
-        t = threading.Thread(target=server.run, daemon=True)
-        t.start()
-        base = f"http://127.0.0.1:{port}"
-        deadline = time.time() + 15
-        while time.time() < deadline:
-            if server.started:
-                break
-            if not t.is_alive():          # bind failed — port was taken; try another
-                last = "server thread died (port in use)"
-                break
-            time.sleep(0.1)
-        else:
-            last = "server did not come up in 15s"
-            continue
+    # Port 0, then read back the port uvicorn actually bound. This test used to
+    # be FLAKY — it passed alone and failed inside the suite once in three runs:
+    # _free_port() closed its socket before uvicorn bound it, and another test
+    # could take the port in that window. Binding 0 removes the window entirely —
+    # the kernel hands the server its port — so no retry loop is needed. The
+    # teardown below is still load-bearing: without it a previous run's thread
+    # outlives the test and mutates the shared module state the next reload reads.
+    server = uvicorn.Server(uvicorn.Config(api_server.app, host="127.0.0.1",
+                                           port=0, log_level="error"))
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    deadline = time.time() + 15
+    while time.time() < deadline:
         if server.started:
             break
-        server.should_exit = True
+        if not t.is_alive():
+            raise RuntimeError("test server thread died before startup")
+        time.sleep(0.1)
     else:
-        raise RuntimeError(f"no free port would host the test server: {last}")
+        raise RuntimeError("test server did not come up in 15s")
+    port = server.servers[0].sockets[0].getsockname()[1]
+    base = f"http://127.0.0.1:{port}"
 
     yield base
 

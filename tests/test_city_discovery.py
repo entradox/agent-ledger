@@ -35,7 +35,7 @@ EXPECTED_COUNT = 5
 # Tool counts per product, as actually served. A count that silently drops is a
 # user-visible regression on a public surface.
 EXPECTED_TOOL_COUNTS = {
-    "agent-ledger": 14, "agent-watch": 8, "perimeter-watch": 6,
+    "agent-ledger": 17, "agent-watch": 8, "perimeter-watch": 6,
     "cited": 9, "trustscan": 4,
 }
 
@@ -180,7 +180,7 @@ def test_mcp_catalog_and_products_agree_on_versions(client):
     Also pins the versions as LITERALS — the 2026-10-07 finding was five stale version
     strings, and a change here must be a conscious act, not a silent carry-over."""
     expected = {
-        "agent-ledger": "v0.4.3", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
+        "agent-ledger": "v0.4.5", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
         "cited": "v1.0", "trustscan": "v0.1.0",
     }
     cat = {p["id"]: p["version"] for p in client.get("/v1/products").json()["products"]}

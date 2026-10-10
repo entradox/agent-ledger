@@ -454,7 +454,7 @@ PAGE_HOME = """<div class="agent-surface">
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/changelog">Full changelog →</a></div>
   <footer class="site">
-    <div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a></div>
+    <div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a><a href="/privacy">privacy</a><a href="/terms">terms</a></div>
     <div>AI Agent City · one site, two readers</div>
   </footer>
 </section>
