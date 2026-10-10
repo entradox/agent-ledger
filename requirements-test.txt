@@ -1,0 +1,7 @@
+# Test-only dependencies — NOT shipped to production. requirements.txt is the
+# deployed surface; this file is what the suite needs beyond it, so CI and a
+# fresh dev machine run the same set of tests (nothing silently skips).
+pytest
+openai          # test_wrapper.py wraps the real SDK
+anthropic       # test_wrapper.py wraps the real SDK
+eth_account     # test_x402_recovery signs like a real wallet (importorskip)

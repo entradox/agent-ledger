@@ -102,7 +102,15 @@ def test_the_provider_credential_is_untouched_by_the_wrapper(recorder):
     client.chat.completions.create(model="gpt-4o-mini",
                                    messages=[{"role": "user", "content": "hi"}])
     assert _Recorder.seen[-1]["headers"]["authorization"] == "Bearer sk-provider-key"
-    assert client.default_headers["Authorization"] == before["Authorization"]
+    # The wrapper may ADD its X-AL-* headers but must not change any header that
+    # was already there. Checking every pre-existing header is also the version-
+    # agnostic form: newer openai SDKs stopped storing Authorization in
+    # default_headers, so indexing it raises KeyError even though the wire
+    # credential above is correct.
+    after = dict(client.default_headers)
+    real = lambda h: {k: v for k, v in h.items() if isinstance(v, str)}
+    for k, v in real(before).items():
+        assert real(after).get(k) == v, f"wrapper changed or dropped header {k}"
 
 
 def test_wrapping_repoints_the_http_layer_too(recorder):
