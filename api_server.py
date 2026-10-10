@@ -498,9 +498,18 @@ async def _metrics_middleware(request: Request, call_next):
             # their own bucket so the buy funnel stays countable.
             path = "/v1/billing/<redacted>"
         ip_bucket = f"path:{path}" if path in REACH_PATHS or path.startswith("/mcp") else None
+        # /v1/setup-event is the one endpoint designed to be called before the
+        # caller has any relationship with us — its http record keeps status
+        # counts (abuse signal) but never an IP digest (review D-1626). The
+        # compare is normalized AND root_path-stripped so the 307's
+        # trailing-slash, case variants, and a future prefix mount can't leak
+        # the digest this path exists to withhold.
+        root_path = request.scope.get("root_path", "")
+        routed = path[len(root_path):] if root_path and path.startswith(root_path) else path
+        ip = None if routed.rstrip("/").lower() == "/v1/setup-event" else _ip_hash(request)
         metrics.record_event("http", path=path,
                              method=request.scope.get("al.orig_method", request.method),
-                              status=response.status_code, ip_hash=_ip_hash(request),
+                              status=response.status_code, ip_hash=ip,
                               ip_bucket=ip_bucket)
     except Exception:
         pass
@@ -683,6 +692,14 @@ def get_metrics(request: Request):
     except Exception:
         pass
 
+    # The connect funnel (D-1626): page-render attempt id → registered, per
+    # harness. File-scan; empty dict is fine when nothing has reported yet.
+    setup_funnel = {}
+    try:
+        setup_funnel = metrics.setup_connect_funnel()
+    except Exception:
+        pass
+
     agents = list_agents()
     with_data = sum(1 for a in agents if a.get("has_data"))
     squatted = sum(1 for a in agents if not a.get("has_data"))
@@ -691,6 +708,7 @@ def get_metrics(request: Request):
         "service": "agent-ledger",
         "version": app.version,
         "onboarding": onboarding,
+        "setup_connect_funnel": setup_funnel,
         "funnel": funnel,
         "checkout_funnel": checkout_funnel,
         "reach": reach,
@@ -872,6 +890,14 @@ DELETE /v1/webhooks/{id}           — remove one destination
                                       metadata only — never a secret, prompt, or response.
 GET  /v1/agents                    — owner-only: full cross-tenant listing (requires X-Al-Admin header)
 GET  /stats                        — usage counters
+POST /v1/setup-event               — connect-funnel sink for `npx @aiagentscity/setup`.
+                                      Closed schema (extra fields → 422): product, outcome,
+                                      harness, is_human_initiated, connect_attempt_id (uuid),
+                                      failure_reason, cli_version, runtime_platform.
+                                      Rate-limited; enumerated fields only are persisted.
+                                      Headers are never stored — nothing credential-shaped
+                                      belongs in a funnel log. Feeds setup_connect_funnel
+                                      at /v1/metrics.
 POST /v1/billing/x402              — self-serve workspace minting for an agent with a wallet
                                       (X-PAYMENT header; the paying wallet IS the identity)
                                       {X402_SETTLEMENT}
@@ -930,6 +956,10 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
+Connect:  npx @aiagentscity/setup ledger — one command; detects claude-code,
+          codex, cursor, opencode, hermes and openclaw, registers the MCP the
+          right way for each, and installs the vendored skill
+          (manual: claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/)
 
 Tools exposed at POST /mcp/ (v0.4.6, 17):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
@@ -2026,7 +2056,10 @@ def agents_txt():
         "  rails, set budget caps, get anomaly alerts, keep an audit trail.\n"
         "\n"
         "CONNECT (MCP, no install)\n"
-        "  claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/\n"
+        "  npx @aiagentscity/setup ledger   (detects claude-code, codex, cursor,\n"
+        "                                  opencode, hermes, openclaw; registers\n"
+        "                                  the MCP and installs the skill)\n"
+        "  manual: claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/\n"
         "  Both /mcp and /mcp/ work. No login required to connect.\n"
         "\n"
         "GET A WORKSPACE (no human needed)\n"
@@ -2232,7 +2265,9 @@ def _city_response(path: str, request: Request) -> Response:
         return PlainTextResponse(
             f"> **{title}** — {desc}\n\n{site_pages.okf_index_md()}",
             media_type="text/markdown; charset=utf-8", headers={"Vary": "Accept"})
-    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const)),
+    # request is threaded to render so the connect-attempt mint can see the
+    # original method + caller for the funnel record.
+    return HTMLResponse(city_site.render(path, title, desc, getattr(city_site, const), request=request),
                         headers={"Vary": "Accept"})
 
 
@@ -2962,6 +2997,9 @@ def connect_beacon(event: str, ws: str = ""):
 
 from routes_billing import router as billing_router
 app.include_router(billing_router)
+
+from routes_setup import router as setup_router
+app.include_router(setup_router)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8761))

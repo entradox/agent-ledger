@@ -66,7 +66,9 @@ def record_event(kind: str, *, ip_bucket: str = None, **fields):
         # a route label like "path:/start", never an address.
         if ip_bucket:
             rec["ip_bucket"] = ip_bucket
-        rec.update(fields)
+        # Never let a caller-supplied field retype or backdate the record:
+        # kind/ts/ip_bucket are written by us and stay ours (review D-1626).
+        rec.update({k: v for k, v in fields.items() if k not in rec})
         with open(METRICS_FILE, "a") as f:
             f.write(json.dumps(rec) + "\n")
     except Exception:
@@ -176,6 +178,113 @@ def onboarding_funnel() -> dict:
                      "checkout_completed is real money; checkout_abandoned "
                      "arrives ~24h late (Stripe expiry), so a recent "
                      "abandonment can lag.")}
+
+
+# ── Setup/connect funnel (D-1626) ─────────────────────────────────────────
+# `npx @aiagentscity/setup` reports one setup_event per harness outcome plus a
+# 'started' per run, optionally stamped with a connect_attempt_id the connect
+# page mints into the suggested command. This is the read side: file-scan
+# like the other durable funnels, admin-only caller.
+_SETUP_SUCCESS_OUTCOMES = ("registered", "already_registered", "skill_installed")
+
+
+def setup_connect_funnel() -> dict:
+    """Aggregate setup_event / setup_attempt_minted records into the connect
+    funnel: page-render attempt → CLI event → success outcome.
+
+    An attempt id only counts when the site actually minted it (a
+    `setup_attempt_minted` record written at render). Events carrying an id
+    no render produced land in `unmatched` — visible as a forgery /
+    pre-instrumentation signal rather than silently inflating the ratio.
+    This is the difference between telemetry and an honor system: a forged
+    `registered` still costs the caller a real page fetch per fake id.
+    """
+    outcomes = defaultdict(int)
+    harnesses = defaultdict(int)
+    products = defaultdict(int)
+    failure_reasons = defaultdict(int)
+    human = {"human": 0, "agent": 0}
+    minted = set()
+    minted_ips = set()
+    seen_success = set()
+    seen_any = set()
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                if '"setup_' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                kind = rec.get("kind")
+                if kind == "setup_attempt_minted":
+                    if rec.get("connect_attempt_id"):
+                        minted.add(rec["connect_attempt_id"])
+                        if rec.get("ip_hash"):
+                            minted_ips.add(rec["ip_hash"])
+                    continue
+                if kind != "setup_event":
+                    continue
+                outcome = rec.get("outcome")
+                if not outcome:
+                    continue
+                outcomes[outcome] += 1
+                if rec.get("harness"):
+                    harnesses[rec["harness"]] += 1
+                if rec.get("product"):
+                    products[rec["product"]] += 1
+                if rec.get("failure_reason"):
+                    failure_reasons[rec["failure_reason"]] += 1
+                human["human" if rec.get("is_human_initiated") else "agent"] += 1
+                attempt = rec.get("connect_attempt_id")
+                if attempt:
+                    seen_any.add(attempt)
+                    if outcome in _SETUP_SUCCESS_OUTCOMES:
+                        seen_success.add(attempt)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    reported = minted & seen_any
+    succeeded = minted & seen_success
+    unmatched = seen_any - minted
+    return {
+        "events": sum(outcomes.values()),
+        "by_outcome": dict(sorted(outcomes.items())),
+        "by_harness": dict(sorted(harnesses.items())),
+        "by_product": dict(sorted(products.items())),
+        "failure_reasons": dict(sorted(failure_reasons.items())),
+        "initiated_by": human,
+        "attempts": {
+            # minted: page renders that surfaced the command.
+            # reported: minted ids a CLI run actually came back with.
+            # succeeded: minted ids that reached a terminal success outcome.
+            "minted": len(minted),
+            # distinct salted-IP digests behind the mints — a bot/probe burst
+            # inflates `minted` but barely moves this.
+            "minted_distinct_ips": len(minted_ips),
+            "reported": len(reported),
+            "succeeded": len(succeeded),
+            "report_rate": round(len(reported) / len(minted), 3) if minted else None,
+            "success_rate": round(len(succeeded) / len(reported), 3) if reported else None,
+            # ids seen in events that no page minted: forged traffic, or
+            # events from before minting shipped. Counted, never trusted.
+            "unmatched": len(unmatched),
+            "note": ("attempt ids are minted per GET render of / and "
+                     "/developers and recorded; only minted ids join the "
+                     "funnel — a fabricated id shows up in `unmatched` "
+                     "instead. Honest limits: outcomes are self-reported by "
+                     "the CLI, so minted ids CAN be harvested by fetching "
+                     "the page (directional traffic, not audited "
+                     "conversion); `reported` only covers the two minting "
+                     "surfaces — llms.txt / agents.txt / quickstart events "
+                     "arrive with a null id and live in by_outcome only; "
+                     "mint and report must reach the same metrics.jsonl — "
+                     "a redeploy or second replica between them lands a "
+                     "genuine install in `unmatched`."),
+        },
+    }
 
 
 def funnel_from_file() -> dict:
