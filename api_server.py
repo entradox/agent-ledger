@@ -40,7 +40,7 @@ from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.4.5"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.6"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 # ── OpenAPI augmentation for agent payment-directory discovery (D-1293) ──────
@@ -931,7 +931,7 @@ GET  /v1/pricing                  — the price table in use + provenance (open 
 Registry: io.github.entradox/agent-ledger
 Remote:   https://aiagentscity.com/mcp/
 
-Tools exposed at POST /mcp/ (v0.4.5, 17):
+Tools exposed at POST /mcp/ (v0.4.6, 17):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
@@ -1482,7 +1482,7 @@ CITY_CATALOG = [
      "tagline": "Spending limits for AI agents",
      "mcp_url": "https://aiagentscity.com/mcp/",
      "human_url": "https://aiagentscity.com/agent-ledger",
-     "version": "v0.4.5", "status": "live",
+     "version": "v0.4.6", "status": "live",
      # tools = the server's OWN tools/list, captured 2026-10-07. Keep it equal to
      # that; the audit below fails the suite if it ever drifts.
      # ledger_list_agents is deliberately ABSENT: it was removed from the MCP

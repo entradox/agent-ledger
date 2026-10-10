@@ -7,7 +7,7 @@
 [![Live API](https://img.shields.io/badge/API-live-success)](https://aiagentscity.com/health)
 [![Landing](https://img.shields.io/badge/status-page-blue)](https://aiagentscity.com/status)
 [![MCP Registry](https://img.shields.io/badge/MCP-io.github.entradox%2Fagent--ledger-purple)](https://registry.modelcontextprotocol.io)
-[![Version](https://img.shields.io/badge/version-0.4.5-blue)](https://aiagentscity.com/server.json)
+[![Version](https://img.shields.io/badge/version-0.4.6-blue)](https://aiagentscity.com/server.json)
 
 > 🎯 **Free tier: 3 agents per workspace, no card, no login.** `POST /start` mints the workspace and shows the key once.
 
