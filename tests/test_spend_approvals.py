@@ -343,3 +343,224 @@ def test_check_spend_reports_approved_permit_and_hint(env):
     assert covering["allowed"] is True
     assert covering["reason"] == "approved_permit"
     assert covering["approvals"]["approved_covering"] == r["approval_id"]
+
+
+# --- red-team hardening (2026-10-09) ---------------------------------------
+# Four defects found by adversarial review of the permit lifecycle.
+
+def test_permit_only_covers_the_approved_service(env):
+    """A permit approved for service A must not rescue a spend on service B —
+    the owner approved a specific purchase, not a general wallet exception."""
+    al_mcp_http, _, ledger_engine, _, _ = env
+    raw_key, secret = _setup(env)
+    al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                  agent_secret=secret)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="openai batch",
+        agent_secret=secret)
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    # Same amount, different service — refused, permit NOT consumed.
+    with pytest.raises(ledger_engine.BudgetExceededError):
+        ledger_engine.track("agent-a", "api_key", 200, "someone else")
+    assert ledger_engine.list_approvals("agent-a", state="approved")
+    # The approved service goes through and consumes it.
+    entry = ledger_engine.track("agent-a", "api_key", 200, "openai batch")
+    assert entry.amount_cents == 200
+    assert ledger_engine.list_approvals("agent-a", state="consumed")
+
+
+def test_approved_permit_expires_at_ttl(env):
+    """An APPROVED permit the agent never spends still dies at expires_at —
+    a granted exception is time-boxed, not bankable forever."""
+    al_mcp_http, _, ledger_engine, _, _ = env
+    raw_key, secret = _setup(env)
+    al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                  agent_secret=secret)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="svc",
+        agent_secret=secret)
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    permit = ledger_engine.list_approvals("agent-a", state="approved")[0]
+    permit["expires_at"] = (datetime.now(timezone.utc) - timedelta(hours=2)
+                            ).isoformat()
+    ledger_engine._write_permit("agent-a", permit)
+    with pytest.raises(ledger_engine.BudgetExceededError):
+        ledger_engine.track("agent-a", "api_key", 200, "svc")
+    assert ledger_engine.list_approvals("agent-a", state="expired")
+
+
+def test_identical_pending_request_is_deduped(env):
+    """Retrying the same request returns the existing pending permit — each
+    create fans a webhook alert, so unbounded duplicates were a spam vector.
+    A different amount or service is a genuinely new request."""
+    al_mcp_http, _, ledger_engine, _, _ = env
+    _, secret = _setup(env)
+    first = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="svc",
+        agent_secret=secret)
+    again = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="svc",
+        reason="different reason, same spend", agent_secret=secret)
+    assert again["approval_id"] == first["approval_id"]
+    assert again.get("deduped") is True
+    assert len(ledger_engine.list_approvals("agent-a", state="pending")) == 1
+    # Different service or amount -> new permit
+    other = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="other",
+        agent_secret=secret)
+    assert other["approval_id"] != first["approval_id"]
+    bigger = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=600, service="svc",
+        agent_secret=secret)
+    assert bigger["approval_id"] != first["approval_id"]
+    assert len(ledger_engine.list_approvals("agent-a", state="pending")) == 3
+
+
+def test_approval_id_path_traversal_rejected(env):
+    """approval_id is a filesystem path component. Traversal values must not
+    read or overwrite files outside the approvals dir."""
+    al_mcp_http, _, ledger_engine, _, tmp = env
+    raw_key, secret = _setup(env)
+    # Sentinel JSON outside the approvals dir that a traversal could hit.
+    victim = tmp / "agents" / "victim.json"
+    victim.write_text('{"state": "pending", "amount_cents": 1}')
+    for evil in ("../victim", "../../victim", "apr_../../victim",
+                 "..\\..\\victim", "apr_x/../../victim"):
+        d = al_mcp_http.ledger_approval_decide(
+            agent_id="agent-a", approval_id=evil, decision="approve",
+            workspace_key=raw_key)
+        assert d.get("error_code") == "invalid_request", evil
+    assert victim.read_text() == '{"state": "pending", "amount_cents": 1}'
+
+
+def test_single_permit_consumed_once_under_concurrency(env):
+    """N threads hitting the cap with ONE approved permit: exactly one track
+    goes through. The _spend_lock makes the check-and-consume atomic."""
+    al_mcp_http, _, ledger_engine, _, _ = env
+    raw_key, secret = _setup(env)
+    al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                  agent_secret=secret)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="svc",
+        agent_secret=secret)
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    import threading
+    results, errors = [], []
+
+    def attempt():
+        try:
+            results.append(ledger_engine.track("agent-a", "api_key", 200, "svc"))
+        except ledger_engine.BudgetExceededError:
+            errors.append(1)
+
+    threads = [threading.Thread(target=attempt) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(results) == 1
+    assert len(errors) == 7
+    assert len(ledger_engine.list_approvals("agent-a", state="consumed")) == 1
+
+
+def test_agent_secret_cannot_raise_its_own_cap(env):
+    """Ratchet: an agent that could raise its own cap makes the cap advisory
+    and the approval primitive pointless. agent_secret may tighten only."""
+    al_mcp_http, *_ = env
+    raw_key, secret = _setup(env)
+    # Owner sets the cap
+    r = al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                      workspace_key=raw_key)
+    assert "error" not in r
+    # Agent tries to raise it — refused
+    raise_it = al_mcp_http.ledger_set_budget(
+        agent_id="agent-a", monthly_cents=10_000, agent_secret=secret)
+    assert raise_it.get("error_code") == "budget_ratchet"
+    # Agent tries to remove it — refused
+    remove_it = al_mcp_http.ledger_set_budget(
+        agent_id="agent-a", monthly_cents=0, agent_secret=secret)
+    assert remove_it.get("error_code") == "budget_ratchet"
+    # Agent tightening its own cap — allowed
+    tighten = al_mcp_http.ledger_set_budget(
+        agent_id="agent-a", monthly_cents=50, agent_secret=secret)
+    assert tighten["monthly_cap_cents"] == 50
+    # Owner can still raise it back
+    up = al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=900,
+                                       workspace_key=raw_key)
+    assert up["monthly_cap_cents"] == 900
+
+
+def test_budget_ratchet_on_rest_route(rest_env):
+    client, _ = rest_env
+    raw_key, secret = _rest_claim(client, rest_env[1])
+    # owner sets cap
+    r = client.post("/v1/budget", json={"agent_id": "rest-agent",
+                                        "monthly_cents": 100,
+                                        "workspace_key": raw_key},
+                    headers=VERSION)
+    assert r.status_code == 200
+    # agent_secret cannot loosen
+    r2 = client.post("/v1/budget", json={"agent_id": "rest-agent",
+                                         "monthly_cents": 99999,
+                                         "agent_secret": secret},
+                     headers=VERSION)
+    assert r2.status_code == 422
+    # agent_secret CAN tighten
+    r3 = client.post("/v1/budget", json={"agent_id": "rest-agent",
+                                         "monthly_cents": 40,
+                                         "agent_secret": secret},
+                     headers=VERSION)
+    assert r3.status_code == 200
+
+
+def test_decide_honors_approved_permit_same_as_track(env):
+    """decide() is the proxy's pre-call gate AND the body of check_spend —
+    before this fix it ignored permits entirely, so an agent approved by its
+    owner was still 402'd before the provider was contacted. The permit lane
+    must rescue the same way track() does, service-scoped."""
+    al_mcp_http, _, ledger_engine, _, _ = env
+    import spend_policy
+    raw_key, secret = _setup(env)
+    al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                  workspace_key=raw_key)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="openai",
+        agent_secret=secret)
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    # Wrong service -> still denied
+    d = spend_policy.decide("agent-a", 300, service="anthropic")
+    assert d["allowed"] is False
+    # Matching service -> rescued
+    d = spend_policy.decide("agent-a", 300, service="openai")
+    assert d["allowed"] is True
+    assert d["reason"] == "approved_permit"
+
+
+def test_check_spend_and_decide_agree_on_permit_scope(env):
+    """The check/proxy invariant: check_spend must not promise a permit that
+    the enforcement path would not honor — service mismatch included."""
+    al_mcp_http, *_ = env
+    import spend_policy
+    raw_key, secret = _setup(env)
+    al_mcp_http.ledger_set_budget(agent_id="agent-a", monthly_cents=100,
+                                  workspace_key=raw_key)
+    r = al_mcp_http.ledger_request_approval(
+        agent_id="agent-a", amount_cents=500, service="anthropic",
+        agent_secret=secret)
+    al_mcp_http.ledger_approval_decide(
+        agent_id="agent-a", approval_id=r["approval_id"], decision="approve",
+        workspace_key=raw_key)
+    # Model resolves to a different provider — the permit must not show as
+    # covering this spend.
+    c = spend_policy.check_spend("agent-a", model="gpt-4o",
+                                 tokens_in=1000, tokens_out=1000)
+    if c["price"]:  # only assertable when the model is priced
+        assert c["approvals"]["approved_covering"] is None

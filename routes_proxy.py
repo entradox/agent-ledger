@@ -127,7 +127,8 @@ def _meter(agent_id: str, provider: str, model: str,
     return cents
 
 
-def _pre_call_check(agent_id: str, model: str, payload: dict) -> JSONResponse | None:
+def _pre_call_check(agent_id: str, model: str, payload: dict,
+                    provider: str = "") -> JSONResponse | None:
     """The property this whole feature exists for. Returns a 402 response to
     hand straight back to the caller when the call must not go out, else None."""
     from ledger_engine import _log_alert_daily
@@ -135,7 +136,10 @@ def _pre_call_check(agent_id: str, model: str, payload: dict) -> JSONResponse | 
     # One decision function for the proxy and for POST /v1/check, so an agent
     # that asked first is never told "yes" by one and refused by the other.
     # Unpriced (estimate None) passes through; _meter() alerts afterwards.
-    verdict = spend_policy.decide(agent_id, estimate)
+    # service=provider so an approved permit for this provider rescues the
+    # call exactly as it would rescue the post-hoc track() write — a permit
+    # for another service must not free provider spend.
+    verdict = spend_policy.decide(agent_id, estimate, service=provider)
     if verdict["allowed"]:
         return None
     w = verdict["binding"]
@@ -193,7 +197,7 @@ async def proxy_call(provider: str, path: str, request: Request):
 
     model = payload.get("model") or ""
     _t0 = time.time()
-    blocked = _pre_call_check(agent_id, model, payload)
+    blocked = _pre_call_check(agent_id, model, payload, provider)
     try:
         metrics.record_latency("pre_call_check", (time.time() - _t0) * 1000)
     except Exception:

@@ -159,16 +159,12 @@ def test_reissue_key_unknown_workspace_raises(engine):
         engine.reissue_key("ws_does_not_exist")
 
 
-def test_no_unvetted_caller_of_reissue_key(engine):
-    """reissue_key must only be reachable through the wallet-signed recovery path.
-
-    This guard originally meant NO caller at all ("key rotation is explicitly
-    out of scope"). PR #17 changed the spec: POST /v1/billing/x402/recover calls
-    reissue_key behind an EIP-191 wallet signature — the caller proves ownership
-    of the wallet the workspace is bound to before a key rotates. The guard still
-    bites on everything else: any caller that is NOT that recovery endpoint,
-    or a call inside routes_billing that is not inside x402_recover, fails here.
-    """
+def test_no_automatic_caller_of_reissue_key(engine):
+    """Guard rail: reissue must never fire as an automatic side effect of a
+    lookup or sync path (the original bug: every Google login silently
+    invalidated the user's key). One caller is sanctioned: routes_billing's
+    POST /v1/billing/x402/recover, where reissue IS the explicit,
+    wallet-signature-authenticated intent of the request (PR #17)."""
     import re
     import subprocess
     from pathlib import Path
@@ -262,3 +258,28 @@ def test_a_write_after_the_window_is_returning(engine):
 def test_unknown_workspace_raises(engine):
     with pytest.raises(engine.WorkspaceError):
         engine.mark_write_and_check_returning("ws_does_not_exist", returning_after_seconds=86400)
+
+
+def test_concurrent_mint_same_wallet_mints_once(engine):
+    """Red-team 2026-10-09: the identity check + mint + index write raced.
+    Two concurrent creates for one new wallet could produce two workspaces,
+    with the second by_wallet write orphaning the first for wallet lookups
+    (recovery included)."""
+    import threading
+    results = []
+
+    def mint():
+        results.append(engine.create_workspace(
+            wallet_address="0xAbCdEf0000000000000000000000000000Race"))
+
+    threads = [threading.Thread(target=mint) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    ws_ids = {r[0] for r in results}
+    assert len(ws_ids) == 1
+    keyed = [r[1] for r in results if r[1]]
+    assert len(keyed) == 1  # exactly one caller gets the raw key
+    found = engine.get_workspace_by_wallet("0xabcdef0000000000000000000000000000race")
+    assert found["workspace_id"] == ws_ids.pop()
