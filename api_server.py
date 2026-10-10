@@ -234,8 +234,18 @@ REACH_EXEMPT = {
 # capped workspace, and /pricing is the page a comparing buyer reads before paying.
 # Exempting them would have hidden the newest pay surfaces from the funnel counter —
 # the reach guard exists to stop exactly that kind of silent gap, so the honest fix
-# is to track them.
-REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto"}
+# is to track them. /demo is the same class — the landing page's "Try the live
+# demo" CTA makes it a top-of-funnel surface, so it is tracked, not exempted.
+REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto", "/demo"}
+
+# Two HTML routes that are real pages but not funnel entries: /dashboard is the
+# workspace-owner tool surface (the key is pasted in the browser after signup —
+# nobody lands there pre-conversion), and /v1/report/{agent_id}/html is the
+# agent's own report, reached by credential header or minted share token.
+REACH_EXEMPT.update({
+    "/dashboard": "workspace-owner tool surface, reached post-signup with a key in hand",
+    "/v1/report/{agent_id}/html": "authenticated agent report (X-Agent-Secret or share token), not a funnel entry",
+})
 
 # ── canonical address — one origin, declared once (2026-09-21) ──────────────
 # This app is reachable on TWO hosts that serve BYTE-IDENTICAL html: the public

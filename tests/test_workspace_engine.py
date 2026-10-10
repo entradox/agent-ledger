@@ -165,17 +165,36 @@ def test_no_automatic_caller_of_reissue_key(engine):
     invalidated the user's key). One caller is sanctioned: routes_billing's
     POST /v1/billing/x402/recover, where reissue IS the explicit,
     wallet-signature-authenticated intent of the request (PR #17)."""
+    import re
     import subprocess
     from pathlib import Path
     repo = Path(__file__).resolve().parent.parent
     hits = subprocess.run(
         ["grep", "-rn", "reissue_key", "--include=*.py", str(repo)],
         capture_output=True, text=True).stdout.splitlines()
-    sanctioned = "routes_billing.py"  # x402 wallet-signed key recovery only
     callers = [h for h in hits
-               if "/tests/" not in h and "workspace_engine.py" not in h
-               and sanctioned not in h]
-    assert callers == [], f"reissue_key called automatically from: {callers}"
+               if "/tests/" not in h and "workspace_engine.py" not in h]
+
+    # Every caller must live in routes_billing.py — the billing module owns the
+    # only sanctioned rotation path.
+    outside = [h for h in callers if "routes_billing.py" not in h]
+    assert outside == [], f"reissue_key called from an unvetted module: {outside}"
+
+    # And inside routes_billing it must be inside x402_recover specifically —
+    # the endpoint gated by a wallet signature — not any other function. The
+    # function's span ends at the first non-blank line back at column 0.
+    src = (repo / "routes_billing.py").read_text().splitlines()
+    recover_start = next(i for i, l in enumerate(src)
+                         if re.match(r"\s*async def x402_recover", l))
+    next_def = next((i for i in range(recover_start + 1, len(src))
+                     if src[i].strip() and not src[i][0].isspace()),
+                    len(src))  # x402_recover may be the last def in the file
+    for h in callers:
+        lineno = int(h.split(":")[1])
+        assert recover_start < lineno <= next_def, (
+            f"reissue_key call at routes_billing.py:{lineno} is NOT inside the "
+            "wallet-signed x402_recover endpoint — rotation reachable on an "
+            "unvetted path")
 
 
 def test_scarcity_claims_left_counts_workspaces_not_agents(monkeypatch):
