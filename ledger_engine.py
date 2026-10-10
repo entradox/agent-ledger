@@ -413,6 +413,16 @@ def request_approval(agent_id: str, amount_cents: int, service: str,
             f"amount_cents must be between 1 and {MAX_AMOUNT_CENTS}")
     if not service or len(service) > 200:
         raise ValidationError("service must be 1-200 chars")
+    # Dedup: an identical pending request returns the existing permit instead
+    # of minting a second one — every create fans an alert to the owner's
+    # webhooks, so an agent retry-looping the same request was a notification
+    # spam vector. A denied/expired request is NOT deduped: re-asking with a
+    # new reason is legitimate.
+    for existing in list_approvals(agent_id, state="pending"):
+        if (existing.get("amount_cents") == amount_cents
+                and existing.get("service") == service):
+            existing["deduped"] = True
+            return existing
     approval_id = "apr_" + secrets.token_urlsafe(12)
     now = datetime.now(timezone.utc).isoformat()
     permit = {"approval_id": approval_id, "agent_id": agent_id,
@@ -434,7 +444,15 @@ def request_approval(agent_id: str, amount_cents: int, service: str,
     return permit
 
 
+APPROVAL_ID_RE = re.compile(r"^apr_[A-Za-z0-9_-]{1,64}$")
+
+
 def _read_permit(agent_id: str, approval_id: str) -> Optional[dict]:
+    # approval_id is a filesystem path component and arrives from MCP/REST
+    # callers — without this check "approval_id=../../workspaces/ws_x" reads
+    # and (via _write_permit in decide) OVERWRITES arbitrary .json files.
+    if not APPROVAL_ID_RE.match(approval_id or ""):
+        return None
     p = _approvals_dir(agent_id) / f"{approval_id}.json"
     if not p.exists():
         return None
@@ -449,8 +467,13 @@ def _write_permit(agent_id: str, permit: dict) -> None:
         json.dumps(permit, indent=2))
 
 
-def _expire_if_stale(agent_id: str, permit: dict) -> dict:
-    if permit["state"] == "pending":
+def _expire_if_stale(agent_id: str, permit: Optional[dict]) -> Optional[dict]:
+    if permit is None:
+        return None
+    # Both live states die at expires_at: a pending request the owner never
+    # saw, and an APPROVED permit the agent never spent — the grant is a
+    # time-boxed exception, not a banked exception it can cash weeks later.
+    if permit["state"] in ("pending", "approved"):
         try:
             if datetime.fromisoformat(permit["expires_at"]) < datetime.now(timezone.utc):
                 permit["state"] = "expired"
@@ -518,11 +541,15 @@ def decide_approval(agent_id: str, approval_id: str, decision: str,
     return permit
 
 
-def _approved_permit_covering(agent_id: str, amount_cents: int) -> Optional[dict]:
-    """Oldest approved permit whose amount covers this spend, if any.
+def _approved_permit_covering(agent_id: str, amount_cents: int,
+                              service: str = "") -> Optional[dict]:
+    """Oldest approved permit whose amount covers this spend AND whose service
+    matches — the owner approved a specific purchase, not a general wallet.
     Runs inside _spend_lock from track() — never call it outside a context
     where the permit-then-append pair is atomic."""
     for permit in list_approvals(agent_id, state="approved"):
+        if service and permit.get("service") != service:
+            continue
         if int(permit.get("amount_cents", 0)) >= amount_cents:
             return permit
     return None
@@ -836,6 +863,20 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
     that lets a client set it defeats the cap. (Adversarial review 2026-09-13.)
     """
     validate_agent_id(agent_id)
+    # Negative token counts are not "negative usage" — a row carrying
+    # tokens_in=-1M subtracts from the monthly total and reopens the token
+    # cap it was counted against. Reject at the engine so every caller
+    # (MCP tool, REST, CLI) shares the rule. REST's pydantic already enforces
+    # ge=0; the MCP path passed them straight through.
+    if not isinstance(amount_cents, int) or isinstance(amount_cents, bool):
+        raise ValidationError("amount_cents must be an integer number of cents")
+    try:
+        _tin = int(meta.get("tokens_in") or 0)
+        _tout = int(meta.get("tokens_out") or 0)
+    except (TypeError, ValueError):
+        raise ValidationError("tokens_in and tokens_out must be integers")
+    if _tin < 0 or _tout < 0:
+        raise ValidationError("tokens_in and tokens_out must be >= 0")
     # The cap check and the append must be atomic: read-sum-then-append without
     # a lock lets every concurrent writer pass the check against the same stale
     # total and all spend at once (found in red-team review).
@@ -895,7 +936,8 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
                     # exception: it rescues this spend. Only looked up when the
                     # cap would actually refuse, so an under-cap write never
                     # burns a granted exception.
-                    permit = _approved_permit_covering(agent_id, amount_cents)
+                    permit = _approved_permit_covering(agent_id, amount_cents,
+                                                       service)
                     if permit is None:
                         raise BudgetExceededError(
                             over_msg + " — ask the owner for an approval "
@@ -921,6 +963,29 @@ def track(agent_id: str, rail: str, amount_cents: int, service: str,
     else:
         _check_token_budget(agent_id)
     return entry
+
+
+def budget_ratchet_violation(agent_id: str, monthly_cents: int, daily_cents: int,
+                             monthly_tokens: int, daily_tokens: int) -> Optional[str]:
+    """Non-owner budget writes may only TIGHTEN caps. If a budget exists,
+    removing a cap (new=0) or raising it (new>old) is an owner action — an
+    agent that could raise its own allowance makes the cap advisory, not a
+    control, and renders the approval primitive pointless. Returns a reason
+    string on violation, None if the write is a tighten/first-budget.
+    Called by the credential-aware edges (REST /v1/budget, MCP
+    ledger_set_budget) — engine-direct callers are operator-trusted."""
+    old = get_budget(agent_id)
+    if old is None:
+        return None
+    for dim, o, n in (("monthly_cents", old.monthly_cap_cents, monthly_cents),
+                      ("daily_cents", old.daily_cap_cents, daily_cents),
+                      ("monthly_tokens", old.monthly_token_cap, monthly_tokens),
+                      ("daily_tokens", old.daily_token_cap, daily_tokens)):
+        if o > 0 and (n == 0 or n > o):
+            return (f"{dim}: raising or removing an existing cap requires the "
+                    f"workspace_key — an agent_secret can only tighten it "
+                    f"(current {o}, requested {n})")
+    return None
 
 
 def set_budget(agent_id: str, monthly_cents: int, daily_cents: int = 0, alert_pct: int = 80,

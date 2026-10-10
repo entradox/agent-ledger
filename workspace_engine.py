@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,10 @@ DEFAULT_MONTHLY_CAP_CENTS = 5000
 DEFAULT_DAILY_CAP_CENTS = 0
 DEFAULT_BUDGET = {"monthly_cents": DEFAULT_MONTHLY_CAP_CENTS,
                   "daily_cents": DEFAULT_DAILY_CAP_CENTS}
+
+# RLock (not Lock): rapidapi_credential wraps its whole resolve+mint+reissue
+# sequence in this lock AND calls create_workspace, which takes it again.
+_mint_lock = threading.RLock()
 
 
 def default_caps_payload() -> dict:
@@ -211,20 +216,33 @@ def create_workspace(*, owner_email: Optional[str] = None,
     explicit, separately-named action (see reissue_key below), never an
     implicit consequence of "who is this caller".
     """
-    if google_sub:
-        existing = get_workspace_by_google_sub(google_sub)
-        if existing:
-            return existing["workspace_id"], None
-    if wallet_address:
-        wallet_address = _normalize_wallet(wallet_address)
-        existing = get_workspace_by_wallet(wallet_address)
-        if existing:
-            return existing["workspace_id"], None
-    if rapidapi_user:
-        existing = get_workspace_by_rapidapi_user(rapidapi_user)
-        if existing:
-            return existing["workspace_id"], None
+    # Mint is serialized: the identity check + record + index writes must be
+    # atomic. Without the lock, two concurrent calls for the SAME wallet
+    # (two x402 settlements landing together) both see "no existing" and mint
+    # two workspaces — the second by_wallet index write orphans the first
+    # workspace for every wallet-based lookup, including key recovery.
+    with _mint_lock:
+        if google_sub:
+            existing = get_workspace_by_google_sub(google_sub)
+            if existing:
+                return existing["workspace_id"], None
+        if wallet_address:
+            wallet_address = _normalize_wallet(wallet_address)
+            existing = get_workspace_by_wallet(wallet_address)
+            if existing:
+                return existing["workspace_id"], None
+        if rapidapi_user:
+            existing = get_workspace_by_rapidapi_user(rapidapi_user)
+            if existing:
+                return existing["workspace_id"], None
+        return _mint_workspace(owner_email=owner_email, google_sub=google_sub,
+                               wallet_address=wallet_address,
+                               rapidapi_user=rapidapi_user,
+                               grant_scarcity=grant_scarcity, is_demo=is_demo)
 
+
+def _mint_workspace(*, owner_email, google_sub, wallet_address, rapidapi_user,
+                    grant_scarcity, is_demo) -> tuple[str, Optional[str]]:
     workspace_id = "ws_" + secrets.token_urlsafe(16)
     raw_key = "wk_live_" + secrets.token_urlsafe(32)
     pre_count = workspace_count()
@@ -290,19 +308,23 @@ def rapidapi_credential(rapidapi_user: str) -> tuple[str, str]:
     subscriber. If the workspace exists but the key file is gone, reissue is
     safe here: no other party ever held the raw key on this rail.
     """
-    existing = get_workspace_by_rapidapi_user(rapidapi_user)
-    if existing is not None:
-        workspace_id = existing["workspace_id"]
-        path = _rapidapi_key_path(rapidapi_user)
-        if path.exists():
-            return workspace_id, path.read_text().strip()
-        raw_key = reissue_key(workspace_id)
-        path.write_text(raw_key)
+    # Whole resolve→mint/reissue→persist sequence under the mint lock: two
+    # concurrent first-sight requests for the same subscriber otherwise race
+    # the key file and can leave an invalidated key persisted.
+    with _mint_lock:
+        existing = get_workspace_by_rapidapi_user(rapidapi_user)
+        if existing is not None:
+            workspace_id = existing["workspace_id"]
+            path = _rapidapi_key_path(rapidapi_user)
+            if path.exists():
+                return workspace_id, path.read_text().strip()
+            raw_key = reissue_key(workspace_id)
+            path.write_text(raw_key)
+            return workspace_id, raw_key
+        workspace_id, raw_key = create_workspace(rapidapi_user=rapidapi_user,
+                                                 grant_scarcity=False)
+        _rapidapi_key_path(rapidapi_user).write_text(raw_key)
         return workspace_id, raw_key
-    workspace_id, raw_key = create_workspace(rapidapi_user=rapidapi_user,
-                                             grant_scarcity=False)
-    _rapidapi_key_path(rapidapi_user).write_text(raw_key)
-    return workspace_id, raw_key
 
 
 def reissue_key(workspace_id: str) -> str:

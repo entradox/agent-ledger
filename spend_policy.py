@@ -34,6 +34,7 @@ OVER_MONTHLY_CAP = "over_monthly_cap"
 OVER_DAILY_CAP = "over_daily_cap"
 OVER_MONTHLY_TOKEN_CAP = "over_monthly_token_cap"
 OVER_DAILY_TOKEN_CAP = "over_daily_token_cap"
+APPROVED_PERMIT = "approved_permit"
 
 _DENY_REASON = {
     ("cents", "monthly"): OVER_MONTHLY_CAP,
@@ -49,13 +50,21 @@ def _window(label: str, unit: str, cap: int, spent: int, add: Optional[int]) -> 
             "after": None if add is None else spent + add}
 
 
-def decide(agent_id: str, estimate_cents: Optional[int], tokens: int = 0) -> dict:
+def decide(agent_id: str, estimate_cents: Optional[int], tokens: int = 0,
+           service: str = "") -> dict:
     """Would a spend of `estimate_cents` (and `tokens` tokens) fit the agent's caps?
 
     estimate_cents=None means the cost is unknown (an unpriced model). That is
     allowed, the same as the proxy: an unlisted model passes through and raises
     an alert. The reason code says so, so the caller is never told "within
     budget" about a number nobody computed.
+
+    An approved spend permit rescues a denial here the same way it does in
+    ledger_engine.track() — otherwise check_spend would say "allowed" while
+    the proxy 402'd the very call it was consulted about (they share this
+    function precisely so they cannot disagree). `service` scopes the permit
+    match the same way track() does: a permit approved for another purchase
+    must not free this call.
 
     Returns {"allowed", "reason", "windows", "binding"}; `binding` is the first
     window the spend would overflow, or None.
@@ -82,6 +91,14 @@ def decide(agent_id: str, estimate_cents: Optional[int], tokens: int = 0) -> dic
     # Same comparison the proxy has always made: spent + estimate > cap.
     for w in windows:
         if w["after"] is not None and w["after"] > w["cap"]:
+            # A dollar-cap denial can still be rescued by an approved permit —
+            # the same service-scoped, amount-covering lookup track() runs
+            # under its lock. Token windows have no permit lane.
+            if (w["unit"] == "cents" and estimate_cents is not None
+                    and le._approved_permit_covering(
+                        agent_id, estimate_cents, service)):
+                return {"allowed": True, "reason": APPROVED_PERMIT,
+                        "windows": windows, "binding": w}
             return {"allowed": False, "reason": _DENY_REASON[(w["unit"], w["window"])],
                     "windows": windows, "binding": w}
     reason = UNPRICED_MODEL if estimate_cents is None else WITHIN_BUDGET
@@ -185,22 +202,32 @@ def check_spend(agent_id: str, amount_cents: Optional[int] = None, model: str = 
     # token caps (its token rows are force-recorded after the call). Checking
     # them here would deny what the proxy then forwards. Token caps DO bind a
     # model+tokens spend, which the agent will record through track().
-    verdict = decide(agent_id, estimate, 0 if basis == "payload" else tokens)
+    # When the spend names a model, its provider IS the service the proxy's
+    # track() will record — pass it so the permit match is scoped identically.
+    service = ""
+    if model:
+        import proxy as proxy_core
+        service = (proxy_core.lookup(model) or {}).get("provider") or ""
+    verdict = decide(agent_id, estimate, 0 if basis == "payload" else tokens,
+                     service=service)
     # Surface the approval lane in every check — a denied answer should carry
     # the escape hatch (request an approval) and an approved permit waiting to
     # be spent should be visible even when the cap would deny.
-    approvals = {"pending": 0, "approved_covering": None}
+    approvals = {"pending": 0, "approved_covering": None,
+                 "approved_covering_service": None}
     try:
         permits = le.list_approvals(agent_id)
         approvals["pending"] = sum(1 for p in permits if p["state"] == "pending")
         if estimate is not None:
             covering = [p for p in permits
                         if p["state"] == "approved"
-                        and int(p.get("amount_cents", 0)) >= estimate]
+                        and int(p.get("amount_cents", 0)) >= estimate
+                        and (not service or p.get("service") == service)]
             if covering:
                 approvals["approved_covering"] = covering[-1]["approval_id"]
+                approvals["approved_covering_service"] = covering[-1].get("service")
                 verdict["allowed"] = True
-                verdict["reason"] = "approved_permit"
+                verdict["reason"] = APPROVED_PERMIT
     except Exception:
         pass
     if verdict["reason"] == "approved_permit":
