@@ -328,7 +328,7 @@ def nav(active: str) -> str:
 
 
 
-def render(active: str, title: str, desc: str, body: str) -> str:
+def render(active: str, title: str, desc: str, body: str, request=None) -> str:
     """Render a city page, with the x402 network DERIVED from config.
 
     Hardcoding "Base mainnet" in these literals is what let the site contradict
@@ -343,6 +343,7 @@ def render(active: str, title: str, desc: str, body: str) -> str:
       __NETWORK_LABEL__ ""Base mainnet" or "Base Sepolia testnet"
       __NETWORK_PROSE__ full settlement sentence for the live mode
     """
+    import uuid
     import x402_verify
     label = "Base mainnet" if x402_verify.X402_NETWORK in getattr(
         x402_verify, "_MAINNET_NETWORKS", set()) else "Base Sepolia testnet"
@@ -351,6 +352,34 @@ def render(active: str, title: str, desc: str, body: str) -> str:
         prose = _api._x402_settlement_span()
     except Exception:
         prose = ""
+    # Per-render connect-attempt id: the npx connect command carries it to
+    # /v1/setup-event so page view → copied command → registered is measurable.
+    # The mint is RECORDED — only ids this process actually minted join the
+    # funnel, so a caller cannot fabricate conversions with invented uuids.
+    # Minting is GET-only: a headers-only HEAD probe or prefetch must not
+    # inflate `minted`, the funnel's denominator (review round 3). The record
+    # carries method + the same salted ip_hash the request's own http record
+    # already stores — no new privacy surface, and it lets the read side tell
+    # a burst of probes apart from distinct visitors.
+    if "__SETUP_ATTEMPT__" in body:
+        orig = (request.scope.get("al.orig_method", request.method)
+                if request is not None else "GET")
+        if orig == "GET":
+            attempt_id = str(uuid.uuid4())
+            try:
+                import metrics
+                import api_server as _api2
+                metrics.record_event(
+                    "setup_attempt_minted", connect_attempt_id=attempt_id,
+                    method=orig,
+                    ip_hash=_api2._ip_hash(request) if request is not None else None)
+            except Exception:
+                pass  # a metrics hiccup must never take a page render down
+            body = body.replace("__SETUP_ATTEMPT__", attempt_id)
+        else:
+            # A probe still needs a renderable command — mint the id in the
+            # page but do not trust it in the funnel.
+            body = body.replace("__SETUP_ATTEMPT__", str(uuid.uuid4()))
     body = (body
             .replace("__NETWORK_LABEL__", label)
             .replace("__NETWORK__", x402_verify.X402_NETWORK)
@@ -384,7 +413,8 @@ PAGE_HOME = """<div class="agent-surface">
   </div>
   <p class="note">the agent-native surface, playing next to the contract — the whole site works like this</p>
   <div class="kicker"><span class="ra">// connect</span> · one command per product</div>
-  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">17 tools</span><span class="url">claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for cited">copy</button></div></div>
+  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">17 tools</span><span class="url">npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for cited">copy</button></div></div>
+  <p class="note">the installer detects claude-code, codex, cursor, opencode, hermes + openclaw and registers the right way for each. manual fallback: <code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></p>
   <div class="buy">
     <span class="lbl">x402 · __NETWORK_LABEL__</span>
     <p><b>$0.01 · zero clicks.</b><br>POST /v1/billing/x402 + X-PAYMENT header → 24h AgentLedger Pro on the workspace your wallet resolves to. No signup flow, no card form, no human.</p>
@@ -459,7 +489,7 @@ PAGE_HOME = """<div class="agent-surface">
   </footer>
 </section>
 </div>
-<script>var HOME_CMDS = ["claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
+<script>var HOME_CMDS = ["npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
 
 
 PAGE_MANIFESTO = """<div class="agent-surface">
@@ -631,8 +661,9 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
     <tr><td><b>cited</b> <span class="ver">9 tools</span></td><td style="color:var(--mut)">AI-visibility scans with verbatim evidence</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/cited</code></td></tr>
     <tr><td><b>trustscan</b> <span class="ver">4 tools · v4.0.3 · live</span></td><td style="color:var(--mut)">MCP-server/skill security scans (prompt-injection, secrets, typosquat)</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/trustscan</code></td></tr>
   </table>
-  <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command and your agent is connected</span>
-claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</pre>
+  <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command — detects your agent harness and registers the MCP</span>
+npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__
+<span class="c"># manual (claude code): claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</span></pre>
 
   <h2>Checkout without humans</h2>
   <div class="card" style="border-color:var(--agent-dim)">
@@ -697,6 +728,9 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
+  - 2026-10-10: npx @aiagentscity/setup — one-command MCP connect for
+    claude-code, codex, cursor, opencode, hermes, openclaw; vendored skill;
+    POST /v1/setup-event records the connect funnel
   - 2026-10-08: spend approvals — ledger_request_approval / ledger_approvals /
     ledger_approval_decide (agent-ledger v0.4.4, 17 tools); one-shot permits
     decided by the workspace owner, never by the agent's own secret
@@ -740,6 +774,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
+    <div class="e"><div class="d">2026-10-10</div><div class="t"><b>One-command connect.</b> <span class="ver">npx @aiagentscity/setup ledger</span> detects your agent harness — claude-code, codex, cursor, opencode, hermes, openclaw — registers the MCP the right way for each, and installs the vendored skill. <span class="ver">POST /v1/setup-event</span> records the connect funnel; every connect surface now leads with the installer, manual <span class="ver">mcp add</span> kept as fallback. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-10-08</div><div class="t"><b>Spend approvals — the human-in-the-loop primitive.</b> <span class="ver">ledger_request_approval</span> lets an agent that hit its cap ask its workspace owner for a one-shot permit instead of dead-ending; <span class="ver">ledger_approvals</span> is the supervisor's pending queue; <span class="ver">ledger_approval_decide</span> is owner-key only — an agent's own secret can request but can never approve. An approved permit is consumed by the next over-cap write within its amount; the cap itself does not change. <span class="ver">agent-ledger v0.4.4 · 17 tools</span></div></div>
     <div class="e"><div class="d">2026-10-04</div><div class="t"><b>RapidAPI marketplace rail.</b> Proxy-secret auth, per-subscriber workspaces and plan sync — AgentLedger is listable on RapidAPI. The x402 <span class="ver">bazaar</span> discovery extension is declared on settle, and HEAD requests now serve headers-only responses for validators. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-10-03</div><div class="t"><b>Machine-readable pricing.</b> <span class="ver">/pricing.md</span> and <span class="ver">/okf/index.md</span> agent surfaces live; the free tier reads $0 instead of "Free — Free". <span class="ver">platform</span></div></div>

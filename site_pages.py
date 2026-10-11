@@ -571,6 +571,10 @@ When the budget is exhausted the proxy returns <code>402</code> and the provider
 never sees the call.</p>
 
 <h2>3 · MCP — for Claude Code, Codex and Cursor</h2>
+<pre><code>npx @aiagentscity/setup ledger</code></pre>
+<p class="mut">One command — it detects your harness (claude-code, codex, cursor,
+opencode, hermes, openclaw) and registers the MCP the right way for each.
+Manual fallback:</p>
 <pre><code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></pre>
 <p class="mut">Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>,
 <code>ledger_check_spend</code>, <code>ledger_report</code>, <code>ledger_alerts</code>,
