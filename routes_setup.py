@@ -58,7 +58,7 @@ class SetupEventRequest(BaseModel):
     not silently absorbed."""
     model_config = ConfigDict(extra="forbid")
 
-    product: Literal["agent-ledger"]
+    product: Literal["agent-ledger", "workbench"]
     outcome: Literal["started", "registered", "already_registered", "manual",
                      "failed", "dry_run", "skill_installed"]
     harness: Optional[Literal["claude-code", "codex", "cursor", "opencode",
