@@ -109,6 +109,20 @@ def test_unknown_harness_and_outcome_rejected(client):
     assert _post(client, _valid_event(failure_reason="arbitrary text")).status_code == 422
 
 
+def test_workbench_product_accepted(client, monkeypatch):
+    """D-1639 — the kit installer (`npx @aiagentscity/setup workbench`) emits
+    product="workbench"; until the enum widened every one of its events was a
+    422 and the kit funnel recorded nothing."""
+    tmp = tempfile.mkdtemp(prefix="al-se-")
+    monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
+    import importlib, metrics
+    importlib.reload(metrics)
+    r = _post(client, _valid_event(product="workbench", harness=None))
+    assert r.status_code == 200, r.text
+    recs = [r for r in _metrics_lines(tmp) if r.get("kind") == "setup_event"]
+    assert recs and recs[0]["product"] == "workbench"
+
+
 def test_attempt_id_must_be_uuid(client):
     assert _post(client, _valid_event(connect_attempt_id="not-a-uuid")).status_code == 422
     assert _post(client, _valid_event(connect_attempt_id=None)).status_code == 200
