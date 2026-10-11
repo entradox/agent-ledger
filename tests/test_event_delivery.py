@@ -587,3 +587,22 @@ def test_unstatable_agent_dir_never_raises(env):
         assert out["events"] == []
     finally:
         adir.chmod(0o755)
+
+
+def test_non_json_corruption_is_quarantined_too(env):
+    """Corruption that is not JSONDecodeError — bad UTF-8, a squatting
+    directory — still gets renamed aside, not silently re-zeroed."""
+    le, ed, *_ = env
+    agent = "evt-badutf-1"
+    _log(env, agent, message="m0")
+    cpath = Path(le.DATA_DIR) / "agents" / agent / "consumers.json"
+    cpath.write_bytes(b'\xff\xfe not json')
+    out = ed.wait(agent, consumer_id="bu", timeout=0)
+    assert [e["summary"] for e in out["events"]] == ["m0"]
+    assert list(cpath.parent.glob("consumers.json.corrupt-*"))
+    # a directory squatting at consumers.json quarantines too
+    cpath.unlink()
+    cpath.mkdir()
+    ed.wait(agent, consumer_id="bu2", timeout=0)
+    assert list(cpath.parent.glob("consumers.json.corrupt-*"))
+    assert not cpath.exists() or cpath.is_file()

@@ -188,20 +188,23 @@ def _load_consumers(agent_id: str) -> dict:
         if not path.exists():
             return {}
         data = json.loads(path.read_text())
-        return data if isinstance(data, dict) else {}
-    except json.JSONDecodeError:
+        if not isinstance(data, dict):
+            raise ValueError("consumer registry is not a JSON object")
+        return data
+    except Exception:
         # A corrupt registry is evidence, not noise — quarantine it so the
         # damage is diagnosable instead of silently re-zeroing positions.
+        # This covers bad JSON, bad UTF-8, a squatting directory, and a
+        # non-object payload; an unstatable path can't be renamed either,
+        # which the inner try absorbs — nothing here may raise.
         try:
+            # nonce: two corruptions in the same second must not collide —
+            # rename(dir -> existing file) fails and the squatter survives
             path.rename(path.with_name(
-                f"{path.name}.corrupt-{int(time.time())}"))
+                f"{path.name}.corrupt-{int(time.time())}-"
+                f"{os.urandom(3).hex()}"))
         except Exception:
             pass
-        return {}
-    except Exception:
-        # Every OTHER I/O failure — an unstatable dir, a read denied —
-        # is not a dead consumer, it is a shrug: serve with positions
-        # zeroed rather than raise out of wait().
         return {}
 
 
@@ -245,22 +248,16 @@ def _read_alert_lines(agent_id: str) -> list:
         return []
     cached = _feed_cache.get(agent_id)
     if cached and cached[:3] == (st.st_ino, st.st_mtime_ns, st.st_size):
-        try:
-            _feed_cache.move_to_end(agent_id)
-        except Exception:
-            pass  # a concurrent eviction may race us — order is best-effort
+        _feed_cache.move_to_end(agent_id)
         return cached[3]
     try:
         lines = path.read_text().splitlines()
     except Exception:
         return cached[3] if cached else []
     _feed_cache[agent_id] = (st.st_ino, st.st_mtime_ns, st.st_size, lines)
-    try:
-        _feed_cache.move_to_end(agent_id)
-        while len(_feed_cache) > FEED_CACHE_MAX_AGENTS:
-            _feed_cache.popitem(last=False)  # evict least-recently-read
-    except Exception:
-        pass
+    _feed_cache.move_to_end(agent_id)
+    while len(_feed_cache) > FEED_CACHE_MAX_AGENTS:
+        _feed_cache.popitem(last=False)  # evict least-recently-read
     return lines
 
 
@@ -364,17 +361,14 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
             "acked": 0, "served": 0, "delivered": 0,
             "pid": "", "started": "", "name": "",
             "first_seen": time.time(), "last_seen": 0.0}
-        # Either side reporting identity, and the reported triple differing
-        # from the stored one, is a restart. That covers both transitions:
-        # anonymous->identified AND identified->anonymous — in each case the
+        # A reported triple differing from the stored one is a restart —
+        # whichever direction the transition went (anonymous->identified,
+        # identified->anonymous, or identified->different-identified): the
         # unacked backlog may have died with a different instance, so it
-        # re-serves rather than silently continuing. Only a fully anonymous
-        # consumer on both sides is treated as continuous, which is the
-        # honest limit of an optional field.
-        restarted = bool(rec.get("pid") or rec.get("started") or
-                         liveness[0] or liveness[1]) and \
-            (rec.get("pid", "") != liveness[0] or
-             rec.get("started", "") != liveness[1])
+        # re-serves rather than silently continuing. Two fully anonymous
+        # sides are 'same instance' — the honest limit of an optional field.
+        restarted = (rec.get("pid", "") != liveness[0] or
+                     rec.get("started", "") != liveness[1])
         if cursor is not None:
             rec["acked"] = max(int(rec.get("acked", 0)),
                                min(cursor, len(lines)))
