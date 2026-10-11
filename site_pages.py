@@ -574,6 +574,9 @@ never sees the call.</p>
 <pre><code>npx @aiagentscity/setup ledger</code></pre>
 <p class="mut">One command — it detects your harness (claude-code, codex, cursor,
 opencode, hermes, openclaw) and registers the MCP the right way for each.
+The sibling kit is local governance machinery, not an MCP:
+<code>npx @aiagentscity/setup workbench</code> installs <code>~/.workbench</code>
+gates and close receipts on the same harnesses.
 Manual fallback:</p>
 <pre><code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></pre>
 <p class="mut">Tools: <code>ledger_track</code>, <code>ledger_set_budget</code>,

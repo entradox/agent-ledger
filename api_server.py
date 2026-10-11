@@ -981,6 +981,9 @@ Connect:  npx @aiagentscity/setup ledger — one command; detects claude-code,
           codex, cursor, opencode, hermes and openclaw, registers the MCP the
           right way for each, and installs the vendored skill
           (manual: claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/)
+Workbench: npx @aiagentscity/setup workbench — local governance kit, not an
+          MCP: ~/.workbench + `wb` CLI, frame-card pre-write gates wired into
+          your harness, hashed close receipts. Runs fully offline.
 
 Tools exposed at POST /mcp/ (v0.4.7, 18):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
