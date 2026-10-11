@@ -42,6 +42,7 @@ secret, never a prompt. The wait itself is bounded (timeout capped,
 concurrent waiters capped per-agent and globally) so it cannot pin the
 server's thread pool or let one tenant deny the endpoint to others.
 """
+import collections
 import hashlib
 import json
 import os
@@ -69,7 +70,7 @@ _permits_lock = threading.Lock()
 _waits_per_agent = {}       # agent_id -> in-flight wait count
 _waits_consumers = set()    # (agent_id, consumer_id) with a wait in flight
 _registry_lock = threading.Lock()
-_feed_cache = {}            # agent_id -> (mtime_ns, size, lines)
+_feed_cache = collections.OrderedDict()  # agent_id -> (ino, mtime, size, lines)
 
 
 class ConsumerError(Exception):
@@ -215,12 +216,16 @@ def _liveness(pid, started: str) -> tuple:
 
 # ── the wait ───────────────────────────────────────────────────────────────
 
+FEED_CACHE_MAX_AGENTS = 256
+
+
 def _read_alert_lines(agent_id: str) -> list:
     """Every line of the agent's alerts.jsonl, absolute line offsets intact —
     the cursor IS a line offset, so a truncated tail window would silently
-    move it. Cached on (mtime, size): a 4 Hz poll loop stats the file each
-    tick and only re-reads when it actually changed, so the per-tick cost is
-    a stat, not an O(file) read."""
+    move it. Cached on (inode, mtime, size): a 4 Hz poll loop stats the file
+    each tick and only re-reads when it actually changed, so the per-tick
+    cost is a stat, not an O(file) read. Bounded: the cache holds at most
+    FEED_CACHE_MAX_AGENTS feeds, evicting the least-recently read."""
     path = _alerts_path(agent_id)
     try:
         st = path.stat()
@@ -228,13 +233,17 @@ def _read_alert_lines(agent_id: str) -> list:
         _feed_cache.pop(agent_id, None)
         return []
     cached = _feed_cache.get(agent_id)
-    if cached and cached[0] == st.st_mtime_ns and cached[1] == st.st_size:
-        return cached[2]
+    if cached and cached[:3] == (st.st_ino, st.st_mtime_ns, st.st_size):
+        _feed_cache.move_to_end(agent_id)
+        return cached[3]
     try:
         lines = path.read_text().splitlines()
     except Exception:
-        return cached[2] if cached else []
-    _feed_cache[agent_id] = (st.st_mtime_ns, st.st_size, lines)
+        return cached[3] if cached else []
+    _feed_cache[agent_id] = (st.st_ino, st.st_mtime_ns, st.st_size, lines)
+    _feed_cache.move_to_end(agent_id)
+    while len(_feed_cache) > FEED_CACHE_MAX_AGENTS:
+        _feed_cache.popitem(last=False)  # evict least-recently-read feed
     return lines
 
 
@@ -317,6 +326,10 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
                 name: str) -> dict:
     deadline = time.monotonic() + timeout
     liveness = _liveness(pid, started)
+    # Read the feed once up front (mtime-cached, so cheap) — the ack clamp
+    # and the poll loop both want it, and clamping BEFORE the first save
+    # keeps a past-EOF cursor from ever reaching disk.
+    lines = _read_alert_lines(agent_id)
 
     # Resolve positions ONCE before the poll loop; inside the loop we only
     # re-read the feed. A cursor in the request is an ack — clamp it to the
@@ -334,11 +347,16 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
             "acked": 0, "served": 0, "delivered": 0,
             "pid": "", "started": "", "name": "",
             "first_seen": time.time(), "last_seen": 0.0}
-        restarted = (rec.get("pid") or rec.get("started")) and \
+        # A caller that NOW reports identity and differs from the stored
+        # triple is a restart — including the transition from "reported
+        # nothing" to "reports something", which must re-serve unacked
+        # events rather than silently continue the anonymous stream.
+        restarted = bool(liveness[0] or liveness[1]) and \
             (rec.get("pid", "") != liveness[0] or
              rec.get("started", "") != liveness[1])
         if cursor is not None:
-            rec["acked"] = max(int(rec.get("acked", 0)), cursor)
+            rec["acked"] = max(int(rec.get("acked", 0)),
+                               min(cursor, len(lines)))
         # Where this call serves from: an explicit ack position, the dead
         # instance's unacked backlog, or the live stream head.
         if cursor is not None:
@@ -351,7 +369,10 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
         rec["name"] = (name or "")[:128]
         rec["last_seen"] = time.time()
         consumers[consumer_id] = rec
-        _save_consumers(agent_id, consumers)
+        try:
+            _save_consumers(agent_id, consumers)
+        except Exception:
+            pass  # never raise for registry I/O — the feed still serves
         prior_served = int(rec.get("served", 0))
         acked = int(rec.get("acked", 0))
 
@@ -403,7 +424,10 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
         rec["delivered"] = int(rec.get("delivered", 0)) + len(events)
         rec["last_seen"] = time.time()
         consumers[consumer_id] = rec
-        _save_consumers(agent_id, consumers)
+        try:
+            _save_consumers(agent_id, consumers)
+        except Exception:
+            pass  # never raise for registry I/O — the feed still serves
 
     return {"events": events,
             "cursor": serve_from + len(batch),

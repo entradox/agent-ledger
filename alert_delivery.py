@@ -283,11 +283,16 @@ _delivery_slots = threading.Semaphore(32)
 
 
 def dispatch(event: str, *, agent_id: str, message: str,
+             timestamp: str,
              workspace_id: Optional[str] = None,
-             alert_type: Optional[str] = None,
-             timestamp: Optional[str] = None) -> int:
+             alert_type: Optional[str] = None) -> int:
     """Fan an event out to every matching destination. Returns how many were
-    queued. Never raises — it is called from the write path."""
+    queued. Never raises — it is called from the write path.
+
+    `timestamp` is REQUIRED and must be the alert record's own timestamp:
+    the shared envelope hashes it into the event id, and a dispatch-time
+    timestamp would give the same alert a different id on the webhook path
+    than on the /events/wait feed — silently breaking consumer dedup."""
     try:
         if not workspace_id:
             import identity
@@ -313,7 +318,7 @@ def dispatch(event: str, *, agent_id: str, message: str,
         import event_delivery
         payload.update(event_delivery.envelope(
             kind=event, agent_id=agent_id, summary=message,
-            timestamp=timestamp or payload["timestamp"],
+            timestamp=timestamp,
             alert_type=alert_type,
             alerts_since_last_write=event_delivery.alerts_since_last_write(
                 agent_id)))

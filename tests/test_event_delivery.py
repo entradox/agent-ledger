@@ -507,3 +507,48 @@ def test_stdio_mcp_supplies_process_liveness(env):
     rec = json.loads(cpath.read_text())["sv"]
     assert rec["pid"] and rec["started"], \
         "stdio MCP must report its own process identity for redelivery"
+
+
+# ── 6. round-2 verification regressions ───────────────────────────────────
+
+def test_anonymous_then_identified_consumer_redelivers_unacked(env):
+    """A consumer whose first wait reported no identity, then later reports
+    pid/started, has genuinely changed instance — unacked events must
+    re-serve, not be silently dropped."""
+    le, ed, *_ = env
+    agent = "evt-trans-1"
+    _log(env, agent, message="unacked")
+    ed.wait(agent, consumer_id="tx", timeout=0)  # anonymous first instance
+    out = ed.wait(agent, consumer_id="tx", timeout=0,
+                  pid=555, started="boot2")
+    assert [e["summary"] for e in out["events"]] == ["unacked"]
+    assert out["events"][0]["redelivered"] is True
+
+
+def test_registry_save_failure_never_raises(env):
+    """A read-only data dir must not turn a wait into a 500 — the feed
+    serves even when positions cannot persist."""
+    le, ed, *_ = env
+    agent = "evt-ro-1"
+    _log(env, agent, message="still served")
+    cpath = Path(le.DATA_DIR) / "agents" / agent
+    cpath.chmod(0o500)
+    try:
+        out = ed.wait(agent, consumer_id="roc", timeout=0)
+        assert [e["summary"] for e in out["events"]] == ["still served"]
+    finally:
+        cpath.chmod(0o755)
+
+
+def test_feed_cache_is_bounded(env):
+    le, ed, *_ = env
+    ed._feed_cache.clear()
+    for i in range(ed.FEED_CACHE_MAX_AGENTS + 5):
+        agent = f"evt-cache-{i}"
+        path = _alerts_file(env, agent)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"type": "t", "message": "m",
+                                    "timestamp": "2026-10-10T00:00:00+00:00"})
+                        + "\n")
+        ed._read_alert_lines(agent)
+    assert len(ed._feed_cache) == ed.FEED_CACHE_MAX_AGENTS

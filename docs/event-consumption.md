@@ -95,6 +95,9 @@ costs real tokens, or when multiple consumers share a feed.
   concurrent waits (16 across the whole server).
 - Reporting `pid`/`client_instance` without `started`/`client_started`
   counts as a new instance every call: at-least-once redelivery beats a
-  reused pid faking continuity.
+  reused pid faking continuity. Likewise, two processes that share one
+  `consumer_id` and alternate *sequentially* each read as a restart and
+  re-serve each other's unacked events — pick one id per process, or ack
+  before switching.
 - `alerts_since_last_write` resets on the agent's next ledger write — it is
   a streak counter, not a total.
