@@ -109,6 +109,48 @@ def test_unknown_harness_and_outcome_rejected(client):
     assert _post(client, _valid_event(failure_reason="arbitrary text")).status_code == 422
 
 
+def test_completed_outcome_accepted(client):
+    """D-1640 — 'completed' marks a run that reached the end, separating
+    'died mid-run' (started only) from 'finished'."""
+    r = _post(client, _valid_event(outcome="completed", harness=None))
+    assert r.status_code == 200, r.text
+
+
+def test_mint_records_ua_class(client, monkeypatch):
+    """D-1640 — the site is machine-readable by design, so the mint record
+    must bucket the fetcher or `minted` counts crawlers as installers."""
+    tmp = tempfile.mkdtemp(prefix="al-se-")
+    monkeypatch.setenv("AGENT_LEDGER_DATA", tmp)
+    import importlib, metrics
+    importlib.reload(metrics)
+    for ua in ["Mozilla/5.0 (Macintosh; Intel Mac OS X) "
+               "AppleWebKit/537.36 Chrome/124",          # browser
+               "Mozilla/5.0 HeadlessChrome/124",         # machine — both markers
+               "curl/8.1", "python-requests/2.31",       # machine
+               ""]:                                      # unknown
+        assert client.get("/", headers={"user-agent": ua}).status_code == 200
+    recs = [r for r in _metrics_lines(tmp)
+            if r.get("kind") == "setup_attempt_minted"]
+    assert [r.get("ua_class") for r in recs] == [
+        "browser", "machine", "machine", "machine", "unknown"]
+    funnel = client.get("/v1/metrics",
+                        headers={"X-AL-Admin": "test-admin"}
+                        ).json()["setup_connect_funnel"]
+    assert funnel["attempts"]["minted_by_ua"] == {
+        "browser": 1, "machine": 3, "unknown": 1}
+
+
+def test_workbench_command_on_connect_surfaces(client):
+    """D-1640 — the kit product had zero connect surface; the homepage row
+    and developers pre must both carry it, attempt-minted."""
+    home = client.get("/")
+    assert "npx @aiagentscity/setup workbench --attempt " in home.text
+    dev = client.get("/developers")
+    assert "npx @aiagentscity/setup workbench --attempt " in dev.text
+    llms = client.get("/llms.txt")
+    assert "npx @aiagentscity/setup workbench" in llms.text
+
+
 def test_workbench_product_accepted(client, monkeypatch):
     """D-1639 — the kit installer (`npx @aiagentscity/setup workbench`) emits
     product="workbench"; until the enum widened every one of its events was a

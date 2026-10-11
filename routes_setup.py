@@ -60,7 +60,7 @@ class SetupEventRequest(BaseModel):
 
     product: Literal["agent-ledger", "workbench"]
     outcome: Literal["started", "registered", "already_registered", "manual",
-                     "failed", "dry_run", "skill_installed"]
+                     "failed", "dry_run", "skill_installed", "completed"]
     harness: Optional[Literal["claude-code", "codex", "cursor", "opencode",
                               "hermes", "openclaw"]] = None
     is_human_initiated: bool

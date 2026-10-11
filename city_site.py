@@ -328,6 +328,30 @@ def nav(active: str) -> str:
 
 
 
+_BOT_UA_MARKERS = ("bot", "spider", "crawler", "scrape", "slurp",
+                   "facebookexternal", "twitterbot", "linkedinbot",
+                   "curl", "wget", "python-requests", "httpx", "aiohttp",
+                   "go-http", "scrapy", "headless", "node-fetch", "undici")
+_BROWSER_UA_MARKERS = ("mozilla", "chrome", "safari", "firefox", "edg/")
+
+
+def _ua_class(request) -> str:
+    """Bucket the fetcher, never the string: the site is deliberately
+    machine-readable, so most connect-surface renders are crawlers and CLI
+    fetches that can never run `npx`. The funnel's minted count means nothing
+    until humans and machines are counted apart (D-1640)."""
+    ua = (request.headers.get("user-agent") or "").lower() if request else ""
+    if not ua:
+        return "unknown"
+    # Machine markers win first: "Mozilla/5.0 ... HeadlessChrome" carries both
+    # browser and headless markers, and it cannot install anything.
+    if any(m in ua for m in _BOT_UA_MARKERS):
+        return "machine"
+    if any(m in ua for m in _BROWSER_UA_MARKERS):
+        return "browser"
+    return "other"
+
+
 def render(active: str, title: str, desc: str, body: str, request=None) -> str:
     """Render a city page, with the x402 network DERIVED from config.
 
@@ -371,7 +395,7 @@ def render(active: str, title: str, desc: str, body: str, request=None) -> str:
                 import api_server as _api2
                 metrics.record_event(
                     "setup_attempt_minted", connect_attempt_id=attempt_id,
-                    method=orig,
+                    method=orig, ua_class=_ua_class(request),
                     ip_hash=_api2._ip_hash(request) if request is not None else None)
             except Exception:
                 pass  # a metrics hiccup must never take a page render down
@@ -413,7 +437,7 @@ PAGE_HOME = """<div class="agent-surface">
   </div>
   <p class="note">the agent-native surface, playing next to the contract — the whole site works like this</p>
   <div class="kicker"><span class="ra">// connect</span> · one command per product</div>
-  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">18 tools</span><span class="url">npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for cited">copy</button></div><div class="conn-row"><span class="nm">workbench</span><span class="cnt">local kit</span><span class="url">npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(5,this)" aria-label="Copy connect command for workbench">copy</button></div></div>
+  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">18 tools</span><span class="url">npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">workbench</span><span class="cnt">local kit</span><span class="url">npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for workbench">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(5,this)" aria-label="Copy connect command for cited">copy</button></div></div>
   <p class="note">the installer detects claude-code, codex, cursor, opencode, hermes + openclaw and registers the right way for each. manual fallback: <code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></p>
   <div class="buy">
     <span class="lbl">x402 · __NETWORK_LABEL__</span>
@@ -489,7 +513,7 @@ PAGE_HOME = """<div class="agent-surface">
   </footer>
 </section>
 </div>
-<script>var HOME_CMDS = ["npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/", "npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__"];</script>"""
+<script>var HOME_CMDS = ["npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__", "npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
 
 
 PAGE_MANIFESTO = """<div class="agent-surface">
@@ -663,6 +687,8 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
   </table>
   <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command — detects your agent harness and registers the MCP</span>
 npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__
+<span class="c"># local governance kit (not an MCP): ~/.workbench + wb gates + close receipts</span>
+npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__
 <span class="c"># manual (claude code): claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</span></pre>
 
   <h2>Checkout without humans</h2>

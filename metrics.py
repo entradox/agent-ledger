@@ -206,6 +206,7 @@ def setup_connect_funnel() -> dict:
     human = {"human": 0, "agent": 0}
     minted = set()
     minted_ips = set()
+    minted_ua = defaultdict(int)
     seen_success = set()
     seen_any = set()
     try:
@@ -223,6 +224,7 @@ def setup_connect_funnel() -> dict:
                         minted.add(rec["connect_attempt_id"])
                         if rec.get("ip_hash"):
                             minted_ips.add(rec["ip_hash"])
+                        minted_ua[rec.get("ua_class") or "unknown"] += 1
                     continue
                 if kind != "setup_event":
                     continue
@@ -264,6 +266,9 @@ def setup_connect_funnel() -> dict:
             # distinct salted-IP digests behind the mints — a bot/probe burst
             # inflates `minted` but barely moves this.
             "minted_distinct_ips": len(minted_ips),
+            # renders bucketed by fetcher class — machine fetches can never
+            # run npx, so `minted` alone overstates the real denominator.
+            "minted_by_ua": dict(sorted(minted_ua.items())),
             "reported": len(reported),
             "succeeded": len(succeeded),
             "report_rate": round(len(reported) / len(minted), 3) if minted else None,
