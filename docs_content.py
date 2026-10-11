@@ -84,6 +84,7 @@ MCP_TOOLS_MD = f"""## MCP Tools
 | `ledger_approval_decide` | write | approve/deny a pending permit (`workspace_key` only — an agent's own secret can request but can never decide) |
 | `ledger_report` | read | spend report: totals, by-rail, by-service, anomalies (`agent_secret` or `workspace_key`) |
 | `ledger_alerts` | read | budget warning/exceeded + spending-spike alerts (`agent_secret` or `workspace_key`) |
+| `ledger_wait_events` | read | long-poll the event feed; returns envelope events + a `cursor` to ack — the alert path for agents with no webhook URL (`agent_secret` or `workspace_key`) |
 | `ledger_price` | read | what will this call cost — priced from the same table the caps use |
 | `ledger_start` | write | free workspace with no credential — call FIRST if you have no credentials yet |
 | `ledger_proxy_attach` | write | point provider traffic at the proxy so caps enforce BEFORE the provider is called |
@@ -116,6 +117,8 @@ POST /v1/approvals/{{approval_id}}/decide — approve/deny a pending permit (X-W
 GET  /v1/report/{{agent_id}}         — spend report (query: days=30) — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/tokens/{{agent_id}}         — token burn report — requires X-Agent-Secret or X-Workspace-Key
 GET  /v1/alerts/{{agent_id}}         — alerts for agent — requires X-Agent-Secret or X-Workspace-Key
+GET  /v1/agents/{{agent_id}}/events/wait — long-poll the event feed (same auth): consumer_id required,
+                                      cursor=ack, timeout<=30s, pid+started liveness -> redelivered on restart
 GET  /v1/agents                    — owner-only: full cross-tenant listing (X-Al-Admin)
 GET  /v1/metrics                   — owner-only: funnel + revenue + reach telemetry
 GET  /stats                        — usage counters
@@ -142,6 +145,7 @@ Every error response — REST and MCP alike — uses the same typed envelope:
 | 404 | not_found_error | unknown agent_id or resource |
 | 409 | conflict_error | `Idempotency-Key` already in flight |
 | 422 | validation_error | malformed `agent_id`, bad rail, out-of-range amount |
+| 429 | rate_limit_error | too many concurrent `/events/wait` consumers — back off |
 
 Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `agent_secret_mismatch`, `workspace_key_required`, `beta_cap_exceeded`,
@@ -152,7 +156,11 @@ Known `code` values: `invalid_agent_id`, `rail_not_allowed`,
 `invalid_ttl` (share link ttl_days outside 1-90),
 `invalid_webhook` (non-http(s) destination url, unknown event name, or too many
 destinations), `amount_required` (no amount_cents and no tokens+model to price
-from), `model_not_priced` (tokens+model sent but the model has no price), `webhook_not_found` (delete of an id not in your workspace).
+from), `model_not_priced` (tokens+model sent but the model has no price), `webhook_not_found` (delete of an id not in your workspace),
+`invalid_consumer` (missing/malformed `consumer_id` or `cursor` on /events/wait),
+`wait_congested` (a second wait already in flight for the same consumer_id,
+more than 4 waits for one agent, or more than 16 waits server-wide — retry
+with backoff).
 
 """
 
@@ -173,9 +181,16 @@ that would cross 100% never lands), `anomaly.detected` (spend spike),
 permit), and `approval.decided` (the owner approved or denied it).
 
 Payloads carry cost metadata only — event, agent_id, message, timestamp,
-report URL. Never a credential, never a prompt, never a response. Destinations
-are SSRF-checked: a URL resolving to a private, loopback or link-local address
-is refused.
+report URL, plus the shared event envelope (id/kind/summary/context/
+alerts_since_last_write/redelivered). Never a credential, never a prompt,
+never a response. Destinations are SSRF-checked: a URL resolving to a
+private, loopback or link-local address is refused.
+
+**No URL to push to?** `GET /v1/agents/{agent_id}/events/wait` (or the
+`ledger_wait_events` MCP tool) is the pull side: a consumer long-polls the
+same feed and reports its own liveness, so a stdio-MCP agent — which cannot
+host a webhook — still receives events. See the `events` topic for the
+consumer contract (cursor acks, redelivered-on-restart, the envelope shape).
 
 ### You do not have to price your own tokens
 
@@ -314,7 +329,77 @@ covered on both dimensions. `GET /v1/report/{agent_id}` returns both under
 `budget_status` (`monthly_token_cap`, `monthly_tokens_used`,
 `token_pct_used`, `token_exceeded` — present only once a token cap is set)."""
 
-_TOPIC_ORDER = ("quickstart", "mcp", "rest", "budget", "errors", "idempotency")
+EVENTS_MD = """## Events: the consumer contract
+
+Two delivery paths, one feed. `POST /v1/webhooks` pushes events to an http(s)
+URL you own. `GET /v1/agents/{agent_id}/events/wait` (and the
+`ledger_wait_events` MCP tool) is the pull side for consumers with no URL —
+a stdio-MCP agent, a cron job, a laptop that is only sometimes awake.
+
+### Waiting
+
+```
+GET /v1/agents/{agent_id}/events/wait
+    ?consumer_id=my-listener      # required, durable name for this consumer
+    &cursor=42                    # optional ack: "I processed through line 42"
+    &timeout=25                   # optional, 0-30s hold-open (default 5)
+    &pid=31337&started=2026-10-10T04:00:00Z   # optional process liveness
+```
+
+Auth is identical to `GET /v1/alerts/{agent_id}`: `X-Agent-Secret` or
+`X-Workspace-Key`. The call returns as soon as events exist or `timeout`
+lapses. Response: `{"events": [...], "cursor": N, "consumer_id": "...",
+"waited": true|false}` — pass `cursor` back on the next call once you have
+processed the batch. That pass-back is the only ack channel.
+
+### consumer_id, liveness, redelivery
+
+`consumer_id` names the consumer durably — pick a stable one
+(`"claude-code-main"`) and reuse it. Do not mint one per process; the
+registry caps at 50 consumers per agent and evicts the least-recently-seen
+when full — an evicted consumer just re-registers on its next wait. Only one
+wait per consumer runs at a time; a second concurrent wait for the same
+`consumer_id` gets a 429. `pid` + `started` are the consumer's
+self-reported process identity: when a `consumer_id` returns with a different
+(pid, started) pair, the server treats the earlier instance as dead and
+re-serves everything that was delivered but never acked, flagged
+`"redelivered": true`. A consumer that never acks gets its whole history
+back as redelivered on restart — that is the correct behavior, because the
+server cannot distinguish crashed-while-processing from
+processed-but-forgot-to-ack. Report liveness; ack what you processed.
+Reporting `pid` without `started` counts as a new instance on every call
+(pids get reused across reboots — over-delivery beats faked continuity). On
+hosted MCP the params are `client_instance`/`client_started`; the stdio MCP
+server reports its own pid/started automatically.
+
+### The envelope
+
+```json
+{"id": "evt_...",          // deterministic — dedupe on it, no round-trip
+ "kind": "budget.warning", // alert.raised|budget.warning|budget.exceeded|anomaly.detected
+ "summary": "...",         // the alert message, one line
+ "context": {"agent_id": "...", "alert_type": "...", "timestamp": "..."},
+ "alerts_since_last_write": 4,  // unactioned streak — see below
+ "redelivered": false}
+```
+
+`alerts_since_last_write` counts alerts newer than the agent's last ledger
+write — how long the feed has been talking without the agent acting. If a
+router consumes these events, use it as the throttle: the longer the streak
+without a response, the more an escalation has to earn its place. Webhook
+payloads carry the same envelope fields alongside the original keys
+(`event`, `agent_id`, `message`, `timestamp`, `report_url`).
+
+### Version headers
+
+Every `/v1/*` response carries `AL-API-Current: <version>` — compare it with
+the `AL-API-Version` you send on writes and self-report staleness instead of
+failing later. On MCP (no headers), `ledger_start` returns the same value as
+`api_current`.
+"""
+
+_TOPIC_ORDER = ("quickstart", "mcp", "rest", "budget", "errors", "idempotency",
+                "events")
 
 DOCS_TOPICS = {
     "quickstart": QUICKSTART_MD,
@@ -324,6 +409,7 @@ DOCS_TOPICS = {
     "errors": ERROR_CODES_MD,
     "idempotency": IDEMPOTENCY_MD,
     "metering": METERING_MD,
+    "events": EVENTS_MD,
 }
 
 
@@ -331,9 +417,11 @@ def get_api_docs(topic: str = "") -> str:
     """Return markdown docs for one topic, or all topics concatenated.
 
     topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency"
-           | "metering" | "all" | ""
+           | "metering" | "events" | "all" | ""
     ("metering" covers what gets counted and what gets stopped: alert
-    delivery, token auto-pricing, provider coverage, and the proxy.)
+    delivery, token auto-pricing, provider coverage, and the proxy.
+    "events" is the consumer contract for the /events/wait feed: cursor
+    acks, liveness/redelivery, the envelope shape.)
     An unknown topic falls back to the full docs (concatenation of every
     topic) rather than erroring — this is a self-serve doc tool, not a
     strict API, so a typo'd topic should still hand the caller something
