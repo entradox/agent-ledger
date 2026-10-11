@@ -128,6 +128,7 @@ def test_dispatch_drops_under_congestion_instead_of_piling_threads(data_dir, mon
         with patch.object(alert_delivery, "load_registry",
                           return_value=entries):
             n = alert_delivery.dispatch("alert.raised", agent_id="a", message="m",
+                                        timestamp="2026-10-10T00:00:00+00:00",
                                         workspace_id="ws_x")
         assert n == 0
     finally:

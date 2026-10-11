@@ -10,6 +10,7 @@ expose unauthenticated cross-tenant writes and the full agent list.
 import json
 import os
 import sys
+from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from ledger_engine import (track, set_budget, get_budget, report, list_agents,
@@ -18,6 +19,11 @@ import metrics
 
 from fastmcp import FastMCP
 mcp = FastMCP("agent-ledger")
+
+# This process IS the consumer — report its real identity so the event feed
+# can detect a restart and re-serve unacked events (D-1625).
+import time as _time
+_PROC_STARTED = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
 
 
 def _record_mcp_call():
@@ -91,6 +97,43 @@ def ledger_alerts(agent_id: str) -> dict:
     _record_mcp_call()
     return {"count": len(alerts), "alerts": alerts}
 
+
+@mcp.tool()
+def ledger_wait_events(agent_id: str, consumer_id: str = "local",
+                       cursor: Optional[int] = None,
+                       timeout: Optional[float] = None) -> dict:
+    """Long-poll an agent's event feed — alerts as envelope-shaped events.
+
+    Holds open up to `timeout` seconds (default 5, max 30). Returns events
+    plus a `cursor` — pass it back once processed (that is the ack). Reuse
+    one consumer_id; this process reports its own pid/started, so after a
+    restart unacked events re-serve with redelivered:true.
+
+    Args:
+        agent_id: unique agent identifier
+        consumer_id: durable consumer name (default "local")
+        cursor: line offset already processed (omit to continue)
+        timeout: seconds to hold open (default 5, max 30)
+    """
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        return {"error": str(e)}
+    import event_delivery
+    try:
+        result = event_delivery.wait(agent_id, consumer_id=consumer_id,
+                                     cursor=cursor, timeout=timeout,
+                                     pid=os.getpid(),
+                                     started=_PROC_STARTED,
+                                     name="stdio-mcp")
+    except event_delivery.ConsumerError as e:
+        return {"error": str(e), "error_code": "invalid_consumer"}
+    except event_delivery.WaitCongestedError as e:
+        return {"error": str(e), "error_code": "wait_congested"}
+    _record_mcp_call()
+    return result
+
+
 @mcp.tool()
 def ledger_list_agents() -> dict:
     """List all tracked agents with spend summaries."""
@@ -104,7 +147,7 @@ def ledger_api_docs(topic: str = "") -> dict:
     endpoints, budget caps, error codes, and idempotency usage, as markdown.
 
     Args:
-        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "all"
+        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "metering" | "events" | "all"
                (default "" == "all"). Unknown topics fall back to the full docs.
     """
     from docs_content import get_api_docs, _TOPIC_ORDER

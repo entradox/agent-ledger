@@ -1253,7 +1253,9 @@ def _log_alert(agent_id: str, alert_type: str, message: str):
     try:
         import alert_delivery
         alert_delivery.dispatch(alert_delivery.event_for(alert_type),
-                                agent_id=agent_id, message=message)
+                                agent_id=agent_id, message=message,
+                                alert_type=alert_type,
+                                timestamp=alert["timestamp"])
     except Exception:
         # An alert that was logged but not pushed is still a recorded alert.
         # Never let transport failure turn into a failed write.

@@ -761,6 +761,47 @@ def get_alerts(agent_id: str, request: Request):
     alerts = [json.loads(l) for l in open(alerts_path)]
     return {"count": len(alerts), "alerts": alerts}
 
+
+@router.get("/v1/agents/{agent_id}/events/wait")
+def wait_events(agent_id: str, request: Request, consumer_id: str = "",
+                cursor: Optional[int] = None, timeout: Optional[float] = None,
+                pid: Optional[int] = None, started: str = "",
+                name: str = ""):
+    """Long-poll this agent's event feed — the delivery path for consumers
+    with no public URL (D-1625).
+
+    Webhooks (POST /v1/webhooks) push events to a URL you own; an agent on
+    stdio MCP has no URL, so it waits here instead. `consumer_id` names the
+    consumer durably across processes — reuse it, and pass `pid`/`started`
+    so a restart is detectable: events served to the dead instance but never
+    acked come back with `redelivered: true`. `cursor` is the ack channel —
+    pass the returned cursor once the batch is processed. `timeout` (seconds,
+    max 30) holds the call open until events arrive. Same auth as
+    GET /v1/alerts/{agent_id}.
+    """
+    from ledger_engine import validate_agent_id
+    try:
+        validate_agent_id(agent_id)
+    except ValidationError as e:
+        raise HTTPException(422, str(e))
+    _authorize_agent_read(agent_id, request)
+    import event_delivery
+    try:
+        result = event_delivery.wait(
+            agent_id, consumer_id=consumer_id, cursor=cursor,
+            timeout=timeout, pid=pid, started=started, name=name)
+    except event_delivery.ConsumerError as e:
+        raise HTTPException(422, detail=error_envelope(
+            422, str(e), code="invalid_consumer"))
+    except event_delivery.WaitCongestedError as e:
+        raise HTTPException(429, detail=error_envelope(
+            429, str(e), code="wait_congested"))
+    try:
+        metrics.record_event("events_wait_calls")
+    except Exception:
+        pass
+    return result
+
 @router.get("/v1/tokens/{agent_id}")
 def token_report(agent_id: str, request: Request, days: int = 30):
     """Token burn report: totals in/out, by model, per period. Separate from

@@ -32,6 +32,10 @@ def _product_version() -> str:
 
 mcp = FastMCP("agent-ledger", version=_product_version())
 
+# Single source of truth lives in ledger_engine; bound once here for payload
+# surfaces (api_current) that mirror the AL-API-Current response header.
+from ledger_engine import AL_API_VERSION as _AL_API_VERSION
+
 
 def _record_mcp_call():
     try:
@@ -428,6 +432,81 @@ def ledger_alerts(agent_id: str, agent_secret: str = "",
     return {"alerts": alerts}
 
 
+@mcp.tool(annotations={"title": "Wait for Agent Events", "readOnlyHint": True,
+                        "destructiveHint": False, "idempotentHint": True})
+def ledger_wait_events(agent_id: str, consumer_id: str,
+                       agent_secret: str = "", workspace_key: str = "",
+                       cursor: Optional[int] = None,
+                       timeout: Optional[float] = None,
+                       client_instance: str = "", client_started: str = "",
+                       name: str = "mcp") -> dict:
+    """Long-poll an agent's event feed — how an agent with no public URL receives alerts.
+
+    Webhooks (POST /v1/webhooks) push events to a URL you own; an agent on
+    stdio MCP cannot host one, so it waits here instead. Call this in a loop:
+    the call holds open up to `timeout` seconds (max 30) and returns when
+    events arrive or the wait lapses.
+
+    `consumer_id` names this consumer durably — pick a stable one
+    (e.g. "claude-code-main") and reuse it. Each call returns a `cursor`;
+    pass it back on your next call once you have processed that batch — that
+    is the ack. To get restart redelivery, also pass `client_instance` (your
+    process id or any per-boot token) and `client_started` (when your
+    process booted): when the pair changes, events that were served but
+    never acked come back with `redelivered: true`, so nothing is lost to a
+    crash between serve and process. (The stdio MCP server supplies its own
+    pid/started automatically — hosted callers must opt in because the
+    gateway cannot see the client's process.)
+
+    Each event is an envelope: id (deterministic — dedupe on it), kind
+    (alert.raised | budget.warning | budget.exceeded | anomaly.detected),
+    summary, context (agent_id, alert_type, timestamp),
+    alerts_since_last_write (how many alerts are stacked up since the
+    agent's last spend write — use it to throttle escalation), redelivered.
+
+    Requires a credential: either the agent's own agent_secret or its
+    workspace's workspace_key (same rule as GET
+    /v1/agents/{agent_id}/events/wait).
+
+    Args:
+        agent_id: unique agent identifier
+        consumer_id: durable name for this consumer (1-64 chars, [A-Za-z0-9._-])
+        agent_secret: the agent's own secret (either this or workspace_key)
+        workspace_key: the owning workspace's key (either this or agent_secret)
+        cursor: line offset you have processed through (omit to continue)
+        timeout: seconds to hold the call open (default 5, max 30)
+        client_instance: your process identity (e.g. pid or per-boot token) —
+            enables restart redelivery
+        client_started: when your process booted — paired with client_instance
+        name: optional label for this consumer instance
+    """
+    from ledger_engine import validate_agent_id, ValidationError
+    try:
+        validate_agent_id(agent_id)  # REST/MCP parity — same guard as the route
+    except ValidationError as e:
+        return {"error": str(e), "error_code": "invalid_agent_id"}
+    err = _authorize_read_or_error(agent_id, agent_secret, workspace_key)
+    if err:
+        return err
+    import event_delivery
+    try:
+        result = event_delivery.wait(
+            agent_id, consumer_id=consumer_id,
+            cursor=cursor, timeout=timeout,
+            pid=client_instance or None,
+            started=client_started, name=name)
+    except event_delivery.ConsumerError as e:
+        return {"error": str(e), "error_code": "invalid_consumer"}
+    except event_delivery.WaitCongestedError as e:
+        return {"error": str(e), "error_code": "wait_congested"}
+    try:
+        metrics.record_event("events_wait_calls", via="mcp")
+    except Exception:
+        pass
+    _record_mcp_call()
+    return result
+
+
 @mcp.tool(annotations={"title": "Check Before Spending", "readOnlyHint": True,
                         "destructiveHint": False, "idempotentHint": True})
 def ledger_check_spend(agent_id: str, amount_cents: Optional[int] = None,
@@ -775,6 +854,10 @@ def ledger_start() -> dict:
         "key_shown_once": True,
         "plan": "free",
         "agents_included": 3,
+        # Server→client version advisory (D-1625): stdio/payload surfaces have
+        # no headers, so the current API version travels in the payload. REST
+        # callers see the same value as the AL-API-Current response header.
+        "api_current": _AL_API_VERSION,
         "default_budget": workspace_engine.default_caps_payload(),
         "next_steps": [
             "Store workspace_key now — it cannot be shown again.",
@@ -795,7 +878,7 @@ def ledger_api_docs(topic: str = "") -> dict:
     endpoints, budget caps, error codes, and idempotency usage, as markdown.
 
     Args:
-        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "all"
+        topic: "quickstart" | "mcp" | "rest" | "budget" | "errors" | "idempotency" | "metering" | "events" | "all"
                (default "" == "all"). Unknown topics fall back to the full docs.
     """
     from docs_content import get_api_docs, _TOPIC_ORDER

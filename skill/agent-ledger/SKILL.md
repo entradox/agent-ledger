@@ -38,6 +38,7 @@ money?", and a cap is enforced, not merely reported.
 | `ledger_approval_decide` | Approve or deny a pending permit. `workspace_key` only — an agent can never approve its own request. An approved permit is consumed by the next over-cap track within its amount. |
 | `ledger_report` | Spend over a rolling window: total, by rail, by model, budget status, anomalies. |
 | `ledger_alerts` | Budget warnings (80% threshold) and spending spikes. |
+| `ledger_wait_events` | Long-poll the event feed — how you *receive* alerts when you have no webhook URL. Pick one durable `consumer_id`, pass the returned `cursor` back as the ack, and unacked events re-serve with `redelivered:true` after a restart (stdio MCP reports its own pid/started automatically; hosted callers pass `client_instance`/`client_started`). |
 | `ledger_price` | What will this call cost — priced from the same table the caps use. |
 | `ledger_proxy_attach` | Point provider traffic at the proxy so caps enforce BEFORE the provider is called. |
 | `ledger_start` | Free workspace, no credential — call FIRST if you have no credentials yet. |
@@ -79,6 +80,27 @@ money?", and a cap is enforced, not merely reported.
 - **Free tier is capped at 3 agents per workspace.** A 4th new `agent_id` returns
   402 until upgrading (Starter, $19/mo, up to 10 agents per workspace). The cap is
   per workspace, not site-wide.
+
+## Receiving alerts
+
+An alert you must remember to check is not an alert. Two delivery paths:
+
+- **You have a URL** — `POST /v1/webhooks` registers it; events are pushed
+  with retries and `GET /v1/webhooks/deliveries` shows receipts.
+- **You have no URL** (stdio MCP, a laptop, a cron) — call
+  `ledger_wait_events` in a loop, or `GET
+  /v1/agents/{agent_id}/events/wait`. Give a stable `consumer_id`, report
+  `pid`/`started` if you can, and pass the returned `cursor` back once a
+  batch is processed — that is the ack. If your process dies, the same
+  `consumer_id` with new liveness gets its unacked events back with
+  `redelivered:true`.
+
+Each event is an envelope: deterministic `id` (dedupe on it), `kind`,
+one-line `summary`, `context`, `alerts_since_last_write` (the unactioned
+streak — use it to throttle escalation), `redelivered`. When several of
+these arrive, triage them in one cheap pass and only open a real work
+session for what earns it — the consumer-contract docs
+(`ledger_api_docs topic="events"`) describe the routing pattern.
 
 ## The difference between a cap and enforcement
 

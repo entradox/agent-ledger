@@ -40,7 +40,7 @@ from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
 from pydantic import BaseModel, Field
 import uvicorn
 
-APP_VERSION = "0.4.6"  # single source for /health + FastAPI metadata
+APP_VERSION = "0.4.7"  # single source for /health + FastAPI metadata
 app = FastAPI(title="AgentLedger API", version=APP_VERSION)
 
 # ── OpenAPI augmentation for agent payment-directory discovery (D-1293) ──────
@@ -517,6 +517,27 @@ async def _metrics_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def _api_current_middleware(request: Request, call_next):
+    """The server→client half of the version pair (D-1625).
+
+    Clients already send AL-API-Version on writes (enforced in
+    routes_agents._check_api_version); nothing ever told the client which
+    version the server IS, so a stale client could only find out by failing.
+    Every answer from our own agent surfaces now carries AL-API-Current —
+    a client that sends an old AL-API-Version can see it is behind without
+    a round-trip.
+
+    Scoped to /v1/* plus our own MCP mount only: /mcp/<satellite> paths are
+    reverse-proxied to other products by _SatelliteMcpProxy and must not
+    carry this product's version."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/v1/") or path in ("/mcp", "/mcp/"):
+        response.headers["AL-API-Current"] = AL_API_VERSION
+    return response
+
+
+@app.middleware("http")
 async def _head_get_equivalence(request: Request, call_next):
     """Serve HEAD as a headers-only GET.
 
@@ -961,7 +982,7 @@ Connect:  npx @aiagentscity/setup ledger — one command; detects claude-code,
           right way for each, and installs the vendored skill
           (manual: claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/)
 
-Tools exposed at POST /mcp/ (v0.4.6, 17):
+Tools exposed at POST /mcp/ (v0.4.7, 18):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
   ledger_track          — record a spend entry (workspace_key to claim, agent_secret after)
   ledger_set_budget     — set a budget cap (workspace_key to claim, agent_secret after)
@@ -1512,7 +1533,7 @@ CITY_CATALOG = [
      "tagline": "Spending limits for AI agents",
      "mcp_url": "https://aiagentscity.com/mcp/",
      "human_url": "https://aiagentscity.com/agent-ledger",
-     "version": "v0.4.6", "status": "live",
+     "version": "v0.4.7", "status": "live",
      # tools = the server's OWN tools/list, captured 2026-10-07. Keep it equal to
      # that; the audit below fails the suite if it ever drifts.
      # ledger_list_agents is deliberately ABSENT: it was removed from the MCP
@@ -1524,6 +1545,7 @@ CITY_CATALOG = [
                "ledger_request_approval", "ledger_approvals",
                "ledger_approval_decide",
                "ledger_report", "ledger_proxy_attach", "ledger_alerts",
+               "ledger_wait_events",
                "ledger_price", "ledger_start", "ledger_api_docs",
                "ledger_examples", "skills_list_tool", "read_skill"]},
     {"id": "agent-watch", "title": "Agent Watch",

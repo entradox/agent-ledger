@@ -283,9 +283,16 @@ _delivery_slots = threading.Semaphore(32)
 
 
 def dispatch(event: str, *, agent_id: str, message: str,
-             workspace_id: Optional[str] = None) -> int:
+             timestamp: str,
+             workspace_id: Optional[str] = None,
+             alert_type: Optional[str] = None) -> int:
     """Fan an event out to every matching destination. Returns how many were
-    queued. Never raises — it is called from the write path."""
+    queued. Never raises — it is called from the write path.
+
+    `timestamp` is REQUIRED and must be the alert record's own timestamp:
+    the shared envelope hashes it into the event id, and a dispatch-time
+    timestamp would give the same alert a different id on the webhook path
+    than on the /events/wait feed — silently breaking consumer dedup."""
     try:
         if not workspace_id:
             import identity
@@ -300,6 +307,21 @@ def dispatch(event: str, *, agent_id: str, message: str,
         payload = {"event": event, "agent_id": agent_id, "message": message,
                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "report_url": f"{base}/v1/report/{agent_id}"}
+        # D-1625: the same event in the shared envelope shape used by the
+        # /events/wait feed — id/kind/summary/context/
+        # alerts_since_last_write/redelivered. STRICTLY ADDITIVE: every key a
+        # registered consumer already reads (event, agent_id, message,
+        # timestamp, report_url) stays put with the same type. The envelope's
+        # timestamp is the alert RECORD's — hashing the dispatch-time
+        # timestamp instead would give the same alert a different event id
+        # on the two delivery paths and break consumer-side dedup.
+        import event_delivery
+        payload.update(event_delivery.envelope(
+            kind=event, agent_id=agent_id, summary=message,
+            timestamp=timestamp,
+            alert_type=alert_type,
+            alerts_since_last_write=event_delivery.alerts_since_last_write(
+                agent_id)))
         queued = 0
         for entry in targets:
             # Threads still spawn per target (a parked delivery parks its
