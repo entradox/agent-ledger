@@ -136,7 +136,13 @@ def alerts_since_last_write(agent_id: str) -> int:
     its place."""
     last_write = 0.0
     ledger_path = _ledger_path(agent_id)
-    if ledger_path.exists():
+    try:
+        ledger_exists = ledger_path.exists()
+    except Exception:
+        # exists() propagates PermissionError on py3.13 — an unreadable
+        # dir must not escape as a raise
+        ledger_exists = False
+    if ledger_exists:
         try:
             lines = ledger_path.read_text().splitlines()
             for line in reversed(lines[-50:]):
@@ -178,12 +184,12 @@ def _parse_ts(value) -> float:
 
 def _load_consumers(agent_id: str) -> dict:
     path = _consumers_path(agent_id)
-    if not path.exists():
-        return {}
     try:
+        if not path.exists():
+            return {}
         data = json.loads(path.read_text())
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except json.JSONDecodeError:
         # A corrupt registry is evidence, not noise — quarantine it so the
         # damage is diagnosable instead of silently re-zeroing positions.
         try:
@@ -191,6 +197,11 @@ def _load_consumers(agent_id: str) -> dict:
                 f"{path.name}.corrupt-{int(time.time())}"))
         except Exception:
             pass
+        return {}
+    except Exception:
+        # Every OTHER I/O failure — an unstatable dir, a read denied —
+        # is not a dead consumer, it is a shrug: serve with positions
+        # zeroed rather than raise out of wait().
         return {}
 
 
@@ -234,16 +245,22 @@ def _read_alert_lines(agent_id: str) -> list:
         return []
     cached = _feed_cache.get(agent_id)
     if cached and cached[:3] == (st.st_ino, st.st_mtime_ns, st.st_size):
-        _feed_cache.move_to_end(agent_id)
+        try:
+            _feed_cache.move_to_end(agent_id)
+        except Exception:
+            pass  # a concurrent eviction may race us — order is best-effort
         return cached[3]
     try:
         lines = path.read_text().splitlines()
     except Exception:
         return cached[3] if cached else []
     _feed_cache[agent_id] = (st.st_ino, st.st_mtime_ns, st.st_size, lines)
-    _feed_cache.move_to_end(agent_id)
-    while len(_feed_cache) > FEED_CACHE_MAX_AGENTS:
-        _feed_cache.popitem(last=False)  # evict least-recently-read feed
+    try:
+        _feed_cache.move_to_end(agent_id)
+        while len(_feed_cache) > FEED_CACHE_MAX_AGENTS:
+            _feed_cache.popitem(last=False)  # evict least-recently-read
+    except Exception:
+        pass
     return lines
 
 
@@ -347,11 +364,15 @@ def _wait_inner(agent_id: str, consumer_id: str, *, cursor: Optional[int],
             "acked": 0, "served": 0, "delivered": 0,
             "pid": "", "started": "", "name": "",
             "first_seen": time.time(), "last_seen": 0.0}
-        # A caller that NOW reports identity and differs from the stored
-        # triple is a restart — including the transition from "reported
-        # nothing" to "reports something", which must re-serve unacked
-        # events rather than silently continue the anonymous stream.
-        restarted = bool(liveness[0] or liveness[1]) and \
+        # Either side reporting identity, and the reported triple differing
+        # from the stored one, is a restart. That covers both transitions:
+        # anonymous->identified AND identified->anonymous — in each case the
+        # unacked backlog may have died with a different instance, so it
+        # re-serves rather than silently continuing. Only a fully anonymous
+        # consumer on both sides is treated as continuous, which is the
+        # honest limit of an optional field.
+        restarted = bool(rec.get("pid") or rec.get("started") or
+                         liveness[0] or liveness[1]) and \
             (rec.get("pid", "") != liveness[0] or
              rec.get("started", "") != liveness[1])
         if cursor is not None:

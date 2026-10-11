@@ -552,3 +552,38 @@ def test_feed_cache_is_bounded(env):
                         + "\n")
         ed._read_alert_lines(agent)
     assert len(ed._feed_cache) == ed.FEED_CACHE_MAX_AGENTS
+
+
+# ── 7. round-3 verification regressions ───────────────────────────────────
+
+def test_identified_then_anonymous_consumer_redelivers_unacked(env):
+    """Dropping identity is itself a change of instance — a consumer that
+    reported pid/started and then reports nothing must re-serve unacked
+    events, not silently continue."""
+    le, ed, *_ = env
+    agent = "evt-deident-1"
+    _log(env, agent, message="held")
+    ed.wait(agent, consumer_id="di", timeout=0, pid=111, started="s1")
+    out = ed.wait(agent, consumer_id="di", timeout=0)  # anonymous call
+    assert [e["summary"] for e in out["events"]] == ["held"]
+    assert out["events"][0]["redelivered"] is True
+
+
+def test_unstatable_agent_dir_never_raises(env):
+    """On py3.13 Path.exists() propagates PermissionError — a dir the
+    process cannot stat at all must still yield an empty result, not a
+    500."""
+    le, ed, *_ = env
+    agent = "evt-nostat-1"
+    path = _alerts_file(env, agent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"type": "t", "message": "m",
+                                "timestamp": "2026-10-10T00:00:00+00:00"})
+                    + "\n")
+    adir = path.parent
+    adir.chmod(0o000)
+    try:
+        out = ed.wait(agent, consumer_id="ns", timeout=0)
+        assert out["events"] == []
+    finally:
+        adir.chmod(0o755)
