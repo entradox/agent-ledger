@@ -383,6 +383,7 @@ def render(active: str, title: str, desc: str, body: str, request=None) -> str:
     body = (body
             .replace("__NETWORK_LABEL__", label)
             .replace("__NETWORK__", x402_verify.X402_NETWORK)
+            .replace("__LIMIT__", x402_verify.x402_pass_agent_limit())
             .replace("__NETWORK_PROSE__", prose))
 
     html = SHELL
@@ -678,7 +679,7 @@ npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__
   <h2>Checkout without humans</h2>
   <div class="card" style="border-color:var(--agent-dim)">
     <h3>$0.01. __NETWORK_LABEL__. Zero clicks.</h3>
-    <p>An agent with a wallet buys 24h of AgentLedger Pro — unlimited agents — on the workspace its wallet resolves to. Real USDC on <b>__NETWORK__</b>. No signup flow, no card form, no human.</p>
+    <p>An agent with a wallet buys 24h of AgentLedger Pro — __LIMIT__ — on the workspace its wallet resolves to. Real USDC on <b>__NETWORK__</b>. No signup flow, no card form, no human.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>POST /v1/billing/x402
 Header: <span class="s">X-PAYMENT: &lt;signed-payload&gt;</span>
 <span class="c"># → 24h Pro. That's the whole checkout.</span></pre>

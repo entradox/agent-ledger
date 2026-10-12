@@ -143,7 +143,7 @@ def _rail_card() -> str:
         '<p class="pz-blurb">Bought by the agent itself over x402 — no account, '
         'card form, or human checkout. Renewable: every payment buys a fresh '
         f'{hours}h window.</p>'
-        f'<ul><li>Full Pro — unlimited agents on the wallet\'s workspace</li>'
+        f'<ul><li>Full Pro — {x402_verify.x402_pass_agent_limit()} on the wallet\'s workspace</li>'
         f'<li>Network: <code>{{X402_NETWORK}}</code>, paid in USDC</li>'
         '<li>POST /v1/billing/x402 with a signed payment header</li></ul>'
         '<a class="pz-cta" href="/.well-known/x402.json">'

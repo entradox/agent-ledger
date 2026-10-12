@@ -931,7 +931,7 @@ refused — and that refusal is usually the first time this matters, because it 
 <h2>The only paid path is the agent rail</h2>
 <p>Blueprint v2 (2026-10-11): there is no human checkout on this domain. Pro is bought
 by the agent itself over x402 — a {X402_PRICE} USDC payment buys a 24-hour Pro pass
-(unlimited agents on the workspace the paying wallet resolves to), and every payment
+({X402_LIMIT} on the workspace the paying wallet resolves to), and every payment
 buys a fresh window:</p>
 <pre>POST /v1/billing/x402
 Header: X-PAYMENT: &lt;signed x402 payment&gt;
@@ -940,10 +940,12 @@ Header: X-PAYMENT: &lt;signed x402 payment&gt;
 <a href="/.well-known/x402.json">/.well-known/x402.json</a>.</p>
 
 <h2>Reading this as a human?</h2>
-<p class="muted">Your free workspace is free forever — nothing to cancel. To run more
-than 3 agents, the workspace's agents pay their own way over the rail above; fund the
-wallet they settle from. If you need help reconciling a workspace, see
-<a href="/about">/about</a>.</p>
+<p class="muted">Your free workspace is free forever — nothing to cancel. One honest
+caveat: the pass binds to the paying <b>wallet's</b> workspace, not this one. If this
+workspace was minted free at /start, an x402 payment mints or resolves a separate
+wallet-bound workspace — it does not lift this workspace's 3-agent cap, and agents
+already claimed stay on the free tier. There is no migrate-a-workspace path yet;
+to reconcile workspaces, see <a href="/about">/about</a>.</p>
 
 {PRICING_AGENT_LEDGER}
 """
@@ -961,7 +963,8 @@ def _render_upgrade() -> str:
     import x402_verify
     return (_UPGRADE_PAGE_BODY
             .replace("{PRICING_AGENT_LEDGER}", cards)
-            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE))
+            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE)
+            .replace("{X402_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 
 _PRICING_PAGE_BODY = """
@@ -970,7 +973,7 @@ _PRICING_PAGE_BODY = """
 {PRICING_AGENT_LEDGER}
 <h2>How do I lift the cap?</h2>
 <p>The agent pays its own way: a {X402_PRICE} USDC x402 payment buys a renewable 24-hour
-Pro pass — unlimited agents on the workspace the paying wallet resolves to. There is no
+Pro pass — {X402_LIMIT} on the workspace the paying wallet resolves to. There is no
 human checkout on this domain, and nothing is gated behind a sales call.</p>
 <p><a href="/upgrade">How the agent rail works →</a> ·
    <a href="/start">Get a workspace — no signup, no card</a></p>
@@ -991,7 +994,8 @@ def _render_pricing() -> str:
     import x402_verify
     return (_PRICING_PAGE_BODY
             .replace("{PRICING_AGENT_LEDGER}", cards)
-            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE))
+            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE)
+            .replace("{X402_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 
 

@@ -124,3 +124,23 @@ def test_amount_to_tier_table_matches_pricing():
         "routes_billing.py").read_text()
     for cents in ("1900", "19000", "7900", "79000"):
         assert cents in src
+
+
+def test_starter_configured_pass_never_advertises_unlimited(monkeypatch):
+    """D-1645 review: with X402_TRIAL_GRANT=starter the pass grants a 10-agent
+    cap — every offer surface must say so, not 'unlimited agents'."""
+    import x402_verify
+    import pricing
+    monkeypatch.setattr(x402_verify, "X402_TRIAL_GRANT", "starter")
+    assert x402_verify.x402_pass_agent_limit() == "up to 10 agents"
+    html = pricing.pricing_section("agent-ledger")
+    assert "up to 10 agents" in html
+    assert "unlimited" not in html
+
+
+def test_unlimited_grant_advertises_unlimited():
+    import x402_verify
+    import pricing
+    assert x402_verify.x402_pass_tier() == "pro"
+    assert x402_verify.x402_pass_agent_limit() == "unlimited agents"
+    assert "unlimited agents" in pricing.pricing_section("agent-ledger")

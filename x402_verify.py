@@ -96,6 +96,16 @@ def x402_pass_tier() -> str:
     return "starter" if X402_TRIAL_GRANT == "starter" else "pro"
 
 
+def x402_pass_agent_limit() -> str:
+    """The agent allowance the pass sells, in words — the single source every
+    offer surface renders from, so a starter-configured deployment can never
+    advertise "unlimited" while granting 10."""
+    if x402_pass_tier() == "starter":
+        import workspace_engine
+        return f"up to {workspace_engine.STARTER_AGENT_CAP} agents"
+    return "unlimited agents"
+
+
 # Resolved facilitator: explicit URL wins, else CDP, else the free public one.
 FACILITATOR_URL_RESOLVED = (X402_FACILITATOR_URL
                             or ("https://api.cdp.coinbase.com/platform/v2/x402"

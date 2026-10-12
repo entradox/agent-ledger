@@ -797,7 +797,8 @@ def ledger_start() -> dict:
     per caller IP, the same limit the human door uses.
 
     Prefer to pay? POST /v1/billing/x402 with a wallet-signed payment needs no
-    human and buys 24h of Pro (unlimited agents).
+    human and buys 24h of Pro (agent allowance per the live pass tier — see
+    /pricing.md).
     """
     from fastmcp.server.dependencies import get_http_request
     import api_server

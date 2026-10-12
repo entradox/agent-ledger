@@ -171,6 +171,61 @@ def test_repeat_purchase_never_downgrades_a_stripe_subscribed_workspace(env):
     assert rec.get("stripe_customer_id") == "cus_live_sub"
 
 
+def test_a_LAPSED_subscriber_is_granted_the_pass_they_paid_for(env):
+    """The bug: revoke_pro keeps stripe_customer_id for the index, so a wallet
+    workspace whose Stripe sub lapsed still carries the field — and the old
+    guard keyed off the FIELD, took the $0.01, and granted nothing. Only an
+    ACTIVE non-pass entitlement may block the grant."""
+    import time as _t
+    we = env.workspace_engine
+    ws_id, _ = we.create_workspace(wallet_address=CHECKSUMMED.lower(),
+                                   grant_scarcity=False)
+    we.mark_pro(ws_id, "cus_lapsed", stripe_subscription_id="sub_dead",
+                pro_until=_t.time() + 100, period_source="checkout.session.completed",
+                tier="team")
+    we.revoke_pro(ws_id, reason="status=canceled",
+                  source="customer.subscription.updated")
+    assert we.get_workspace(ws_id)["plan"] == "free"
+    assert we.get_workspace(ws_id)["stripe_customer_id"] == "cus_lapsed"
+
+    env.stub.payer = CHECKSUMMED.lower()
+    r = _pay(env)
+    assert r.status_code == 200
+    rec = we.get_workspace(ws_id)
+    assert rec["plan"] == "pro", (
+        f"payment settled but no pass was granted: plan={rec['plan']!r} — "
+        "money taken for nothing")
+    assert rec["pro_until"] > _t.time()
+    assert rec["pro_period_source"] == "x402_pass"
+    # The customer link survives so a straggler lifecycle event can still
+    # resolve this workspace (and is then ignored — see lifecycle tests).
+    assert rec["stripe_customer_id"] == "cus_lapsed"
+
+
+def test_a_live_non_stripe_entitlement_is_not_shrunk_by_a_pass(env):
+    """A first-50 scarcity workspace holds Pro for a year. A $0.01 payment is
+    honoured, but writing a 24h pass over it would SHRINK the entitlement —
+    money removing capability again."""
+    import time as _t
+    we = env.workspace_engine
+    ws_id, _ = we.create_workspace(wallet_address=CHECKSUMMED.lower(),
+                                   grant_scarcity=False)
+    year = _t.time() + 365 * 86400
+    rec = we.get_workspace(ws_id)
+    rec.update({"plan": "pro", "agent_cap": None, "pro_until": year,
+                "pro_period_source": "scarcity"})
+    we._write_workspace(rec)
+
+    env.stub.payer = CHECKSUMMED.lower()
+    r = _pay(env)
+    assert r.status_code == 200
+    rec = we.get_workspace(ws_id)
+    assert rec["pro_until"] == year, (
+        "the 24h pass overwrote a longer paid period — money removed "
+        "capability")
+    assert rec["pro_period_source"] == "scarcity"
+
+
 def test_grant_knob_starter_caps_each_purchase_at_the_starter_limit(env, monkeypatch):
     monkeypatch.setattr(env.x402_verify, "X402_TRIAL_GRANT", "starter")
     r = _pay(env)

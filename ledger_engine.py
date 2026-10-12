@@ -291,7 +291,7 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 f"Free tier: {agent_cap} agents per workspace. The only paid "
                 "path is the agent rail — there is no human checkout: "
                 f"POST /v1/billing/x402 with a wallet payment ({x402_verify.X402_MINT_PRICE}) "
-                f"buys a renewable Pro pass — unlimited agents for {pass_hours}h "
+                f"buys a renewable Pro pass — {x402_verify.x402_pass_agent_limit()} for {pass_hours}h "
                 "per payment. Paying mints/resolves a workspace bound to your "
                 "wallet, which is a DIFFERENT workspace from this one if this "
                 "one wasn't created that way — the agents already on this "

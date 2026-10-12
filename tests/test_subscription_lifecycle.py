@@ -235,6 +235,52 @@ def test_recovered_payment_clears_grace_and_continues_pro(env):
 
 # ── renewal revenue (months 2..N were invisible before) ─────────────────────
 
+def test_straggler_events_cannot_touch_an_x402_pass(env):
+    """D-1645: a lapsed Stripe workspace that later buys an x402 pass keeps
+    stripe_customer_id (the index needs it). A straggler lifecycle event for
+    the DEAD subscription must not shrink, revoke, or re-stamp the pass."""
+    c, ws, tmp = env
+    wid, _ = ws.create_workspace(wallet_address="0x" + "c" * 40,
+                                 grant_scarcity=False)
+    pass_end = time.time() + 20 * 3600
+    ws.mark_pro(wid, "cus_straggler", pro_until=pass_end,
+                period_source="x402_pass", tier="pro")
+
+    # subscription.updated -> canceled would call revoke_pro on a Stripe source.
+    code, body = post(c, {
+        "type": "customer.subscription.updated",
+        "data": {"object": {"id": "sub_straggler", "customer": "cus_straggler",
+                            "status": "canceled",
+                            "current_period_end": int(time.time()) - 60}}})
+    assert code == 200
+    rec = ws.get_workspace(wid)
+    assert rec["plan"] == "pro", f"straggler event revoked a paid pass: {body}"
+    assert rec["pro_until"] == pass_end
+    assert rec["pro_period_source"] == "x402_pass"
+
+    # subscription.deleted with a PAST period end would shrink the window.
+    code, body = post(c, {
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"id": "sub_straggler", "customer": "cus_straggler",
+                            "current_period_end": int(time.time()) - 60}}})
+    assert code == 200
+    rec = ws.get_workspace(wid)
+    assert rec["plan"] == "pro"
+    assert rec["pro_until"] == pass_end, (
+        "a stale Stripe period end shrank a live x402 pass")
+    assert rec["pro_period_source"] == "x402_pass"
+
+    # And a failed-payment grace write must not re-stamp the source either.
+    code, body = post(c, {
+        "type": "invoice.payment_failed",
+        "data": {"object": {"id": "in_straggler", "customer": "cus_straggler",
+                            "billing_reason": "subscription_cycle"}}})
+    assert code == 200
+    rec = ws.get_workspace(wid)
+    assert rec["pro_period_source"] == "x402_pass"
+    assert rec["pro_until"] == pass_end
+
+
 def test_renewal_is_recorded_as_revenue(env):
     c, ws, tmp = env
     wid = signed_up(env)

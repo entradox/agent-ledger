@@ -98,10 +98,18 @@ def test_llms_upgrade_copy_names_the_agent_rail():
 
 
 def test_only_the_x402_pass_is_described_as_unlimited():
-    """'unlimited' attaches to the pass — and to nothing sold to a human."""
-    src = _read("api_server.py")
-    assert "unlimited agents on the workspace" in src, (
-        "the x402 pass lost its 'unlimited agents' description")
+    """'unlimited' attaches to the pass — and to nothing sold to a human.
+
+    The allowance is DERIVED now (x402_pass_agent_limit — a starter-configured
+    deployment must not advertise unlimited), so check the rendered llms.txt,
+    not a hardcoded literal."""
+    import sys
+    if REPO not in sys.path:
+        sys.path.insert(0, REPO)
+    import api_server
+    assert "unlimited agents on the workspace" in api_server.LLMS_TXT, (
+        "the x402 pass lost its agent-limit description")
     # No human monthly tier may claim anything on this domain.
     for zombie in ("$19/mo Starter", "$79/mo Team", "billed through Stripe"):
-        assert zombie not in src, f"the retired human tier {zombie!r} is back"
+        assert zombie not in api_server.LLMS_TXT, (
+            f"the retired human tier {zombie!r} is back")

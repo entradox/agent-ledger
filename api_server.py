@@ -31,6 +31,7 @@ from ledger_engine import (
 )
 import metrics
 import sat_translate
+import x402_verify
 from client_ip import client_ip
 
 from fastapi import FastAPI, HTTPException, Request
@@ -1069,7 +1070,7 @@ POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 
 Pricing is as described above (Free = up to 3 agents per workspace, no expiry).
 The only paid path is the agent rail: an agent with a wallet buys a renewable
-24-hour Pro pass over x402 — unlimited agents on the workspace its wallet
+24-hour Pro pass over x402 — {X402_AGENT_LIMIT} on the workspace its wallet
 resolves to, no signup or card. There is no human checkout and no monthly
 plan on this domain.
 Contact: entradox@icloud.com
@@ -1250,9 +1251,7 @@ def _x402_pass_offer_words() -> str:
     """
     import x402_verify
     hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
-    import workspace_engine
-    grant = (f"{workspace_engine.STARTER_AGENT_CAP} agents"
-             if x402_verify.x402_pass_tier() == "starter" else "unlimited agents")
+    grant = x402_verify.x402_pass_agent_limit()
     return (f"{x402_verify.X402_MINT_PRICE} via x402 buys a {hours}h Pro pass "
             f"({grant}) on the workspace your wallet resolves to — no card, no "
             "human, and renewable: every payment buys a fresh window "
@@ -1296,6 +1295,8 @@ X402_SETTLEMENT = _x402_settlement_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_SETTLEMENT}", X402_SETTLEMENT)
 X402_PASS_OFFER = _x402_pass_offer_words()
 LLMS_TXT = LLMS_TXT.replace("{X402_PASS_OFFER}", X402_PASS_OFFER)
+LLMS_TXT = LLMS_TXT.replace("{X402_AGENT_LIMIT}",
+                           x402_verify.x402_pass_agent_limit())
 
 
 def _mpp_acceptance_words() -> str:
@@ -1790,7 +1791,8 @@ AGENT_JSON = {
         "amount_usd": 0.01,
         "description": "Free tier is 3 agents per workspace, no expiry. The only "
                        "paid path is the agent rail: an agent pays via x402 itself "
-                       "for a renewable 24h Pro pass (unlimited agents on the "
+                       "for a renewable 24h Pro pass ("
+                       + x402_verify.x402_pass_agent_limit() + " on the "
                        "resolved workspace). There is no human checkout and no "
                        "monthly plan on this domain — a POST /start carrying a "
                        "paid plan parameter mints nothing and returns 409 "
@@ -2126,7 +2128,8 @@ def _status_html() -> str:
     return (_status_html_template()
             .replace("{X402_SETTLEMENT_SPAN}", _x402_settlement_span())
             .replace("__X402_NETWORK__", x402_verify.X402_NETWORK)
-            .replace("__X402_PRICE__", x402_verify.X402_MINT_PRICE))
+            .replace("__X402_PRICE__", x402_verify.X402_MINT_PRICE)
+            .replace("__X402_LIMIT__", x402_verify.x402_pass_agent_limit()))
 
 
 def _status_html_template() -> str:
@@ -2460,7 +2463,7 @@ the service available for everyone.</p>
 <h2>Plans and payment</h2>
 <p>The Free plan supports up to 3 agents per workspace. Paid access is sold only through
 the agent rail: a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
-Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the
+Base network (<code>{X402_NETWORK}</code>). The pass covers {X402_AGENT_LIMIT} on the
 workspace the paying wallet resolves to, and expires 24 hours after settlement. It is
 renewable — continued access requires another payment — and it is the only thing for
 sale on this domain; there is no monthly plan and no human checkout. The current plan
@@ -2678,7 +2681,9 @@ def terms_page():
     import x402_verify
     return _LEGAL_SHELL.format(
         title="Terms",
-        body=TERMS_BODY.replace("{X402_NETWORK}", x402_verify.X402_NETWORK))
+        body=TERMS_BODY
+        .replace("{X402_NETWORK}", x402_verify.X402_NETWORK)
+        .replace("{X402_AGENT_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 
 def _page(title: str, body: str) -> str:

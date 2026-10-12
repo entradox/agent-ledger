@@ -508,6 +508,23 @@ def _lifecycle_unresolved_note(obj: dict, customer_id: str, kind: str,
             pass
 
 
+def _stripe_lifecycle_blocked(wid: str) -> bool:
+    """True when the workspace's live entitlement is x402-sourced.
+
+    A Stripe lifecycle event applies to a Stripe subscription. If the
+    workspace's current paid period was granted by an x402 pass — e.g. a
+    lapsed Stripe customer who later paid over the agent rail — a straggler
+    event for the dead subscription must not shrink, revoke, or re-stamp that
+    entitlement (set_pro_period would rewrite pro_period_source and make the
+    x402 grant invisible to this very check). Any fresh Stripe purchase sets
+    pro_period_source at checkout.session.completed, so x402_pass here means
+    the Stripe entitlement is dead by definition.
+    """
+    import workspace_engine
+    rec = workspace_engine.get_workspace(wid)
+    return bool(rec) and rec.get("pro_period_source") == "x402_pass"
+
+
 def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dict]:
     """Dispatch the post-purchase subscription events. None = not ours.
 
@@ -529,6 +546,10 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
                 "subscription.deleted: no workspace for customer")
             return {"received": True, "revoked": False,
                     "reason": "workspace unresolved"}
+        if _stripe_lifecycle_blocked(wid):
+            return {"received": True, "revoked": False,
+                    "reason": "live entitlement is x402-sourced",
+                    "workspace_id": wid}
         period_end = _period_end_from(obj)
         import workspace_engine
         try:
@@ -559,6 +580,10 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
         if not wid:
             return {"received": True, "updated": False,
                     "reason": "workspace unresolved"}
+        if _stripe_lifecycle_blocked(wid):
+            return {"received": True, "updated": False,
+                    "reason": "live entitlement is x402-sourced",
+                    "workspace_id": wid}
         period_end = _period_end_from(obj)
         import workspace_engine
         try:
@@ -595,9 +620,11 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
             period_end = _period_end_from(obj)
             try:
                 # A successful payment clears any grace deadline and moves the
-                # clock to the new period.
+                # clock to the new period. Skipped when the live entitlement is
+                # x402-sourced — a stale invoice must not overwrite the pass.
                 rec = workspace_engine.get_workspace(wid)
-                if rec and rec.get("plan") in workspace_engine.PAID_TIERS:
+                if (rec and rec.get("plan") in workspace_engine.PAID_TIERS
+                        and not _stripe_lifecycle_blocked(wid)):
                     workspace_engine.set_pro_period(
                         wid, float(period_end) if period_end else None,
                         source=event_type, reason=f"billing_reason={reason}")
@@ -636,6 +663,10 @@ def _handle_subscription_lifecycle(event_type: str, event: dict) -> Optional[dic
                 "invoice.payment_failed: no workspace for customer")
             return {"received": True, "grace": False,
                     "reason": "workspace unresolved"}
+        if _stripe_lifecycle_blocked(wid):
+            return {"received": True, "grace": False,
+                    "reason": "live entitlement is x402-sourced",
+                    "workspace_id": wid}
         import workspace_engine
         # Grace must never SHORTEN a period the customer already paid for. If
         # their paid period runs beyond the grace window, the later of the two
@@ -844,6 +875,26 @@ def billing_status(email: str, token: str = ""):
         except Exception:
             continue
     return {"email": email, "plan": "beta", "status": "free_during_beta"}
+
+
+def _has_active_non_pass_entitlement(record: dict) -> bool:
+    """A paid entitlement a 24h x402 pass must not overwrite.
+
+    Only ACTIVE non-pass entitlements count: a live Stripe/RapidAPI/scarcity
+    period is worth more than a 24h window, so the settled payment is honoured
+    without shrinking it. An x402 pass does NOT count — renewing it is the
+    whole point of a repeat payment — and a lapsed subscription does not
+    count either: revoke_pro leaves plan "free" but keeps stripe_customer_id
+    for the index, so keying off that field took a lapsed payer's money and
+    granted nothing.
+    """
+    import workspace_engine
+    if record.get("plan") not in workspace_engine.PAID_TIERS:
+        return False
+    if record.get("pro_period_source") == "x402_pass":
+        return False
+    pro_until = record.get("pro_until")
+    return pro_until is None or time.time() < pro_until
 
 
 @router.post("/v1/billing/checkout")
@@ -1139,14 +1190,20 @@ def x402_billing(request: Request):
     # The pass is renewable: a repeat settlement from a known wallet reaches
     # here with raw_key None (the workspace already existed) and is HONOURED —
     # pass window reset, event logged. The one thing a pass must not do is
-    # overwrite a Stripe subscription with a 24h window, so a workspace that
-    # still carries a Stripe customer keeps its plan.
+    # overwrite an entitlement worth MORE than 24h — a live Stripe or RapidAPI
+    # period — so only an active non-pass entitlement blocks the grant. A
+    # lapsed one does NOT: revoke_pro keeps stripe_customer_id for the index,
+    # and keying off that field alone took a former subscriber's payment and
+    # granted nothing.
     existing = None if raw_key is not None else workspace_engine.get_workspace(workspace_id)
-    if existing and existing.get("stripe_customer_id"):
-        logging.warning("x402 repeat purchase honoured without touching plan: "
-                        "workspace %s already has a Stripe subscription", workspace_id)
+    if existing and _has_active_non_pass_entitlement(existing):
+        logging.warning("x402 purchase honoured without touching plan: "
+                        "workspace %s holds a live %s entitlement",
+                        workspace_id,
+                        existing.get("pro_period_source") or "paid")
     else:
-        workspace_engine.mark_pro(workspace_id, "",
+        workspace_engine.mark_pro(workspace_id,
+                                  (existing or {}).get("stripe_customer_id") or "",
                                   pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
                                   period_source="x402_pass",
                                   tier=x402_verify.x402_pass_tier())
