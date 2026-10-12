@@ -192,6 +192,42 @@ PRODUCTS = {
              "link_annual": "CT_STRIPE_MONITOR_ANNUAL"},
         ],
     },
+    # D-1643. The workbench kit IS live (npm @aiagentscity/setup@0.1.2); the
+    # Pro tier is priced and named but the countersign backend ships on the
+    # first real buyer signal — an operator clicking Reserve IS the demand
+    # trigger. Kind "sub" with a named href keeps the tier's own CTA label
+    # (_cta honors explicit href+cta) instead of pretending a checkout exists.
+    # WB_STRIPE_PRO_LINK is the env-var the real Payment Link lands in —
+    # creating it flips Reserve to checkout with no code change.
+    "workbench": {
+        "name": "Workbench",
+        "free_entry": "/",
+        "tiers": [
+            {"name": "Free", "kind": "free", "price_mo": 0,
+             "blurb": "The audit trail for agent work. Free forever.",
+             "features": ["npx @aiagentscity/setup workbench — one command",
+                          "Scoped write gates on 6 agent harnesses",
+                          "Frame cards + machine-witnessed gate ledger",
+                          "Close receipts, verifiable by anyone",
+                          "Local-only: nothing leaves the machine"],
+             "cta": "Install free", "href": "/"},
+            {"name": "Pro", "kind": "sub", "price_mo": 29, "price_yr": 290,
+             "blurb": "For operators proving agent work to clients. $29/mo.",
+             "features": ["city-attested countersign — hash + timestamp + operator key",
+                          "Hosted verify — your client checks free, forever",
+                          "Evidence retained and owner-addressable",
+                          "x402 single countersign — first free, ~$0.25 after"],
+             "cta": "Reserve Pro — builds on first demand",
+             "href": "/about", "link": "WB_STRIPE_PRO_LINK",
+             "link_annual": "WB_STRIPE_PRO_ANNUAL"},
+            {"name": "Owner", "kind": "custom", "price_mo": 0,
+             "blurb": "For enterprises governing many agent vendors.",
+             "features": ["Evidence rooms across operators",
+                          "Retention policy + exception alerts",
+                          "Vendor-aggregation dashboard"],
+             "cta": "Talk to us", "href": "/about"},
+        ],
+    },
     # D-1404 / item 3.5. AgentLedger had no catalog entry, so /pricing could not be built
     # from the same source as every other product's pricing section. Prices and limits here
     # are NOT invented: they are the exact values already committed in the Terms
@@ -309,6 +345,11 @@ def _cta(tier: dict, free_entry: str) -> tuple:
         return link, tier["cta"], True
     href = tier.get("href") or free_entry
     if kind in ("free", "custom"):
+        label = tier["cta"]
+    elif tier.get("href"):
+        # A tier that names its own destination keeps its own label — used
+        # by priced-but-unlinked tiers whose CTA is honest about the door it
+        # opens (e.g. a reserve path), not a fake "Start free".
         label = tier["cta"]
     else:
         label = "Start free"
