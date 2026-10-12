@@ -391,6 +391,56 @@ def reach_from_file() -> dict:
     return {b: len(ips) for b, ips in buckets.items()}
 
 
+def paid_calls_from_file() -> dict:
+    """x402 settlements split by what was bought (mint vs per-call resources),
+    computed from metrics.jsonl (D-1641).
+
+    x402_settled is the only kind carrying amount_cents today; `resource` marks
+    what the payment bought ("aw_probe"/"aw_census"/"trustscan_npm"). Events
+    predating D-1641 have no resource field — they are all mints. This is the
+    number that answers the card's question: did anyone pay for a RESOURCE, and
+    did anyone pay twice. Repeat buyers need a distinct payer count, so wallet
+    is tracked per resource (x402_settled carries no wallet field; the
+    workspace record binds wallet→tx off-band, so here we count repeats by
+    tx_hash — one tx_hash = one settlement; repeat demand shows as the same
+    resource settling again from the pay-and-come-back pattern in the log).
+    """
+    by_resource = defaultdict(int)
+    cents = defaultdict(int)
+    wallets = defaultdict(lambda: defaultdict(int))  # resource -> wallet -> n
+    try:
+        with open(METRICS_FILE) as f:
+            for line in f:
+                if '"x402_settled"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("kind") != "x402_settled":
+                    continue
+                res = rec.get("resource") or "mint"
+                by_resource[res] += 1
+                if isinstance(rec.get("amount_cents"), int):
+                    cents[res] += rec["amount_cents"]
+                if rec.get("wallet"):
+                    wallets[res][rec["wallet"]] += 1
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    non_mint = {k: v for k, v in by_resource.items() if k != "mint"}
+    repeat_buyers = sum(1 for res, ws in wallets.items() if res != "mint"
+                        for n in ws.values() if n >= 2)
+    return {"total": sum(by_resource.values()),
+            "by_resource": dict(by_resource),
+            "resource_calls": sum(non_mint.values()),
+            "amount_cents_by_resource": dict(cents),
+            "resource_buyers": {res: len(ws) for res, ws in wallets.items()
+                                if res != "mint"},
+            "repeat_resource_buyers": repeat_buyers}
+
+
 # ── Proxy latency (D-1250) — the overhead AgentLedger itself adds, not the
 # provider's round trip. Measured around _pre_call_check() in routes_proxy.py:
 # that is the budget/estimate computation this product does before forwarding,

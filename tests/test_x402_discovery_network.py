@@ -273,6 +273,10 @@ with TestClient(a.app) as c:
         # what the TILL actually charges (x402_verify is the single source of
         # truth; discovery docs now derive from it too).
         "till_amount_atomic": str(x402_verify.x402_mint_price_atomic()),
+        # D-1641: per-call payable resources are a SECOND derived price class.
+        # A declared amount is legal iff it equals one of the configured
+        # prices — anything else is still the drift this guard exists to catch.
+        "resource_amount_atomic": str(x402_verify.x402_resource_price_atomic()),
         "till_price": x402_verify.X402_MINT_PRICE,
         "price_usd": float(str(x402_verify.X402_MINT_PRICE).lstrip("$")),
         "mpp_enabled": bool(getattr(mpp_verify, "MPP_ENABLED", False)) if 'mpp_verify' in sys.modules else False,
@@ -464,10 +468,12 @@ def scan_surface(surface, text, facts, forbidden):
     for addr in sorted(addresses(text) - allowed_addrs):
         bad.append(f"INV-4 {surface}: carries address {addr} which is neither "
                    f"the configured asset nor the configured payTo")
+    allowed_amounts = {facts["till_amount_atomic"],
+                       facts.get("resource_amount_atomic", "")}
     for m in _AMOUNT_DECL.finditer(text):
-        if m.group("v") != facts["till_amount_atomic"]:
+        if m.group("v") not in allowed_amounts:
             bad.append(f"INV-4 {surface}: declares amount {m.group('v')!r} but "
-                       f"the till charges {facts['till_amount_atomic']!r}")
+                       f"the configured prices are {sorted(allowed_amounts)}")
     for m in _NETWORK_DECL.finditer(text):
         if m.group("v") != net:
             bad.append(f"INV-4 {surface}: declares network {m.group('v')!r} but "
@@ -1032,7 +1038,14 @@ def test_both_well_known_spellings_serve_the_fan_out(docs):
     a = json.loads(docs[net]["surfaces"]["/.well-known/x402"])
     b = json.loads(docs[net]["surfaces"]["/.well-known/x402.json"])
     assert a["version"] == 1 and b["version"] == 1
-    assert a["resources"] == b["resources"] == ["POST https://aiagentscity.com/v1/billing/x402"]
+    # the two spellings can never disagree — one function serves both
+    assert a["resources"] == b["resources"]
+    # the mint plus the D-1641 per-call resources are all advertised
+    for res in ("POST https://aiagentscity.com/v1/billing/x402",
+                "POST https://aiagentscity.com/api/x402/agent-watch/probe",
+                "GET https://aiagentscity.com/api/x402/agent-watch/census",
+                "POST https://aiagentscity.com/api/x402/trustscan/npm"):
+        assert res in a["resources"], f"{res} missing from payable resources"
     # the rich challenge detail must survive the addition
     assert a["x402Version"] == 2
     assert a["payTo"].lower() == f["pay_to"].lower()

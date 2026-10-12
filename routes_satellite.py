@@ -289,6 +289,13 @@ def trustscan_npm(req: NpmCheckRequest, request: Request):
         return JSONResponse({"ok": False, "error": "that isn't a valid npm package name"},
                             status_code=422)
 
+    return npm_trust_check(name)
+
+
+def npm_trust_check(name: str):
+    """The package check itself — shared by the free form route and the
+    x402-payable route (D-1641). Caller owns name validation; this returns the
+    response body dict, or a JSONResponse on upstream failure."""
     meta, merr = _get_json(f"{NPM_REGISTRY}/{urllib.parse.quote(name, safe='@/')}",
                            timeout=15)
     if merr == "not_found":
