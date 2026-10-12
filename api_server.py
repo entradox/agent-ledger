@@ -134,6 +134,44 @@ def _augmented_openapi():
                         "pass on a workspace bound to the paying wallet"),
                 },
             }
+        # Per-call payable resources (D-1641): same payable markings as the
+        # mint route — the 402 response + nested x402 payment-info — so
+        # x402scan/indexers catalogue each resource with its own price. Their
+        # request bodies come from the routes' pydantic models for free.
+        for rk, spec in x402_verify.RESOURCE_ROUTES.items():
+            rpath = rk.split(" ", 1)[1]
+            rmethod = rk.split(" ", 1)[0].lower()
+            pop = schema["paths"].get(rpath, {}).get(rmethod)
+            if pop is None:
+                continue
+            pop.setdefault("responses", {})["402"] = {
+                "description": (
+                    "Payment required. The PAYMENT-REQUIRED response header "
+                    "carries the base64url x402 challenge (price, network, "
+                    "asset, payTo, maxTimeoutSeconds)."),
+                "headers": {"PAYMENT-REQUIRED": {
+                    "description": "base64url x402 payment challenge",
+                    "schema": {"type": "string"}}},
+                "content": {"application/json": {"schema": {
+                    "type": "object",
+                    "properties": {"error": {"type": "object"}}}}},
+            }
+            pop["x-payment-info"] = {
+                "x402": {
+                    "protocols": [{"protocol": "x402", "version": 2,
+                                   "scheme": "exact", "network": net}],
+                    "pricingMode": "fixed",
+                    "currency": "USDC",
+                    "amountUnit": "atomic",
+                    "amount": str(x402_verify.x402_resource_price_atomic()),
+                    "asset": asset,
+                    "network": net,
+                    "payTo": pay_to,
+                    "priceUsd": float(str(spec["price"]).lstrip("$")),
+                    "priceDescription": (
+                        f"{spec['price']} USDC per call — {spec['service_name']}"),
+                },
+            }
         # MPP discovery spec: x-service-info is a ROOT-LEVEL OpenAPI document
         # extension (sibling of openapi, info, paths), NOT an info member.
         # Verified against https://mpp.dev/advanced/discovery ("x-service-info …
@@ -180,6 +218,10 @@ app.include_router(proxy_router)
 # and /trust-scan). Read-only, no auth, rate-limited per IP.
 from routes_satellite import router as satellite_router
 app.include_router(satellite_router)
+# Per-call x402-payable bridges to the satellites (D-1641): $0.01 per call,
+# real Base mainnet settlement, same money discipline as the workspace mint.
+from routes_paid import router as paid_router
+app.include_router(paid_router)
 
 @app.exception_handler(HTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
@@ -718,6 +760,14 @@ def get_metrics(request: Request):
     except Exception:
         pass
 
+    # Paid-resource demand read (D-1641): x402 settlements split by what was
+    # bought — mint vs per-call resource — plus distinct + repeat buyers.
+    paid_calls = {}
+    try:
+        paid_calls = metrics.paid_calls_from_file()
+    except Exception:
+        pass
+
     # The connect funnel (D-1626): page-render attempt id → registered, per
     # harness. File-scan; empty dict is fine when nothing has reported yet.
     setup_funnel = {}
@@ -737,6 +787,7 @@ def get_metrics(request: Request):
         "setup_connect_funnel": setup_funnel,
         "funnel": funnel,
         "checkout_funnel": checkout_funnel,
+        "x402_paid_calls": paid_calls,
         "reach": reach,
         "agents": {
             "claimed": claimed_agent_count(),
@@ -928,6 +979,18 @@ POST /v1/billing/x402              — self-serve workspace minting for an agent
                                       {X402_SETTLEMENT}
                                       Use POST /start instead if you have no wallet
                                       (GET /start only renders the form).
+
+Payable resources (x402, per-call — no workspace needed, the payment IS the
+request; discovery metadata at /.well-known/x402):
+POST /api/x402/agent-watch/probe   — {url} → MCP/agent endpoint probe: liveness,
+                                      latency, tool count, auth metadata,
+                                      price-challenge detection. Real MCP
+                                      initialize handshake, not a ping.
+GET  /api/x402/agent-watch/census  — agent-economy census: how many known agent/
+                                      MCP endpoints are alive, dead or unknown.
+POST /api/x402/trustscan/npm       — {package} → npm trust verdict: typosquat
+                                      screen, deprecation, age, maintainers,
+                                      weekly downloads, source link.
 GET  /start                        — renders the start form (no signup, no login);
                                       does NOT mint. POST /start mints one and
                                       shows the workspace_key once.
@@ -985,6 +1048,9 @@ Connect:  npx @aiagentscity/setup ledger — one command; detects claude-code,
           codex, cursor, opencode, hermes and openclaw, registers the MCP the
           right way for each, and installs the vendored skill
           (manual: claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/)
+Workbench: npx @aiagentscity/setup workbench — local governance kit, not an
+          MCP: ~/.workbench + `wb` CLI, frame-card pre-write gates wired into
+          your harness, hashed close receipts. Runs fully offline.
 
 Tools exposed at POST /mcp/ (v0.4.7, 18):
   ledger_check_spend    : ask before spending: allowed + reason + headroom (read-only; agent_secret or workspace_key)
@@ -2008,7 +2074,23 @@ def x402_wellknown_json():
     # rest of this document already carried.
     content = {
         "version": 1,
-        "resources": ["POST https://aiagentscity.com/v1/billing/x402"],
+        "resources": (
+            ["POST https://aiagentscity.com/v1/billing/x402"]
+            + [f"{rk.split(' ', 1)[0]} https://aiagentscity.com{rk.split(' ', 1)[1]}"
+               for rk in x402_verify.RESOURCE_ROUTES]
+        ),
+        # Per-call payable resources (D-1641): same rail, same pay_to — the
+        # fields a paying agent needs per route without parsing llms.txt.
+        "perCall": [
+            {"route": rk.split(" ", 1)[1],
+             "method": rk.split(" ", 1)[0],
+             "priceUsd": float(str(spec["price"]).lstrip("$")),
+             "network": _x402_network(),
+             "asset": _x402_asset(),
+             "payTo": _x402_pay_to(),
+             "description": spec["description"]}
+            for rk, spec in x402_verify.RESOURCE_ROUTES.items()
+        ],
         "x402Version": 2,
         "enabled": enabled,
         "scheme": "exact",

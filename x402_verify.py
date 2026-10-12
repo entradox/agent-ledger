@@ -90,6 +90,65 @@ if X402_TRIAL_GRANT not in ("unlimited", "starter"):
 # and resets the pass window (routes_billing.x402_billing).
 X402_PAID_PATH = "/v1/billing/x402"
 
+# ── Per-call payable resources (D-1641) ──────────────────────────────────────
+# The traffic that actually pays here is the x402/agent-commerce fleet — it
+# finds payable routes via /.well-known/x402 + llms.txt and pays PER CALL for a
+# resource, not for a workspace mint. These routes sell the satellites'
+# per-call work at the city layer. Flat $0.01 for the first live week: it
+# matches the observed willingness-to-pay, and the point of week one is
+# measuring repeat paid calls (demand), not revenue size.
+X402_RESOURCE_PRICE = os.environ.get("X402_RESOURCE_PRICE", "$0.01")
+
+RESOURCE_ROUTES: dict = {
+    "POST /api/x402/agent-watch/probe": {
+        "price": X402_RESOURCE_PRICE,
+        "description": "Probe an MCP/agent endpoint: liveness, latency, tool "
+                       "count, auth metadata, price-challenge detection. Real "
+                       "MCP initialize handshake, not a ping.",
+        "service_name": "Agent Watch",
+        "tags": ["mcp", "monitoring", "liveness", "agent-economy"],
+        "bazaar_in": {"type": "http", "method": "POST", "bodyType": "json",
+                      "body": {"url": "https://example.com/mcp"}},
+        "bazaar_out": {"type": "json", "example": {
+            "ok": True,
+            "result": {"alive": True, "tool_count": 8, "latency_p50_ms": 120}}},
+    },
+    "GET /api/x402/agent-watch/census": {
+        "price": X402_RESOURCE_PRICE,
+        "description": "Agent-economy census snapshot: how many known agent/"
+                       "MCP endpoints are alive, dead or unknown right now.",
+        "service_name": "Agent Watch",
+        "tags": ["mcp", "census", "agent-economy", "data"],
+        "bazaar_in": {"type": "http", "method": "GET"},
+        "bazaar_out": {"type": "json", "example": {
+            "ok": True, "census": {"total": 0, "alive": 0, "dead": 0,
+                                   "unknown": 0, "pct_alive": 0}}},
+    },
+    "POST /api/x402/trustscan/npm": {
+        "price": X402_RESOURCE_PRICE,
+        "description": "Trust check an npm package before an agent installs "
+                       "it: typosquat screen, deprecation, package age, "
+                       "maintainers, weekly downloads, source link.",
+        "service_name": "TrustScan",
+        "tags": ["security", "npm", "supply-chain", "agent-economy"],
+        "bazaar_in": {"type": "http", "method": "POST", "bodyType": "json",
+                      "body": {"package": "express"}},
+        "bazaar_out": {"type": "json", "example": {
+            "ok": True, "found": True, "package": "express",
+            "summary": "established package"}},
+    },
+}
+
+
+def x402_resource_price_atomic(decimals: int = 6) -> int:
+    """The configured per-call resource price in atomic units."""
+    raw = str(X402_RESOURCE_PRICE).lstrip("$")
+    try:
+        return int(round(float(raw) * (10 ** decimals)))
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"X402_RESOURCE_PRICE={X402_RESOURCE_PRICE!r} is not a valid price")
+
 
 def x402_pass_tier() -> str:
     """The workspace tier the pass is granted as ("pro" = unlimited)."""
@@ -244,6 +303,27 @@ def _init():
                 extensions={"bazaar": bazaar_ext},
             ),
         }
+        # Per-call payable resources (D-1641): same pay_to/network/facilitator
+        # as the mint, per-route price + bazaar input/output so discovery
+        # indexes each resource with its real shape.
+        for res_key, spec in RESOURCE_ROUTES.items():
+            routes[res_key] = RouteConfig(
+                accepts=PaymentOption(
+                    scheme="exact",
+                    pay_to=X402_PAY_TO,
+                    price=spec["price"],
+                    network=X402_NETWORK,
+                    max_timeout_seconds=60,
+                ),
+                description=spec["description"],
+                service_name=spec["service_name"],
+                tags=spec["tags"],
+                extensions={"bazaar": {
+                    "info": {"input": spec["bazaar_in"],
+                             "output": spec["bazaar_out"]},
+                    "schema": dict(_BAZAAR_DISCOVERY["schema"]),
+                }},
+            )
         server = x402HTTPResourceServerSync(core, routes)
         init_res = core.initialize()
         if hasattr(init_res, "result") and init_res.result is False:
@@ -357,12 +437,17 @@ def _payer_from_payload(payment_payload) -> str | None:
     return None
 
 
-def verify_payment(request) -> dict:
+def verify_payment(request, route_key: str = ROUTE_KEY) -> dict:
     """Verify + settle the x402 payment carried on `request`.
 
     Takes the full FastAPI/Starlette Request (not just the X-PAYMENT header
     string) because the SDK needs method/path/URL/headers to build the
     payment requirements it advertises in a 402.
+
+    `route_key` selects which registered RouteConfig prices the call — the mint
+    route by default, a RESOURCE_ROUTES key for the per-call paid resources
+    (D-1641). The ONE-TRIAL-PER-WALLET check only applies to the mint route:
+    a paid resource must be re-payable, that repeat call IS the demand signal.
 
     Returns a dict with the contract the route already consumes:
 
@@ -397,7 +482,7 @@ def verify_payment(request) -> dict:
         # payment that this route silently never looked for.
         payment_header=(request.headers.get("payment-signature")
                         or request.headers.get("x-payment")),
-        route_pattern=ROUTE_KEY,
+        route_pattern=route_key,
     )
     outcome = resource_server.process_http_request(ctx)
     if outcome.response is not None:
