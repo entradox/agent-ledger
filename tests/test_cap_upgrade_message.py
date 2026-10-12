@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Guards the upgrade path the product advertises to a user who hits the free-tier cap.
 
-Why this file exists: the `BetaCapExceededError` message shipped the BARE Stripe link.
-`routes_billing.py` only calls `mark_pro()` when the Stripe session carries
-`client_reference_id`, and a bare link carries none — so a user who followed the
-product's own instructions paid $19 and stayed capped at 3 agents. No test covered
-this message, so the suite never caught it (Morgan found it during an article review).
+Why this file exists: the `BetaCapExceededError` message once shipped a Stripe link
+that could charge a card and upgrade nothing — a user who followed the product's own
+instructions paid $19 and stayed capped at 3 agents. Blueprint v2 (2026-10-11) then
+removed the human checkout entirely, so the contract this file pins is now:
 
-These tests drive the real HTTP surface a customer hits (`POST /v1/track`) and pin the
-402 body to a link that CAN upgrade: it must carry the workspace's own
-`client_reference_id`.
+  * the 402 names the only paid path that exists — POST /v1/billing/x402 —
+    and the honest caveat that the pass binds to the wallet's workspace
+  * no buy.stripe.com link can appear: the human door is retired, so any
+    Stripe URL here is a charge-nobody-can-collect lie
+
+These tests drive the real HTTP surface a customer hits (`POST /v1/track`).
 
 Run with: /opt/miniconda3/bin/python3 -m pytest tests/test_cap_upgrade_message.py -q
 """
@@ -33,8 +35,6 @@ def client(monkeypatch):
     monkeypatch.setenv("AGENT_LEDGER_DATA", tmp_dir)
     monkeypatch.setenv("AL_ADMIN_SECRET", "test-admin-secret")
     monkeypatch.delenv("AL_PRO_ACTIVE", raising=False)
-    # pin the payment link so the assertion does not depend on a real Stripe URL
-    monkeypatch.setenv("AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/test_link")
 
     for mod in ("api_server", "ledger_engine", "metrics", "al_mcp_http", "routes_agents"):
         sys.modules.pop(mod, None)
@@ -79,48 +79,31 @@ def _overflow_message(tc, ws_key):
     return r.json()
 
 
-def test_cap_402_advertises_a_workspace_bound_link(client):
-    """The upgrade link in the 402 body must carry THIS workspace's reference."""
-    tc, workspace_id, ws_key, workspace_engine = client
-    _fill_to_cap(tc, ws_key, workspace_engine)
-    payload = _overflow_message(tc, ws_key)
-
-    message = str(payload)
-    assert "client_reference_id=" in message, (
-        "the cap response must give a workspace-bound checkout link; without "
-        "client_reference_id the webhook skips mark_pro() and the customer pays "
-        "without being upgraded"
-    )
-    assert workspace_id in message, (
-        "the link must reference THIS workspace, not an empty or placeholder id"
-    )
-
-
-def test_cap_402_also_advertises_the_x402_pass(client):
-    """The cap response must also offer the no-human x402 path (D-1270): an
-    agent that hits this wall should be able to act on the SAME response
-    without a browser or a card, not just be told a human upgrade exists."""
+def test_cap_402_names_the_agent_rail_and_the_wallet_caveat(client):
+    """The 402 must hand the agent a machine-payable path (D-1270) — and be
+    honest that the pass binds to the paying wallet's workspace, which is a
+    DIFFERENT workspace from a free one minted via /start."""
     tc, _, ws_key, workspace_engine = client
     _fill_to_cap(tc, ws_key, workspace_engine)
     message = str(_overflow_message(tc, ws_key))
 
     assert "/v1/billing/x402" in message, (
-        "the cap response should hand the agent a machine-payable option, not "
-        "only a Stripe link a human has to click"
-    )
+        "the cap response must hand the agent the only paid path that exists")
+    assert "wallet" in message.lower(), (
+        "the caveat that the pass binds to the wallet's workspace — possibly a "
+        "different one — must be stated, not implied")
     import x402_verify
     assert x402_verify.X402_MINT_PRICE in message
 
 
-def test_cap_402_never_ships_a_bare_payment_link(client):
-    """Any buy.stripe.com URL in the cap response must be bound to the workspace."""
+def test_cap_402_never_ships_a_stripe_link(client):
+    """The human door is retired: any buy.stripe.com URL here is a link that
+    charges a card and upgrades nothing."""
     tc, _, ws_key, workspace_engine = client
     _fill_to_cap(tc, ws_key, workspace_engine)
     message = str(_overflow_message(tc, ws_key))
 
     urls = re.findall(r"https://buy\.stripe\.com/\S*", message)
-    assert urls, "expected the cap response to point at an upgrade path"
-    for url in urls:
-        assert "client_reference_id=" in url, (
-            f"bare (non-binding) payment link shipped in the cap response: {url}"
-        )
+    assert not urls, (
+        f"Stripe payment link(s) shipped in the cap response on a domain with "
+        f"no human checkout: {urls}")

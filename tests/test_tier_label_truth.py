@@ -1,16 +1,14 @@
-"""Every customer-facing surface must name the $19 tier "Starter", not "Pro".
+"""Every customer-facing surface must name the paid ladder honestly.
 
-The paid ladder is: free (3 agents) -> $19 "Starter" (10) -> $79 "Team" (50). The x402
-pass is the only thing that grants unbounded agents, and it is a 24h pass, not a plan.
+Blueprint v2 (2026-10-11) removed the human paid tiers ($19 Starter / $79 Team)
+entirely: the only paid path is the agent's own x402 Pro pass. The label war this
+file was written for — "$19 Pro" promising unlimited agents — can no longer exist
+because the tier cannot; these tests now pin that no surface resurrects it, and
+that the surfaces which used to name the $19 tier name the rail instead.
 
-The $19 tier was repeatedly mislabelled "Pro" on customer-facing surfaces, and "Pro" in
-this product genuinely means the unbounded x402 pass — so the wrong label promised
-unlimited agents for a $19 subscription that grants 10. Three separate surfaces carried
-it: the dashboard upgrade button, the llms.txt upgrade line, and the pricing explainer.
-
-These tests read the source of truth rather than a rendered page so they run without a
-server. They deliberately do NOT forbid the word "Pro" — it is correct for the x402 pass
-and for the retired scarcity grant. They forbid it only where it labels the $19 tier.
+They deliberately do NOT forbid the word "Pro" — it is correct for the x402 pass
+and for the retired scarcity grant. They forbid it only where it labels a human
+monthly tier, and they forbid the human tiers themselves on buy surfaces.
 """
 
 import os
@@ -83,21 +81,27 @@ def test_no_surface_labels_the_19_tier_as_pro():
         + "; ".join(problems))
 
 
-def test_19_tier_is_called_starter_where_it_is_named():
-    """The dashboard button must name the tier the customer is buying."""
+def test_the_dashboard_names_the_rail_not_a_human_tier():
+    """The upgrade control on the dashboard must point at the only paid path."""
     src = _read("routes_workspace.py")
-    assert "Upgrade to Starter — $19/mo" in src
+    assert "Upgrade to Starter" not in src, "the $19 human tier is back on the dashboard"
+    assert "$19" not in src, "a human monthly price is on the dashboard"
+    assert "x402" in src, "the agent rail disappeared from the dashboard pay door"
 
 
-def test_llms_upgrade_line_states_the_agent_cap():
-    """An agent reading llms.txt must not be told $19 buys unlimited agents."""
+def test_llms_upgrade_copy_names_the_agent_rail():
+    """An agent reading llms.txt must find the rail it can actually pay."""
     src = _read("api_server.py")
-    assert "$19/mo Starter, up to 10 agents" in src, (
-        "the llms.txt upgrade path must state the real agent cap")
+    assert "$19/mo Starter" not in src, (
+        "the llms.txt upgrade path advertises a monthly plan that cannot be bought")
+    assert "/v1/billing/x402" in src
 
 
 def test_only_the_x402_pass_is_described_as_unlimited():
-    """'unlimited' must never attach to a monthly plan."""
+    """'unlimited' attaches to the pass — and to nothing sold to a human."""
     src = _read("api_server.py")
-    # The known-good description of the ladder, which gets this right.
-    assert "Only the x402 Pro pass is unlimited" in src
+    assert "unlimited agents on the workspace" in src, (
+        "the x402 pass lost its 'unlimited agents' description")
+    # No human monthly tier may claim anything on this domain.
+    for zombie in ("$19/mo Starter", "$79/mo Team", "billed through Stripe"):
+        assert zombie not in src, f"the retired human tier {zombie!r} is back"

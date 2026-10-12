@@ -268,9 +268,9 @@ def fulfill_paid_session(sess: dict, *, source: str) -> dict:
     # silently downgraded and had their agent cap cut.
     #
     # The guard lives HERE, at the amount→tier derivation, and deliberately NOT in
-    # mark_pro(). mark_pro() is also the x402 day-pass grant, where a deliberate
+    # mark_pro(). mark_pro() is also the x402 pass grant, where a deliberate
     # Starter cap IS the design (X402_TRIAL_GRANT) — putting the guard there broke
-    # the one-trial pass and its two tests. The amount table is the only caller that
+    # that path and its tests. The amount table is the only caller that
     # cannot tell "bought a smaller seat" from "already a bigger customer", so it is
     # the only caller that needs the protection.
     #
@@ -848,88 +848,20 @@ def billing_status(email: str, token: str = ""):
 
 @router.post("/v1/billing/checkout")
 def create_checkout(request: Request):
-    """Checkout URL for an existing workspace, authenticated by its own
-    workspace_key.
+    """Gone — the human Stripe checkout door was removed (blueprint v2, 2026-10-11).
 
-    Re-keyed off the retired Google session (D-1162). The old version read an
-    `al_session` cookie, which meant the product's only human purchase path
-    required a login that the deployment could not serve — and it needed
-    STRIPE_API_KEY / AL_STRIPE_PRICE_ID, neither of which was set, so the
-    route could never have worked here.
-
-    No Stripe secret is needed: the URL is the existing live payment link
-    with client_reference_id appended. Stripe echoes that value back on
-    checkout.session.completed (docs.stripe.com/payment-links/url-parameters),
-    which is exactly the field this module's webhook reads to call
-    workspace_engine.mark_pro(). No API key, no session, no Google.
-
-    `?plan=team` selects the Team payment link (AL_STRIPE_TEAM_LINK); anything
-    else uses the Starter link. The webhook grants the tier by settled amount,
-    so the link and the amount table must agree.
+    x402 is now the only paid path on the domain. 410 (not 404): the route
+    existed, callers in the wild may still hold it, and a typed envelope that
+    names the replacement is more useful than a bare missing route. The Stripe
+    webhook stays wired — a checkout that was already in flight when this
+    shipped can still complete and must still be honoured.
     """
-    import identity
-    workspace_id = (request.headers.get("x-workspace-id") or "").strip()
-    raw_key = (request.headers.get("x-workspace-key") or "").strip()
-    if not workspace_id or not raw_key:
-        raise HTTPException(401, detail=error_envelope(
-            401, "send the workspace's own credentials as X-Workspace-Id and "
-                 "X-Workspace-Key (mint a workspace at POST /start, or by paying "
-                 "at POST /v1/billing/x402)",
-            code="workspace_key_required"))
-    if identity.resolve_workspace_key(raw_key) != workspace_id:
-        raise HTTPException(401, detail=error_envelope(
-            401, "workspace_key does not match that workspace_id",
-            code="agent_secret_mismatch"))
-    starter = os.environ.get("AL_STRIPE_PAYMENT_LINK",
-                             "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
-    plan = (request.query_params.get("plan") or "").strip().lower()
-    team_link = (os.environ.get("AL_STRIPE_TEAM_LINK") or "").strip()
-    if plan == "team" and not team_link:
-        # MEASURED LIVE 2026-09-24: `?plan=team` returned the $19 Starter link with
-        # plan="starter". The label was honest, but the CALLER had explicitly asked
-        # for Team, and a machine that sends plan=team and receives 200 reasonably
-        # reads that as "Team bought" — then delivers a $79 entitlement it did not
-        # pay for. The old code could not tell "asked for Team" from "asked for
-        # nothing", so it sold the cheaper plan under the pricier name.
-        #
-        # Refuse instead of silently substituting: a wrong charge is far worse than
-        # a failed call. 409 (not 402): the caller's request conflicts with this
-        # deployment's configuration, and no payment will fix it — the Team link
-        # does not exist here.
-        raise HTTPException(409, detail=error_envelope(
-            409, "Team ($79/mo) is not configured on this deployment, and this "
-                 "endpoint will not sell the $19 Starter link under a Team "
-                 "request. Use plan=starter, or ask a human to set up Team at "
-                 "/about.",
-            code="plan_not_available"))
-    if plan == "team":
-        link, plan = team_link, "team"
-    else:
-        link, plan = starter, "starter"
-    return {"checkout_url": f"{link}?client_reference_id={workspace_id}",
-            "workspace_id": workspace_id, "plan": plan}
-
-
-
-def _trial_refusal(err) -> "HTTPException":
-    """The typed refusal for a wallet that already bought its one-time trial.
-
-    Raised before settlement, so the message can truthfully say nothing was
-    charged. 403, not 402: 402 means "pay me", and an agent that reads it
-    would just pay again and hit the same wall.
-    """
-    import x402_verify
-    from ledger_engine import error_envelope
-    return HTTPException(403, detail=error_envelope(
-        403, "this wallet has already used its one-time trial pass, so this "
-             "payment was refused and you were NOT charged. To keep going, "
-             f"subscribe to a monthly plan: POST "
-             f"{x402_verify.X402_TRIAL_PAID_PATH} with your X-Workspace-Id and "
-             "X-Workspace-Key returns a Stripe link a human opens to pay. "
-             "(POST /start?plan=starter is the HUMAN door — it mints a free "
-             "workspace and does not subscribe, so do not rely on it.)",
-        error_type="permission_error", code="x402_trial_already_used",
-        param="wallet"))
+    raise HTTPException(410, detail=error_envelope(
+        410, "this endpoint is retired — the human checkout door no longer "
+             "exists on this domain. The only paid path is POST "
+             "/v1/billing/x402: an x402 payment buys a renewable 24h Pro pass "
+             "and the paying wallet becomes the workspace identity.",
+        code="endpoint_retired"))
 
 
 @router.post("/v1/billing/x402")
@@ -947,12 +879,11 @@ def x402_billing(request: Request):
       re-expose it to anyone who can name the tx_hash. Same precedent as
       /v1/track and /v1/budget, which strip the minted agent_secret from
       their cached payloads for the same reason.
-    - The $0.01 pass is a ONE-TIME trial per wallet. A second purchase from a
-      known wallet is refused BEFORE settlement (403 x402_trial_already_used,
-      nothing charged) by x402_verify.verify_payment. If two purchases race past
-      that check and both settle, the second is honoured: it resolves to the
-      wallet's existing workspace with workspace_key: null (the key was already
-      issued and only its hash is stored) and nothing is invalidated.
+    - The $0.01 pass is RENEWABLE (blueprint v2, 2026-10-11 — x402 is the only
+      paid path on the domain). A second purchase from a known wallet resolves
+      to its existing workspace with workspace_key: null (the key was already
+      issued and only its hash is stored), grants a fresh pass window, and
+      nothing is invalidated.
     """
     from ledger_engine import (idempotency_begin, idempotency_store,
                                idempotency_release, error_envelope,
@@ -993,11 +924,6 @@ def x402_billing(request: Request):
                 "support and it will be reconciled",
                 error_type="payment_outcome_unknown",
                 code="mpp_settlement_outcome_unknown"))
-        except x402_verify.TrialAlreadyUsed as repeat:
-            # Refused BEFORE settlement (verify_payment checks the payer named
-            # in the signed payload) — nothing was charged, and falling through
-            # to the generic "payment required" answer would invite a retry.
-            raise _trial_refusal(repeat)
         except Exception as mpp_err:  # noqa: BLE001
             # Fall through to x402 path if the MPP credential cannot be
             # verified, so a client using x402 headers is not broken.
@@ -1060,8 +986,6 @@ def x402_billing(request: Request):
     else:
         try:
             result = x402_verify.verify_payment(request)
-        except x402_verify.TrialAlreadyUsed as repeat:
-            raise _trial_refusal(repeat)
         except x402_verify.X402Unavailable as e:
             # Path A: even when x402 itself is unavailable (e.g. mainnet without CDP
             # creds), emit the MPP challenge if MPP is configured, so MPP-only
@@ -1212,22 +1136,20 @@ def x402_billing(request: Request):
     # buys its own 24h window — paying again resets the clock forward rather
     # than stacking, which matches "buy a day pass" rather than "bank time."
     #
-    # ONE TRIAL PER WALLET is enforced in x402_verify.verify_payment, before
-    # settlement. Reaching here with raw_key None means this wallet ALREADY had a
-    # workspace: two purchases raced past that check and both settled. The money
-    # has moved, so it is HONOURED — pass extended, event logged — never refused
-    # after the fact (taking payment and granting nothing is the worst outcome).
-    # The one thing it must not do is overwrite a Stripe subscription with a 24h
-    # pass, so a workspace that already carries a Stripe customer keeps its plan.
+    # The pass is renewable: a repeat settlement from a known wallet reaches
+    # here with raw_key None (the workspace already existed) and is HONOURED —
+    # pass window reset, event logged. The one thing a pass must not do is
+    # overwrite a Stripe subscription with a 24h window, so a workspace that
+    # still carries a Stripe customer keeps its plan.
     existing = None if raw_key is not None else workspace_engine.get_workspace(workspace_id)
     if existing and existing.get("stripe_customer_id"):
-        logging.warning("x402 repeat trial honoured without touching plan: "
+        logging.warning("x402 repeat purchase honoured without touching plan: "
                         "workspace %s already has a Stripe subscription", workspace_id)
     else:
         workspace_engine.mark_pro(workspace_id, "",
                                   pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
                                   period_source="x402_pass",
-                                  tier=x402_verify.x402_trial_tier())
+                                  tier=x402_verify.x402_pass_tier())
 
     # amount is USDC atomic units (6 decimals) on the settlement the SDK
     # verified against — convert to cents for the same amount_cents field
@@ -1247,10 +1169,9 @@ def x402_billing(request: Request):
         # Same wallet, a later real payment — resolved to its existing
         # workspace and just extended/renewed the Pro window.
         metrics.record_onboarding("x402_repeat_paid", workspace_id, **event_kwargs)
-        logging.warning("x402 trial race honoured: wallet %s bought a second "
-                        "$0.01 pass (tx %s) that settled before the one-trial "
-                        "check could see the first; workspace %s extended",
-                        wallet, tx_hash, workspace_id)
+        logging.info("x402 repeat purchase honoured: wallet %s bought another "
+                     "$0.01 pass (tx %s); workspace %s window reset",
+                     wallet, tx_hash, workspace_id)
 
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
     if raw_key is None:

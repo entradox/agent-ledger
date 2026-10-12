@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="AgentLedger gives every AI agent a spending limit. Meter every call, see a live P&L per agent, and refuse a call that would cross the budget before the provider is contacted. $19/workspace.">
+<meta name="description" content="AgentLedger gives every AI agent a spending limit. Meter every call, see a live P&L per agent, and refuse a call that would cross the budget before the provider is contacted. Free for 3 agents; Pro is a $0.01 x402 pass the agent buys itself.">
 <title>AgentLedger — Spending limits for AI agents · AI Agent City</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--b:#30363d;--g:#D4AF37;--t:#e6edf3;--m:#8b949e;--grn:#3fb950;--blu:#79c0ff;--red:#f85149}
@@ -207,8 +207,8 @@ client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID", agent_secret="as_.
 <div class="card">
   <p>Trace tools answer <i>"what did my agent do?"</i> — $39/seat (LangSmith), $79/mo
   (Helicone), $249/mo (Braintrust). They bill per seat or per trace, and <b>none of them
-  stop the $401st call</b>. AgentLedger starts at $19 per workspace, flat, and its unit of
-  accounting is the agent.
+  stop the $401st call</b>. AgentLedger is free for up to 3 agents per workspace, and the
+  agent itself can buy more over x402 — no human in the loop.
   <a class="plain" href="/compare">Full comparison, with dated prices →</a></p>
 </div>
 
@@ -238,7 +238,8 @@ client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID", agent_secret="as_.
 </div>
 
 <h2 id="pricing">Pricing</h2>
-<div class="billed"><button class="on" onclick="pzAL(false)">Monthly</button><button onclick="pzAL(true)">Annual · 2 months free</button></div>
+<p style="font-size:13px;color:var(--m);margin:0 0 10px">Two tiers, one paid path — the
+agent's own rail. There is no human checkout on this domain.</p>
 <div class="price">
   <div class="plan">
     <h3>Free</h3>
@@ -254,65 +255,35 @@ client = agentledger.wrap(OpenAI(), agent_id="YOUR_AGENT_ID", agent_secret="as_.
     <a class="btn" href="/start">Get a workspace →</a>
   </div>
   <div class="plan pro">
-    <h3>Starter</h3>
-    <div class="amt"><span class="pz-amt" data-mo="$19" data-yr="$190">$19</span><span class="per" style="font-size:13px;font-weight:400;color:var(--m)">/mo</span></div>
+    <h3>Pro pass — agent rail</h3>
+    <div class="amt">__X402_PRICE__<span class="per" style="font-size:13px;font-weight:400;color:var(--m)"> USDC / 24h</span></div>
     <ul>
-      <li>Up to 10 agents per workspace</li>
+      <li>Unlimited agents on the wallet's workspace</li>
       <li>Everything in Free</li>
-      <li>Webhooks with retries</li>
-      <li>Shareable report links</li>
-      <li>Same workspace, same key — no migration</li>
-      <li>Flat per workspace — never per seat</li>
+      <li>Bought by the agent itself over x402 — no account, card, or human</li>
+      <li>Renewable: every payment buys a fresh 24h window</li>
+      <li>Network: the Base network (<code>__X402_NETWORK__</code>), paid in USDC</li>
     </ul>
-    <a class="btn" href="/start?plan=starter">Get Starter →</a>
-  </div>
-  <div class="plan pro">
-    <h3>Team</h3>
-    <div class="amt"><span class="pz-amt" data-mo="$79" data-yr="$790">$79</span><span class="per" style="font-size:13px;font-weight:400;color:var(--m)">/mo</span></div>
-    <ul>
-      <li>Up to 50 agents per workspace</li>
-      <li>Everything in Starter</li>
-      <li>Audit log</li>
-      <li>Priority support</li>
-      <li>Cancel any time</li>
-    </ul>
-    <a class="btn" href="/start?plan=team">Get Team →</a>
-  </div>
-  <div class="plan">
-    <h3>Enterprise</h3>
-    <div class="amt">Custom</div>
-    <ul>
-      <li>Priced on spend under management</li>
-      <li>SLA + dedicated support</li>
-      <li>Annual contract, invoicing</li>
-    </ul>
-    <a class="btn" href="mailto:entradox@icloud.com?subject=AgentLedger%20Enterprise">Contact us →</a>
+    <a class="btn" href="/.well-known/x402.json">Payment spec →</a>
   </div>
 </div>
-<p style="font-size:12px;color:var(--m);margin-top:10px">Already have a workspace_key? Post it to <code>/v1/billing/checkout</code> (add <code>?plan=team</code> for Team) and the upgrade link is built for that workspace. Running as an agent with a wallet? <code>POST /v1/billing/x402</code> buys a 24h Pro pass for $0.01 — no human in the loop.</p>
-<p style="font-size:12px;color:var(--m);margin-top:8px">Prices in USD. Cancel any time — subscriptions end at the close of the billing period. Refund eligibility: first paid purchase refundable within 14 days — <a href="/terms#refunds">see the refund policy</a>.</p>
+<p style="font-size:12px;color:var(--m);margin-top:10px">The only paid path is
+<code>POST /v1/billing/x402</code> with a signed x402 payment — the paying wallet becomes
+the workspace identity. There is no monthly plan, no card form, and no human checkout.</p>
+<p style="font-size:12px;color:var(--m);margin-top:8px">Prices in USD. Free never expires.
+Pass purchases are final once settled and do not auto-renew — <a href="/terms#refunds">see the refund policy</a>.</p>
 <div style="border:1px solid var(--line,#e5e5e5);border-radius:10px;padding:14px 16px;margin-top:14px;font-size:13px;line-height:1.6">
-  <b>Buying for an agent?</b><br>
-  An agent with a Base wallet can purchase a 24-hour AgentLedger Pro pass for
-  <b>$0.01 USDC</b> through x402. No account, card form, or human checkout is
-  required — the paying wallet becomes the workspace identity. Human teams can
-  still use the standard monthly plans above.
+  <b>Buying as an agent?</b><br>
+  An agent with a wallet purchases a renewable 24-hour AgentLedger Pro pass for
+  <b>__X402_PRICE__ USDC</b> through x402. No account, card form, or human checkout is
+  required — the paying wallet becomes the workspace identity.
   <ul style="margin:8px 0 0 18px;padding:0">
     <li><b>What it gets:</b> full Pro access — <b>unlimited agents</b> on the workspace the wallet resolves to.</li>
-    <li><b>How long:</b> 24 hours from settlement.</li>
+    <li><b>How long:</b> 24 hours from settlement — renewable by paying again.</li>
     <li><b>Network and token:</b> the <b>Base</b> network (<code>__X402_NETWORK__</code>), paid in <b>USDC</b>.</li>
-    <li><b>Renewal:</b> it does <b>not</b> renew automatically — continued access requires another payment.</li>
     <li><b>Format:</b> see <a href="/.well-known/x402.json">/.well-known/x402.json</a> for the request and response shape.</li>
   </ul>
 </div>
-<script>
-function pzAL(annual){
-  document.querySelectorAll('.pz-amt').forEach(function(el){el.textContent = annual ? el.dataset.yr : el.dataset.mo;});
-  document.querySelectorAll('.per').forEach(function(p){p.textContent = annual ? '/yr' : '/mo';});
-  var bs = document.querySelectorAll('.billed button');
-  if(bs.length===2){bs[0].classList.toggle('on',!annual);bs[1].classList.toggle('on',annual);}
-}
-</script>
 
 <div class="trust">
   <a href="/about">An AI Agent City product</a>

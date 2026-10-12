@@ -156,9 +156,10 @@ def _backfill_wallet_index() -> None:
 
     Before normalization the by_wallet index was keyed by the address exactly as
     the settlement returned it (usually checksummed). A lookup by the lowercase
-    address the signed payload carries would miss those workspaces, so a wallet
-    that already bought its trial could buy it again. Runs once per process per
-    data dir; only ADDS index entries, never rewrites or removes one.
+    address the signed payload carries would miss those workspaces — and today
+    that means a paying wallet would mint a DUPLICATE workspace on its second
+    purchase instead of renewing the one it already owns. Runs once per process
+    per data dir; only ADDS index entries, never rewrites or removes one.
     """
     global _wallet_index_backfilled_for
     if _wallet_index_backfilled_for == DATA_DIR:
@@ -181,18 +182,6 @@ def get_workspace_by_wallet(wallet_address: str) -> Optional[dict]:
 
 def get_workspace_by_rapidapi_user(rapidapi_user: str) -> Optional[dict]:
     return _lookup_by_index("by_rapidapi_user", rapidapi_user)
-
-
-def wallet_has_used_trial(wallet_address: str) -> bool:
-    """True when this wallet already bought its one-time $0.01 x402 trial.
-
-    A wallet-bound workspace is only ever created by a SETTLED x402 payment
-    (create_workspace(wallet_address=...) has exactly one caller: the x402
-    route, after settlement), so the workspace's existence IS the record that
-    the trial was bought. No second flag to drift out of step with it, and no
-    schema change: this is the existing workspace file plus its by_wallet index.
-    """
-    return get_workspace_by_wallet(wallet_address) is not None
 
 
 def create_workspace(*, owner_email: Optional[str] = None,

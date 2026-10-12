@@ -89,7 +89,9 @@ def test_post_start_mints_and_shows_the_key_once(client):
         re.search(r"wk_live_[A-Za-z0-9_\-]+", r.text).group(0)
 
 
-def test_post_start_payment_link_targets_the_workspace_it_just_minted(client, monkeypatch):
+def test_post_start_page_carries_no_payment_link_and_names_the_rail(client, monkeypatch):
+    """Blueprint v2: the post-mint page states the agent rail as information —
+    there is no checkout link to carry a workspace reference."""
     monkeypatch.setenv("AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/test_link")
     import importlib
     import api_server
@@ -97,8 +99,11 @@ def test_post_start_payment_link_targets_the_workspace_it_just_minted(client, mo
     from fastapi.testclient import TestClient
     c = TestClient(api_server.app)
     r = c.post("/start")
-    ws_id = re.search(r"workspace_id: (ws_[A-Za-z0-9_\-]+)", r.text).group(1)
-    assert f"https://buy.stripe.com/test_link?client_reference_id={ws_id}" in r.text
+    assert "buy.stripe.com" not in r.text, (
+        "a stale Stripe env var leaked a checkout link onto the post-mint page")
+    assert "client_reference_id" not in r.text
+    assert "/v1/billing/x402" in r.text, (
+        "the page must name the only paid path that exists")
 
 
 @pytest.mark.parametrize("path", ("/login", "/logout", "/auth/google/callback"))
@@ -145,7 +150,9 @@ def test_post_start_creates_the_free_tier_not_the_paid_one(client):
     assert ws["pro_scarcity"] is False
     assert ws["pro_until"] is None
     assert workspace_engine.effective_agent_cap(ws) == 3
-    assert "$19" in r.text, "the upgrade offer must still be on the page"
+    assert "$19" not in r.text, "a human paid tier is advertised on the page"
+    assert "/v1/billing/x402" in r.text, (
+        "the agent rail must be the only upgrade path on the page")
 
 
 def test_the_launch_grant_is_still_reachable_by_the_agent_path(client):

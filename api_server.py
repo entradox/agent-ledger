@@ -823,10 +823,9 @@ an X-Agent-Secret or X-Workspace-Key header (either credential proving
 access to that agent_id) — missing/wrong gets 401. There is no
 unauthenticated read path, on REST or MCP.
 A free workspace is capped at 3 agents; a 4th new
-agent_id gets 402 with two upgrade paths in the error body: pay via x402{MPP_OR}
-yourself for a time-boxed Pro pass ({X402_PASS_OFFER}),
-or a human upgrades the workspace to Pro ($19/mo Starter, up to 10 agents, no expiry)
-via the Stripe link the same error returns. The cap is
+agent_id gets 402 with the paid path in the error body: pay via x402{MPP_OR}
+yourself for a renewable Pro pass ({X402_PASS_OFFER}) — the only paid path on
+this domain. The cap is
 per workspace, not site-wide. Amounts per entry are capped at $100,000 and
 must be >= 0.
 Setting a budget makes it enforced going forward: a track() entry that would
@@ -1068,11 +1067,11 @@ not version-gated).
 POST /v1/track and POST /v1/budget accept an optional Idempotency-Key header
 (<=255 chars) for at-most-once retries.
 
-Pricing is as described above (Free = up to 3 agents per workspace; Starter =
-$19/mo, up to 10 agents; Team = $79/mo, up to 50 agents; Enterprise = custom).
-An agent with a Base wallet can instead buy a 24-hour Pro pass over x402 —
-unlimited agents on the workspace its wallet resolves to, no signup or card.
-It does not auto-renew.
+Pricing is as described above (Free = up to 3 agents per workspace, no expiry).
+The only paid path is the agent rail: an agent with a wallet buys a renewable
+24-hour Pro pass over x402 — unlimited agents on the workspace its wallet
+resolves to, no signup or card. There is no human checkout and no monthly
+plan on this domain.
 Contact: entradox@icloud.com
 """
 LLMS_TXT = LLMS_TXT.replace("{AL_API_VERSION}", AL_API_VERSION)
@@ -1253,13 +1252,11 @@ def _x402_pass_offer_words() -> str:
     hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
     import workspace_engine
     grant = (f"{workspace_engine.STARTER_AGENT_CAP} agents"
-             if x402_verify.x402_trial_tier() == "starter" else "unlimited agents")
-    return (f"{x402_verify.X402_MINT_PRICE} via x402 buys a one-time {hours}h trial "
-            f"({grant}) per wallet on the workspace your wallet resolves to — "
-            "no card, no human. After the trial, subscribe to a monthly plan "
-            f"({x402_verify.X402_TRIAL_PAID_PATH} with X-Workspace-Id and "
-            "X-Workspace-Key returns a Stripe link a human opens to pay; "
-            "/start?plan=starter is the human door and does NOT subscribe)")
+             if x402_verify.x402_pass_tier() == "starter" else "unlimited agents")
+    return (f"{x402_verify.X402_MINT_PRICE} via x402 buys a {hours}h Pro pass "
+            f"({grant}) on the workspace your wallet resolves to — no card, no "
+            "human, and renewable: every payment buys a fresh window "
+            f"({x402_verify.X402_PAID_PATH} again, same call)")
 
 
 def _x402_asset() -> str:
@@ -1482,7 +1479,7 @@ the first `POST /v1/track` or `POST /v1/budget`. The response mints an
 carry that `agent_secret`, and the `workspace_key` is never needed again for it.
 A missing or invalid key on a new claim returns `401 workspace_key_required`.
 
-## Getting a workspace — three ways, none needing a human to approve it
+## Getting a workspace — two ways, neither needing a human to approve it
 
 1. **An agent buys one itself.** `POST /v1/billing/x402` with an `X-PAYMENT`
    header carrying a signed x402 `exact` payment. It {X402_SETTLEMENT}
@@ -1490,11 +1487,11 @@ A missing or invalid key on a new claim returns `401 workspace_key_required`.
    the paying wallet. No card, no email, no human. Terms and the live price:
    `/.well-known/x402`.
 2. **A free workspace.** `POST /start` — no signup, no login, no card, capped at
-   3 agents. A 4th new `agent_id` returns `402` with the upgrade paths in the
+   3 agents. A 4th new `agent_id` returns `402` with the paid path in the
    error body. `GET /start` renders the form only; it does not mint.
-3. **A human subscribes.** `POST /v1/billing/checkout` with `X-Workspace-Id` and
-   `X-Workspace-Key` returns a Stripe link a human opens to pay. (`/start?plan=starter`
-   is the human door and does **not** subscribe.) Prices: `/pricing.md`.
+
+Paid access is agent-rail only: `POST /v1/billing/x402` buys a renewable 24h
+Pro pass; there is no human checkout. Prices: `/pricing.md`.
 
 ## Authoritative sources
 
@@ -1790,24 +1787,16 @@ AGENT_JSON = {
     },
     "pricing": {
         "model": "freemium",
-        "amount_usd": 19.00,
-        "description": "Free tier is 3 agents per workspace, no expiry. Paid paths: an "
-                       "agent can pay via x402 itself for a time-boxed Pro pass "
-                       "(unlimited agents on the resolved workspace, 24h) — this is "
-                       "the ONLY way an agent can pay without a human. The monthly "
-                       "plans ($19/mo Starter, up to 10 agents; $79/mo Team, up to 50) "
-                       "are human-checkout only: they are sold through a Stripe "
-                       "payment link that a person must open and pay in a browser. "
-                       "POST /start?plan=starter does NOT subscribe anyone — it mints "
-                       "a FREE workspace and shows that link, and it returns 409 to a "
-                       "machine that asks for a paid plan. To start a monthly "
-                       "subscription for an existing workspace, POST "
-                       "/v1/billing/checkout with X-Workspace-Id and X-Workspace-Key; "
-                       "that returns the checkout_url a human then opens. "
-                       "Only the x402 Pro pass is unlimited; the monthly "
-                       "plans are capped per tier, and the x402 pass is the only "
-                       "agent-purchasable path. See capabilities below for the "
-                       "x402 price and pass duration.",
+        "amount_usd": 0.01,
+        "description": "Free tier is 3 agents per workspace, no expiry. The only "
+                       "paid path is the agent rail: an agent pays via x402 itself "
+                       "for a renewable 24h Pro pass (unlimited agents on the "
+                       "resolved workspace). There is no human checkout and no "
+                       "monthly plan on this domain — a POST /start carrying a "
+                       "paid plan parameter mints nothing and returns 409 "
+                       "pointing at x402. Paying again resets the pass "
+                       "window. See capabilities below for the x402 price and "
+                       "pass duration.",
     },
     "capabilities": [
         {"id": "mint_workspace_x402",
@@ -2136,7 +2125,8 @@ def _status_html() -> str:
     import x402_verify
     return (_status_html_template()
             .replace("{X402_SETTLEMENT_SPAN}", _x402_settlement_span())
-            .replace("__X402_NETWORK__", x402_verify.X402_NETWORK))
+            .replace("__X402_NETWORK__", x402_verify.X402_NETWORK)
+            .replace("__X402_PRICE__", x402_verify.X402_MINT_PRICE))
 
 
 def _status_html_template() -> str:
@@ -2420,8 +2410,10 @@ payloads. The <i>service</i> and <i>model</i> fields are free-text labels you su
 anything sensitive in a service name.</p>
 
 <h2>Who processes it</h2>
-<p>Railway hosts the service and its storage volume. Stripe processes payments and receives the
-billing details you give it — we never see your card number. RapidAPI (Nokia) processes marketplace
+<p>Railway hosts the service and its storage volume. Agent payments settle in USDC
+over the x402 protocol via the configured payment facilitator (Coinbase CDP or the
+public x402 facilitator), which sees the paying wallet address — we never see card
+numbers. RapidAPI (Nokia) processes marketplace
 subscriptions and tells us your marketplace account identifier when you call through its gateway.
 Alert webhooks, if you register one, carry cost metadata to the URL you chose. The product does not
 send email to arbitrary addresses on your behalf. Nothing else receives your data.</p>
@@ -2466,25 +2458,21 @@ without agreement. Per-entry amounts are capped, and rate and storage limits are
 the service available for everyone.</p>
 
 <h2>Plans and payment</h2>
-<p>The Free plan supports up to 3 agents per workspace. Starter is $19 per month for up to 10
-agents per workspace. Team is $79 per month for up to 50 agents per workspace. Enterprise pricing
-is custom. Paid plans are billed through Stripe and may be canceled at any time. The current plan
+<p>The Free plan supports up to 3 agents per workspace. Paid access is sold only through
+the agent rail: a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
+Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the
+workspace the paying wallet resolves to, and expires 24 hours after settlement. It is
+renewable — continued access requires another payment — and it is the only thing for
+sale on this domain; there is no monthly plan and no human checkout. The current plan
 features and limits shown on the
 <a href="/agent-ledger#pricing">AgentLedger pricing page</a> form part of these Terms, and any
 future change to plans, prices or limits will be reflected in both places at the same time.</p>
 
-<p>Agents may also buy a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
-Base network (<code>{X402_NETWORK}</code>). The pass covers unlimited agents on the workspace the
-paying wallet resolves to, and expires 24 hours after purchase. It does not renew automatically;
-continued access requires another payment.</p>
-
 <h2 id="refunds">Refunds</h2>
-<p>You may cancel at any time to prevent future renewals. If this is your first paid purchase, you
-may request a refund within 14 days of purchase by emailing
-<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>. Refunds after that period are
-considered only for duplicate charges or service failures. Approved refunds are returned to the
-original payment method.</p>
-<p>The $0.01 x402 Pro pass is a single micro-payment and is non-refundable.</p>
+<p>The $0.01 x402 Pro pass is a single micro-payment and is non-refundable. Passes do not
+renew automatically, so there is nothing to cancel — access simply expires. For duplicate
+settlement failures email
+<a href="mailto:entradox@icloud.com">entradox@icloud.com</a>.</p>
 
 <h2>Availability and liability</h2>
 <p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
@@ -2571,16 +2559,15 @@ def pricing_page():
     pay ("past 3 agents") only becomes true after they have integrated and used it. So the
     one moment the decision happens had no door, and /pricing 404'd besides.
 
-    Facts stated here are the ones already committed in the Terms and the checkout route:
-    Free = 3 agents, Starter $19/mo, Team $79/mo, Enterprise custom, plus the $0.01 x402
-    24-hour Pro pass. No price is invented and nothing is promised that the product cannot
-    serve: the copy says a purchase is available, not that it completes.
+    Facts stated here are the ones already committed in the Terms:
+    Free = 3 agents, paid = the $0.01 x402 24-hour Pro pass — the only paid path.
+    No price is invented and nothing is promised that the product cannot serve.
     """
     import site_pages
     import x402_verify
     return HTMLResponse(site_pages.page(
         "Pricing — AgentLedger",
-        "Free for up to 3 agents. Starter $19/mo, Team $79/mo, or a $0.01 x402 pass bought by an agent itself.",
+        "Free for up to 3 agents. Paid access is a renewable $0.01 x402 24-hour Pro pass bought by the agent itself — no human checkout.",
         site_pages._render_pricing().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
@@ -2607,17 +2594,16 @@ def okf_index_md():
 def upgrade_page():
     """The durable upgrade door, reachable from anywhere — including the dashboard.
 
-    D-1404 / item 3.5. Deliberately NOT a second checkout implementation: it takes the
-    workspace key in the browser and calls the EXISTING POST /v1/billing/checkout, which
-    already appends client_reference_id so the Stripe webhook can mark the right workspace
-    Pro. No Stripe config is read or changed here and no credential is stored server-side;
-    the same "paste your key, it stays in this tab" pattern the dashboard already uses.
+    Blueprint v2 (2026-10-11): the human checkout this page used to drive is retired
+    (POST /v1/billing/checkout returns 410). It now explains the one paid path that
+    exists — the agent's own x402 payment — and asks for no credential, because none
+    is needed: the paying wallet IS the workspace identity.
     """
     import site_pages
     import x402_verify
     return HTMLResponse(site_pages.page(
         "Upgrade — AgentLedger",
-        "Lift the 3-agent cap on this workspace: Starter $19/mo for up to 10 agents, or Team $79/mo for up to 50.",
+        "Lift the 3-agent cap: a renewable $0.01 x402 24-hour Pro pass, paid by the agent itself — no human checkout.",
         site_pages._render_upgrade().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
@@ -2695,15 +2681,6 @@ def terms_page():
         body=TERMS_BODY.replace("{X402_NETWORK}", x402_verify.X402_NETWORK))
 
 
-PAYMENT_LINK = os.environ.get(
-    "AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
-# Team tier link (2026-09-19 pricing). Unset until the operator creates the
-# $79/mo Payment Link in Stripe — the Team checkout then falls back to the
-# Starter link and the minted page says Starter, never a dead button.
-PAYMENT_LINK_STARTER = PAYMENT_LINK
-PAYMENT_LINK_TEAM = os.environ.get("AL_STRIPE_TEAM_LINK", "").strip()
-
-
 def _page(title: str, body: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2725,10 +2702,7 @@ pre{{background:#0d1117;border:1px solid var(--b);border-radius:8px;padding:10px
 </style></head><body><div class="w">{body}</div></body></html>"""
 
 
-def _start_form_html(plan: str = "") -> str:
-    # Plan travels on the form action's query string (not a hidden input) so
-    # the sync POST handler can read it from request.query_params.
-    action = "/start?plan=" + plan if plan in ("starter", "team") else "/start"
+def _start_form_html() -> str:
     body = """
 <h1>Start your <span>ledger</span></h1>
 <div class="sub">Get a workspace, claim your first agent, set a cap.</div>
@@ -2736,7 +2710,7 @@ def _start_form_html(plan: str = "") -> str:
 <p><b>No signup. No login. No card.</b> One press and you get a workspace_key you can
 use immediately. Free tier is 3 agents per workspace — every rail, budget caps with real
 enforcement, alerts, reports, token burn, and the MCP server are included.</p>
-<form method="post" action="ACTION"><button class="btn" type="submit">Create my workspace</button></form>
+<form method="post" action="/start"><button class="btn" type="submit">Create my workspace</button></form>
 <div class="warn">The key is shown once, on the next screen. Save it before you leave — it is not emailed.</div>
 </div>
 <div class="card">
@@ -2750,7 +2724,7 @@ than the free tier gives, with no human in the loop:</p>
 <a href="/llms.txt" style="color:#8b949e">/llms.txt</a></p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
-""".replace("ACTION", action)
+"""
     return _page("AgentLedger — start", body)
 
 
@@ -2787,28 +2761,17 @@ def _fresh_agent_id(workspace_id: str) -> str:
     return f"first-agent-{tail}-{uuid.uuid4().hex[:8]}"
 
 
-def _start_key_html(workspace_id: str, raw_key: str, checkout: str,
-                    plan_name: str = "Starter") -> str:
+def _start_key_html(workspace_id: str, raw_key: str) -> str:
     """The post-mint page.
 
     The layout here is a conversion decision, not decoration (D-1163). This
-    page's message is "you are done, and it is free". The previous version made
-    the $19 upgrade the ONLY primary (gold) button on the page — a plausible
-    way to walk a free-tier visitor into a card form they never wanted, and we
-    have a live abandoned checkout that looks exactly like that. So: the free
-    state is the visual peak, the next ACTION is claiming an agent, and the
-    upgrade is an explicitly optional, visually subordinate link.
+    page's message is "you are done, and it is free". Blueprint v2 (2026-10-11)
+    removed the human paid tier entirely: the only "upgrade" mention left is
+    the agent rail, stated as information, not a button.
     """
     key_block = (f'<div class="key">{html.escape(raw_key)}</div>' if raw_key else
                  '<div class="key">a key was already issued for this workspace and is '
                  'shown only once, at mint time</div>')
-    plan_price = "$79/mo" if plan_name == "Team" else "$19/mo"
-    plan_agents = "up to 50 agents" if plan_name == "Team" else "up to 10 agents"
-    # Fire-and-forget, and deliberately not required for navigation: the link
-    # must work with JS disabled and with the beacon failing.
-    beacon = ("if(navigator.sendBeacon){navigator.sendBeacon("
-              "'/v1/_beacon?event=start_checkout_click&ws="
-              + html.escape(workspace_id, quote=True) + "');}")
     return _page("AgentLedger — your workspace", f"""
 <h1>You're <span>set up</span></h1>
 <div class="sub">workspace_id: {html.escape(workspace_id)}</div>
@@ -2833,13 +2796,10 @@ this one is pre-made so the example works on the first try.)</p>
 https://aiagentscity.com/mcp/</code> — and let the agent do it.</p>
 </div>
 <div class="card">
-<p><b>Optional, and not needed today.</b> Only matters past 3 agents — two ways to lift
-that, for different situations:</p>
-<p class="mut"><b>If an agent hits the wall itself:</b> {_x402_pass_offer_words()}</p>
-<p class="mut"><b>If you'd rather not think about it again:</b> {plan_name} at
-{plan_price}, {plan_agents}, same workspace, same key, nothing to migrate.</p>
-<a class="plain" href="{html.escape(checkout, quote=True)}" rel="noopener"
-   onclick="{beacon}">Upgrade to {plan_name} →</a>
+<p><b>Optional, and not needed today.</b> Only matters past 3 agents — and there
+is exactly one way past it:</p>
+<p class="mut"><b>The agent pays its own way:</b> {_x402_pass_offer_words()}
+Details: <a href="/upgrade" style="color:#8b949e">/upgrade</a>.</p>
 </div>
 <div class="mut"><a href="/" style="color:#8b949e">← AgentLedger</a></div>
 """)
@@ -2868,14 +2828,9 @@ def start_page(request: Request):
     """Step one of the buy path. Deliberately does NOT mint: a mint on GET
     would let any crawler, link-preview bot or accidental reload burn one of
     the 50 launch-window workspaces and orphan a key nobody ever saw. The
-    form POSTs to this same path, which does the minting. `?plan=starter|team`
-    (from the pricing page) carries through as a hidden form field so the
-    post-mint page shows the right checkout link.
+    form POSTs to this same path, which does the minting.
     """
-    plan = (request.query_params.get("plan") or "").strip().lower()
-    if plan not in ("starter", "team"):
-        plan = ""
-    return (_start_form_html(plan)
+    return (_start_form_html()
             .replace("{X402_SETTLEMENT_HTML}", _x402_settlement_words())
             .replace("{X402_PASS_OFFER_HTML}", _x402_pass_offer_words()))
 
@@ -2909,18 +2864,17 @@ def _start_mint_allowed(request: Request) -> bool:
 def start_mint(request: Request):
     """Mint a workspace for a human with no signup, no login and no card, then
     show its workspace_key exactly once — the same one-time reveal the
-    retiring Google dashboard used. The payment link carries the workspace id
-    as client_reference_id: that reference is what lets the Stripe webhook
-    mark THIS workspace Pro. Without it a real payment would take the card
-    and upgrade nothing (D-1162).
+    retiring Google dashboard used. Blueprint v2 (2026-10-11): there is no
+    payment link on the post-mint page any more — the only paid path is the
+    agent's own x402 rail, stated as information, not a checkout link.
 
     grant_scarcity=False: this is the free tier, not the launch grant. See
     workspace_engine.create_workspace for why.
     """
-    # Pricing-page plan (?plan=starter|team on the form action). The Team link
-    # is operator-configured; until AL_STRIPE_TEAM_LINK exists the Team button
-    # falls back to the Starter link and the page says Starter — never a dead
-    # checkout.
+    # ?plan=starter|team was the human paid door. Blueprint v2 removed it — the
+    # parameter is still parsed so a machine asking for a named paid plan gets
+    # the honest refusal below rather than a silent free workspace, but for a
+    # human it now means nothing and is ignored.
     want = (request.query_params.get("plan") or "").strip().lower()
     if want not in ("starter", "team"):
         want = ""
@@ -2949,12 +2903,12 @@ def start_mint(request: Request):
     # request is not a mint.
     if is_machine and want:
         raise HTTPException(409, detail=error_envelope(
-            409, f"POST /start mints a FREE workspace and cannot sell {want}. It "
-                 "only renders a checkout link for a human to click. To buy "
-                 "without a human, pay via POST /v1/billing/x402; to upgrade an "
-                 "existing workspace, POST /v1/billing/checkout with "
-                 "X-Workspace-Id and X-Workspace-Key.",
-            code="plan_requires_human_checkout"))
+            409, f"POST /start mints a FREE workspace and cannot sell {want} — "
+                 "no paid human tier exists on this domain. To buy without a "
+                 "human, pay via POST /v1/billing/x402: the paying wallet "
+                 "becomes the workspace identity and every payment buys a "
+                 "fresh 24h Pro window.",
+            code="plan_requires_agent_payment"))
     if not _start_mint_allowed(request):
         # Bug fixed alongside D-1270: this page carried {X402_SETTLEMENT_HTML}
         # literally, unsubstituted — no .replace() was ever called on it, so a
@@ -2979,12 +2933,6 @@ def start_mint(request: Request):
             metrics.record_onboarding("key_revealed", workspace_id)
     except Exception:
         pass
-    # Pricing-page plan (?plan=starter|team on the form action) was resolved
-    # ABOVE the mint guard — see the comment there for why order matters.
-    plan_link, plan_name = PAYMENT_LINK_STARTER, "Starter"
-    if want == "team" and PAYMENT_LINK_TEAM:
-        plan_link, plan_name = PAYMENT_LINK_TEAM, "Team"
-    checkout = f"{plan_link}?client_reference_id={workspace_id}"
     # Machine clients (agents following /skill.md) ask for JSON with
     # Accept: application/json and get the key as data instead of HTML.
     # Without it, humans get the one-time-reveal page as before.
@@ -3002,7 +2950,7 @@ def start_mint(request: Request):
     # strand a credential we cannot reissue. no-referrer keeps the key out of
     # any Referer header on the outbound click to Stripe.
     return HTMLResponse(
-        _start_key_html(workspace_id, raw_key, checkout, plan_name).replace(
+        _start_key_html(workspace_id, raw_key).replace(
             "{X402_SETTLEMENT_HTML}", _x402_settlement_words()),
                         headers={"Cache-Control": "no-store",
                                  "Referrer-Policy": "no-referrer"})
@@ -3023,9 +2971,9 @@ def connect_beacon(event: str, ws: str = ""):
         except Exception:
             pass
     elif event == "start_checkout_click" and _WS_ID_RE.match(ws or ""):
-        # The upgrade button on the post-mint page is a plain link to Stripe:
-        # no server round-trip, so without this the click leaves no trace and
-        # the funnel has a hole exactly where conversion is decided.
+        # Kept for any caller still in the wild: the post-mint page no longer
+        # emits this beacon (the Stripe checkout link it measured is retired),
+        # but dropping the event name would break a caller that still sends it.
         try:
             metrics.record_onboarding("checkout_clicked", ws)
         except Exception:
