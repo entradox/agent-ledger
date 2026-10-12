@@ -224,16 +224,17 @@ def test_a_write_a_day_later_is_recorded_as_returning(client):
     assert _funnel()["workspace_returned"]["workspaces"] == 1
 
 
-def test_the_post_mint_page_keeps_the_money_path_and_softens_the_upsell(client):
-    """Two invariants on the page whose layout is a conversion decision:
-    the upgrade link MUST carry client_reference_id (that is the whole
-    fulfillment mechanism), and the $19 CTA must not be the primary button on
-    a page whose message is 'you are done and it is free'."""
+def test_the_post_mint_page_states_the_rail_without_a_checkout(client):
+    """The page whose layout is a conversion decision (D-1163), post-blueprint-v2:
+    no checkout link exists to carry a workspace reference, no paid CTA may be the
+    primary button on a page whose message is 'you are done and it is free' — but
+    the one paid path that exists must still be named."""
     ws, html = _mint(client)
-    assert f"client_reference_id={ws}" in html
+    assert "client_reference_id" not in html, "a checkout link is back on the page"
     assert 'class="btn"' not in html, "the gold primary CTA is back on the post-mint page"
     assert "Nothing to pay" in html
-    assert "start_checkout_click" in html
+    assert "/v1/billing/x402" in html, "the agent rail disappeared from the page"
+    assert "buy.stripe" not in html
 
 
 def test_metrics_exposes_the_onboarding_block(client):

@@ -278,9 +278,10 @@ class _FakeRequest:
         self.url = _FakeURL()
 
 
-def test_resource_payment_skips_one_trial_gate(monkeypatch):
-    """A wallet that already minted must still be able to BUY a resource —
-    repeat paid calls are the demand signal. The trial check is mint-only."""
+def test_repeat_payments_settle_on_every_route(monkeypatch):
+    """A wallet that already paid must keep paying on every route — resource
+    calls (the demand signal) and the mint route alike. Blueprint v2 / D-1645
+    removed the one-trial gate entirely."""
     import importlib, workspace_engine, x402_verify
     importlib.reload(workspace_engine)
     from x402.http import HTTPRequestContext
@@ -306,16 +307,16 @@ def test_resource_payment_skips_one_trial_gate(monkeypatch):
     monkeypatch.setattr(x402_verify, "X402_ENABLED", True)
     monkeypatch.setattr(x402_verify, "HTTPRequestContext", HTTPRequestContext)
     monkeypatch.setattr(x402_verify, "resource_server", _Server())
-    # the wallet HAS used its trial — mint would raise, resource must not
-    monkeypatch.setattr(workspace_engine, "wallet_has_used_trial",
-                        lambda w: True)
-
+    # Blueprint v2 / D-1645: the one-trial-per-wallet gate is gone everywhere —
+    # the mint pass is renewable, so a repeat wallet settles on the mint route
+    # exactly as it does on a resource route.
     out = x402_verify.verify_payment(_FakeRequest(),
                                      route_key="POST /api/x402/agent-watch/probe")
     assert out["verified"] is True
 
-    with pytest.raises(x402_verify.TrialAlreadyUsed):
-        x402_verify.verify_payment(_FakeRequest())
+    out = x402_verify.verify_payment(_FakeRequest())
+    assert out["verified"] is True, (
+        "a repeat wallet must settle on the mint route — the pass is renewable")
 
 
 # ── discovery publishes the resources ────────────────────────────────────────

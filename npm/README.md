@@ -160,8 +160,9 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
   workspace_key mints a replacement (`POST /v1/agents/{agent_id}/rotate-secret`) or
   revokes it while keeping the spend history
 - **Per-workspace isolation** — your agents, your cap, your subscription; nothing is shared across customers
-- **Free tier: 3 agents per workspace** —
-  **Starter $19/mo** for up to 10 tracked agents, **Team $79/mo** for up to 50: [Get Starter](https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e)
+- **Free tier: 3 agents per workspace** — the only paid path is the agent rail:
+  `POST /v1/billing/x402` buys a renewable 24h Pro pass (unlimited agents on the
+  wallet's workspace) for $0.01 USDC. There is no human checkout or monthly plan.
 
 ## Architecture
 
@@ -190,10 +191,10 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - Input validation: agent_id restricted to `[A-Za-z0-9._-]{1,64}` (path-traversal safe),
   rail whitelisted to mpp/x402/api_key/manual, amount + budget caps bounded [0, $100k]
 - Stripe webhook is fail-closed: events are rejected unless the HMAC signature
-  verifies against `STRIPE_WEBHOOK_SECRET_AL`; a verified `pro` checkout marks
-  **that workspace** its paid tier via its `client_reference_id` (Starter $19/mo ⇒ 10
-  agents on that workspace only; Team $79/mo ⇒ 50; the x402 Pro pass is the only
-  unbounded grant).
+  verifies against `STRIPE_WEBHOOK_SECRET_AL`. The human checkout endpoint is
+  retired (410) — the webhook remains wired only so subscriptions already in
+  flight when it was removed can still complete; a verified `pro` checkout marks
+  **that workspace** its paid tier via its `client_reference_id`.
 
 ## Contact
 

@@ -407,6 +407,7 @@ def render(active: str, title: str, desc: str, body: str, request=None) -> str:
     body = (body
             .replace("__NETWORK_LABEL__", label)
             .replace("__NETWORK__", x402_verify.X402_NETWORK)
+            .replace("__LIMIT__", x402_verify.x402_pass_agent_limit())
             .replace("__NETWORK_PROSE__", prose))
 
     html = SHELL
@@ -423,7 +424,7 @@ PAGE_HOME = """<div class="agent-surface">
   <div class="agent-hero">
     <div class="kicker"><span class="ra">// machine-readable</span> · ai agent city</div>
     <h1>The operations layer agents run on.</h1>
-    <p class="lede">Budgets, monitoring, security, trust, discovery — <b>five products, one MCP catalog, zero human required.</b> Read the contract, connect, transact.</p>
+    <p class="lede">Budgets, monitoring, security, trust, discovery, governance — <b>six products, one MCP catalog, zero human required.</b> Read the contract, connect, transact.</p>
   </div>
   <div class="kicker"><span class="ra">// live session</span></div>
   <div class="term">
@@ -446,9 +447,9 @@ PAGE_HOME = """<div class="agent-surface">
 </section>
 <section>
   <div class="kicker"><span class="ra">// machine-readable</span> · the stack</div>
-  <h2>Five products, one contract.</h2>
-  <p class="lede">Every product is MCP-native. Tool counts are the live <span style="font-family:var(--mono);font-size:13px">tools/list</span> output, not marketing.</p>
-  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
+  <h2>Six products, one contract.</h2>
+  <p class="lede">Five products are MCP-native — tool counts are the live <span style="font-family:var(--mono);font-size:13px">tools/list</span> output, not marketing. AI Workbench is a local kit installed over npx, not an MCP endpoint.</p>
+  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Govern</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
   <div class="fine"><b>machine entry points</b><br>/.well-known/x402.json · /skill.md · /openapi.json · /server.json · /.well-known/mcp.json · /status · /llms.txt</div>
   <footer class="site"><div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a></div><div>AI Agent City · one site, two readers</div></footer>
 </section>
@@ -483,9 +484,9 @@ PAGE_HOME = """<div class="agent-surface">
 </section>
 <section>
   <div class="kicker"><span class="rh">// human-readable</span> · the stack</div>
-  <h2>One stack. Five products.</h2>
+  <h2>One stack. Six products.</h2>
   <p class="lede">Each solves one operational problem end to end. Each is <b>live and independently usable.</b></p>
-  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div>
+  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Govern</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a href="/workbench">Explore →</a><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
 </section>
 <section>
   <div class="kicker"><span class="rh">// human-readable</span> · proof</div>
@@ -578,12 +579,13 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   <div class="term"><div class="thead">$ agent-view /products</div><pre>
 <span class="k">products:</span>
   - id: agent-ledger · mcp: /mcp/ (18 tools) · rest: /v1/*
-    pricing: {free: "≤3 agents", starter: "$19/mo", team: "$79/mo", enterprise: "custom"} · x402: "$0.01 = 24h Pro"
+    pricing: {free: "≤3 agents", pro_pass: "$0.01 USDC / 24h via x402, renewable — the only paid path"}
   - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway)
   - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
   - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
   - id: cited · mcp: /mcp/cited (9 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway) · free_scan: https://entradox.github.io/cited-site/
-<span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility]
+  - id: workbench · kind: local kit (no MCP — gates, cards + receipts run on the operator's machine) · install: npx @aiagentscity/setup workbench · verify: wb verify &lt;receipt_id&gt;
+<span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility, work-governance]
 <span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
@@ -591,8 +593,8 @@ PAGE_PRODUCTS = """<div class="agent-surface">
 
 <div class="human-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/products</div>
-  <h1>One stack.<br>Five products.</h1>
-  <p class="lede">Each solves one operational problem end to end. Each is <b>live, independently usable, and agent-callable</b> — MCP everywhere; REST + CLI on AgentLedger.</p>
+  <h1>One stack.<br>Six products.</h1>
+  <p class="lede">Each solves one operational problem end to end. Each is <b>live, independently usable, and agent-callable</b> — MCP on the five services; AI Workbench installs on the operator's machine over npx.</p>
 
   <div class="card hl">
     <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.7 · 18 tools</span></div>
@@ -606,7 +608,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     </ul>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>HTTP/1.1 <span class="k">402</span> Payment Required
 {<span class="s">"error"</span>:{<span class="s">"type"</span>:<span class="s">"budget_error"</span>, <span class="s">"message"</span>:<span class="s">"blocked before the provider"</span>}}</pre>
-    <p style="font-size:14px"><b style="color:var(--txt)">Free:</b> 3 agents, every rail, enforced caps. <b style="color:var(--txt)">Paid: from $19/mo</b> — Starter (10 agents), Team (50), Enterprise custom.</p>
+    <p style="font-size:14px"><b style="color:var(--txt)">Free:</b> 3 agents, every rail, enforced caps. <b style="color:var(--txt)">Paid:</b> $0.01 USDC = 24h Pro over x402, renewable — the only paid path, bought by the agent itself.</p>
     <div class="cta-row"><a class="btn btn-human" href="/start">Get a workspace — no signup, no card</a><a class="btn btn-ghost" href="/agent-ledger#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add agent-ledger →</a></div>
   </div>
 
@@ -644,7 +646,16 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-ghost" href="/cited#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
   </div>
 
-  <div class="pull">Five products, one thesis: the agent economy needs operations. We're building the boring infrastructure that makes the exciting future possible.</div>
+  <div class="card">
+    <div class="stacknum"><b>06</b> — GOVERN <span class="ver">local kit · npm @aiagentscity/setup</span></div>
+    <h3>AI Workbench — the audit trail for agent work</h3>
+    <p><b>Anyone can say the agent did the work. Prove it.</b> One command installs the discipline on the operator's machine: every task gets a frame card, every write is gated against the card's scope, and every close produces a receipt anyone can recompute against the ledger.</p>
+    <pre><button class="copybtn" onclick="copyPre(this)">copy</button>npx @aiagentscity/setup workbench</pre>
+    <p class="mut" style="font-size:13px">A local kit, not a service — no MCP, no account, nothing leaves the machine unasked. Wires into Claude Code, Codex, Cursor, OpenCode, Hermes and OpenClaw. <b>Free:</b> the whole kit — the city does not sell a human tier for it.</p>
+    <div class="cta-row"><a class="btn btn-human" href="/workbench">See how it works</a><a class="btn btn-ghost" href="/workbench#pricing">Pricing →</a></div>
+  </div>
+
+  <div class="pull">Six products, one thesis: the agent economy needs operations. We're building the boring infrastructure that makes the exciting future possible.</div>
   <footer class="site"><div><a href="/">← /</a><a href="/developers">/developers</a></div><div>AI Agent City</div></footer>
 </div>"""
 
@@ -694,7 +705,7 @@ npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__
   <h2>Checkout without humans</h2>
   <div class="card" style="border-color:var(--agent-dim)">
     <h3>$0.01. __NETWORK_LABEL__. Zero clicks.</h3>
-    <p>An agent with a wallet buys 24h of AgentLedger Pro — unlimited agents — on the workspace its wallet resolves to. Real USDC on <b>__NETWORK__</b>. No signup flow, no card form, no human.</p>
+    <p>An agent with a wallet buys 24h of AgentLedger Pro — __LIMIT__ — on the workspace its wallet resolves to. Real USDC on <b>__NETWORK__</b>. No signup flow, no card form, no human.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>POST /v1/billing/x402
 Header: <span class="s">X-PAYMENT: &lt;signed-payload&gt;</span>
 <span class="c"># → 24h Pro. That's the whole checkout.</span></pre>
@@ -725,7 +736,7 @@ PAGE_COMPARE = """<div class="agent-surface">
                    langdb: "gateway spend controls", revenium: "api metering",
                    langfuse: "trace observability"}
   agent_purchase:  {agentledger: "$0.01 x402", others: "none"}
-  price:           {agentledger: "from $19/mo", langsmith: "$39/seat",
+  price:           {agentledger: "free ≤3 agents; $0.01/24h x402 pass", langsmith: "$39/seat",
                     helicone: "$79/mo", braintrust: "$249/mo", openrouter: "usage"}
   prices_verified: "2026-09-19"
 </pre></div>
@@ -742,7 +753,7 @@ PAGE_COMPARE = """<div class="agent-surface">
     <tr><td><b>Budgets belong to the agent</b></td><td class="y"><b>Yes — keyed to agent_id</b></td><td class="n">Org / key / user</td><td class="n">No</td><td class="n">No</td><td class="n">API keys</td></tr>
     <tr><td><b>Agent buys itself</b></td><td class="y"><b>$0.01 x402, no human</b></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
     <tr><td><b>Trace debugging</b></td><td class="n">No — by design</td><td class="y">Best in class</td><td class="y">Yes</td><td class="y">Eval-first</td><td class="n">No</td></tr>
-    <tr><td><b>Price</b></td><td class="y"><b>from $19/mo</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
+    <tr><td><b>Price</b></td><td class="y"><b>$0.01 / 24h pass (x402)</b></td><td class="n">$39/seat/mo</td><td class="n">$79/mo</td><td class="n">$249/mo</td><td class="n">usage-based</td></tr>
   </table>
   <div class="pull" style="font-size:19px">If you want to <i>understand</i> your spend, buy a trace viewer — LangSmith's is superb. If you want to <i>control</i> it, per agent, with the agent itself as the customer — that's us.</div>
   <div class="card"><h3>Also in the space</h3><p class="mut"><b>LiteLLM</b>, <b>Portkey</b>, <b>LangDB</b> — gateway proxies with per-key spend controls, scoped to the traffic routed through them. <b>Revenium</b> — API metering for monetization. <b>Langfuse</b> — open-source trace observability. Gateway- and trace-layer tools see their own layer; AgentLedger enforces per-agent budgets with a 402 before any provider is contacted, and the agent itself can buy Pro.</p></div>
@@ -754,6 +765,10 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /changelog</div>
   <div class="term"><div class="thead">$ agent-view /changelog</div><pre>
 <span class="k">releases:</span>
+  - 2026-10-11: human paid door removed — POST /v1/billing/checkout retired
+    (410 endpoint_retired); $19/$79 tiers and Stripe CTAs deleted from every
+    surface; the $0.01 x402 pass is now the only paid path and is renewable —
+    a repeat payment resets the 24h Pro window on the paying wallet's workspace
   - 2026-10-11: event delivery for agents with no webhook URL —
     GET /v1/agents/{id}/events/wait long-poll + ledger_wait_events MCP tool
     (agent-ledger v0.4.7, 18 tools); cursor-as-ack, restart redelivery
@@ -778,7 +793,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
     request creates nothing and costs nothing
   - 2026-09-21: pay door + demo live (/pricing, /upgrade, dashboard pay
     control; /demo runs real enforcement — no provider key, no money); the
-    $0.01 x402 pass is a one-time trial per wallet, refused before settlement
+    $0.01 x402 pass was a one-time trial per wallet, refused before settlement
   - 2026-09-21: /benefits mounted on aiagentscity.com; /manifesto live; one
     canonical address per page — the railway host no longer competes
   - 2026-09-20: trust surfaces real — terms, refund policy, about
@@ -803,6 +818,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
   <h1>Shipping fast.</h1>
   <p class="lede">Velocity is the pitch. Every ship, dated — the proof the stack is alive.</p>
   <div class="chlog">
+    <div class="e"><div class="d">2026-10-11</div><div class="t"><b>The human paid door is gone.</b> <span class="ver">POST /v1/billing/checkout</span> now returns <span class="ver">410 endpoint_retired</span>; the $19/$79 tiers, Stripe CTAs and annual toggle are deleted from every page. The only paid path is <span class="ver">POST /v1/billing/x402</span> — $0.01 USDC buys a <b>renewable</b> 24h Pro pass: a repeat payment resets the window on the paying wallet's workspace. Stripe webhooks stay wired only for subscriptions already in flight. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-10-11</div><div class="t"><b>Event delivery without a webhook.</b> <span class="ver">GET /v1/agents/{id}/events/wait</span> long-polls the agent's alert feed — the path for stdio-MCP agents that have no URL to push to. Also on MCP as <span class="ver">ledger_wait_events</span>; cursor-as-ack, restart redelivery, shared envelope with the webhook payload. <span class="ver">agent-ledger v0.4.7 · 18 tools</span></div></div>
     <div class="e"><div class="d">2026-10-10</div><div class="t"><b>One-command connect.</b> <span class="ver">npx @aiagentscity/setup ledger</span> detects your agent harness — claude-code, codex, cursor, opencode, hermes, openclaw — registers the MCP the right way for each, and installs the vendored skill. <span class="ver">POST /v1/setup-event</span> records the connect funnel; every connect surface now leads with the installer, manual <span class="ver">mcp add</span> kept as fallback. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-10-08</div><div class="t"><b>Spend approvals — the human-in-the-loop primitive.</b> <span class="ver">ledger_request_approval</span> lets an agent that hit its cap ask its workspace owner for a one-shot permit instead of dead-ending; <span class="ver">ledger_approvals</span> is the supervisor's pending queue; <span class="ver">ledger_approval_decide</span> is owner-key only — an agent's own secret can request but can never approve. An approved permit is consumed by the next over-cap write within its amount; the cap itself does not change. <span class="ver">agent-ledger v0.4.4 · 17 tools</span></div></div>
@@ -811,7 +827,7 @@ PAGE_CHANGELOG = """<div class="agent-surface">
     <div class="e"><div class="d">2026-10-02</div><div class="t"><b>Red-team fixes landed.</b> Webhook SSRF closed, budget caps made atomic, proxy credential leaks sealed. A first write no longer strands the caller — looser default caps, no orphaned claims. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-26</div><div class="t"><b>The spend decision is reachable from MCP.</b> New <span class="ver">POST /v1/check</span> endpoint and <span class="ver">ledger_check_spend</span> tool return the pre-call budget decision — ask before you spend. <span class="ver">ledger_price</span> prices a model before the call; <span class="ver">ledger_proxy_attach</span> attaches the brake from MCP. New workspaces are capped by default, and unpriced models fail closed instead of free. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-24</div><div class="t"><b>AgentLedger v0.4.2 + v0.4.3 — money-honesty fixes.</b> A settled payment may only raise a tier, never remove capability. A refused plan request creates nothing and costs nothing. Suppressed downgrades are findable instead of misfiled as failures, and no plan is sold under another name. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>The pay door and the demo are live.</b> <span class="ver">/pricing</span> + <span class="ver">/upgrade</span> with a real dashboard pay control; <span class="ver">/demo</span> runs real enforcement — no provider key, no money. The $0.01 x402 pass is now a one-time trial per wallet, refused before settlement. <span class="ver">agent-ledger</span></div></div>
+    <div class="e"><div class="d">2026-09-21</div><div class="t"><b>The pay door and the demo are live.</b> <span class="ver">/pricing</span> + <span class="ver">/upgrade</span> with a real dashboard pay control; <span class="ver">/demo</span> runs real enforcement — no provider key, no money. The $0.01 x402 pass was then a one-time trial per wallet, refused before settlement. <span class="ver">agent-ledger</span></div></div>
     <div class="e"><div class="d">2026-09-21</div><div class="t"><b>/benefits mounted on aiagentscity.com.</b> The Benefits City surface resolves on the city domain, <span class="ver">/manifesto</span> is live, and every page now has one canonical address — the railway host no longer competes. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-20</div><div class="t"><b>MCP endpoints verified end-to-end for all five products.</b> Handshake + <span class="ver">tools/list</span> pass for ledger (12), watch (8), perimeter (6), trustscan (4) and cited (9); the earlier "native MCP dispatch being repaired" notices were retired — the gateway path every client uses works. <span class="ver">platform</span></div></div>
     <div class="e"><div class="d">2026-09-20</div><div class="t"><b>Trust surfaces are real.</b> Terms, refund policy and About replaced with accurate content, and the x402 offer is shown at pricing — the pages a paying customer reads now tell the truth. <span class="ver">platform</span></div></div>
@@ -828,8 +844,8 @@ PAGE_CHANGELOG = """<div class="agent-surface">
 PAGES_META = {
     "/": ("PAGE_HOME", "AI Agent City", "AI Agent City is the operations layer for the agent economy: spending limits, monitoring, security, trust, and discovery for AI agents. Human-readable and machine-readable."),
     "/manifesto": ("PAGE_MANIFESTO", "Access vs spend — AI Agent City", "Kiteworks governs what agents can touch. AgentLedger governs what agents can spend. Two halves of one problem, and only one of them has an owner."),
-    "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Five products, one thesis: the agent economy needs operations. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, and Cited — each live, independently usable, and agent-callable."),
-    "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for all five products."),
+    "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Six products, one thesis: the agent economy needs operations. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, Cited, and AI Workbench — each live and independently usable."),
+    "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for the five MCP products; AI Workbench installs over npx."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),
     "/changelog": ("PAGE_CHANGELOG", "Changelog — AI Agent City", "External-facing product releases across the AI Agent City suite. Human-readable and machine-readable."),
 }

@@ -69,31 +69,26 @@ def x402_mint_price_atomic(decimals: int = 6) -> int:
 # cap-exceeded quote) reads one number instead of each hardcoding its own.
 X402_PRO_PASS_SECONDS = int(os.environ.get("X402_PRO_PASS_SECONDS", 24 * 3600))
 
-# What the ONE-TIME $0.01 trial GRANTS (principal-owned pricing knob). Values:
+# What the $0.01 pass GRANTS (principal-owned pricing knob). Values:
 #   "unlimited"  (default, current behaviour) — unlimited agents for the pass
 #   "starter"    — the Starter cap (workspace_engine.STARTER_AGENT_CAP, 10 agents)
-# The trial is limited to one purchase per wallet either way (see
-# TrialAlreadyUsed); this only decides how generous that one purchase is. Any
-# other value logs a warning and falls back to "unlimited" so a typo can never
-# silently change what a paying customer receives.
+# The pass is RENEWABLE — a wallet may buy as many 24h windows as it pays for
+# (blueprint v2, 2026-10-11: x402 is the only paid path on the domain, so
+# repeat purchase must work). This knob only decides how generous each
+# purchase is. Any other value logs a warning and falls back to "unlimited"
+# so a typo can never silently change what a paying customer receives.
 X402_TRIAL_GRANT = os.environ.get("X402_TRIAL_GRANT", "unlimited").strip().lower()
 if X402_TRIAL_GRANT not in ("unlimited", "starter"):
     logging.warning(f"X402_TRIAL_GRANT={X402_TRIAL_GRANT!r} is not 'unlimited' or "
                     "'starter'; using 'unlimited'")
     X402_TRIAL_GRANT = "unlimited"
 
-# The paid path a repeat trial buyer is pointed at.
-#
-# MEASURED LIVE 2026-09-24: this was "/start?plan=starter", which a machine
-# following the error text would POST to — and it minted a FREE workspace and
-# returned 200, because /start cannot take money. The agent read 200 as "I
-# subscribed" and got a 3-agent free workspace instead of Starter.
-#
-# The honest target for an agent that already holds a workspace is the checkout
-# route, which is credential-authenticated and returns the link a human opens. The
-# human door stays available and is named in the same sentence; it is just no
-# longer the only thing an agent is told to hit.
-X402_TRIAL_PAID_PATH = "/v1/billing/checkout"
+# The paid path an existing workspace holder is pointed at. Since blueprint v2
+# (2026-10-11) x402 is the ONLY paid path on the domain — the human Stripe
+# checkout is removed, so "pay again" and "pay the first time" are the same
+# endpoint. A repeat settlement resolves to the wallet's existing workspace
+# and resets the pass window (routes_billing.x402_billing).
+X402_PAID_PATH = "/v1/billing/x402"
 
 # ── Per-call payable resources (D-1641) ──────────────────────────────────────
 # The traffic that actually pays here is the x402/agent-commerce fleet — it
@@ -155,9 +150,19 @@ def x402_resource_price_atomic(decimals: int = 6) -> int:
             f"X402_RESOURCE_PRICE={X402_RESOURCE_PRICE!r} is not a valid price")
 
 
-def x402_trial_tier() -> str:
-    """The workspace tier the trial pass is granted as ("pro" = unlimited)."""
+def x402_pass_tier() -> str:
+    """The workspace tier the pass is granted as ("pro" = unlimited)."""
     return "starter" if X402_TRIAL_GRANT == "starter" else "pro"
+
+
+def x402_pass_agent_limit() -> str:
+    """The agent allowance the pass sells, in words — the single source every
+    offer surface renders from, so a starter-configured deployment can never
+    advertise "unlimited" while granting 10."""
+    if x402_pass_tier() == "starter":
+        import workspace_engine
+        return f"up to {workspace_engine.STARTER_AGENT_CAP} agents"
+    return "unlimited agents"
 
 
 # Resolved facilitator: explicit URL wins, else CDP, else the free public one.
@@ -410,20 +415,6 @@ class SettlementOutcomeUnknown(Exception):
             f"{cause}")
 
 
-class TrialAlreadyUsed(Exception):
-    """This wallet already bought its one-time $0.01 trial.
-
-    Raised from verify_payment BEFORE settlement, so no money has moved and the
-    caller can refuse cleanly. Both payment rails (x402 header and MPP
-    credential) reach settlement through verify_payment, so this one check
-    covers both.
-    """
-
-    def __init__(self, wallet: str):
-        self.wallet = wallet
-        super().__init__(f"x402 trial already used by wallet {wallet}")
-
-
 def _payer_from_payload(payment_payload) -> str | None:
     """The paying wallet, read from the signed payload — known BEFORE settlement.
 
@@ -473,9 +464,7 @@ def verify_payment(request, route_key: str = ROUTE_KEY) -> dict:
                               402 envelope is how discovery clients learn
                               the price and the payment requirements.
 
-    Raises X402Unavailable when x402 is not configured on this service, and
-    TrialAlreadyUsed when the paying wallet has already bought its one-time
-    trial (raised before settlement — no money moves).
+    Raises X402Unavailable when x402 is not configured on this service.
     """
     if not X402_ENABLED or resource_server is None:
         raise X402Unavailable(X402_DISABLED_REASON or "x402 not configured")
@@ -509,23 +498,6 @@ def verify_payment(request, route_key: str = ROUTE_KEY) -> dict:
         return {"verified": False, "payer_wallet": None, "tx_hash": None,
                 "error": "no payment was required for this route — refusing "
                          "to mint without a settlement"}
-
-    # ── ONE TRIAL PER WALLET — refuse BEFORE the money moves ─────────────────
-    # The payment above is verified but not settled. This is the last point at
-    # which refusing costs the payer nothing: after process_settlement the USDC
-    # is gone, and taking $0.01 while granting nothing is the worst outcome.
-    # The route only learns the wallet AFTER settlement, so the check cannot
-    # live there. A repeat purchase that races past this check (two concurrent
-    # submits before either workspace exists) has already settled, and the
-    # route honours it.
-    payer = _payer_from_payload(outcome.payment_payload)
-    # ONE TRIAL PER WALLET applies to the workspace mint only. Resource routes
-    # (D-1641) must accept repeat payments — a repeat paid call is the demand
-    # signal this card exists to measure.
-    if payer and route_key == ROUTE_KEY:
-        import workspace_engine
-        if workspace_engine.wallet_has_used_trial(payer):
-            raise TrialAlreadyUsed(payer)
 
     # ── SETTLEMENT BOUNDARY ──────────────────────────────────────────────────
     # Everything above is verification: a refusal there is definitively

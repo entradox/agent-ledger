@@ -71,36 +71,27 @@ def test_completed_checkout_does_not_mark_other_workspaces_pro(client, monkeypat
     assert ws.is_workspace_pro(workspace_b) is False
 
 
-def test_checkout_endpoint_requires_workspace_credentials(client):
-    """No session, no cookie: the retired Google arm is gone, so a caller
-    with nothing gets a typed 401 rather than "log in first"."""
+def test_checkout_endpoint_is_retired_for_anonymous_callers(client):
+    """Blueprint v2 (2026-10-11): the human checkout door is gone for everyone —
+    410, not an auth challenge that implies it might open with credentials."""
     c, ws = client
     r = c.post("/v1/billing/checkout")
-    assert r.status_code == 401
+    assert r.status_code == 410
+    assert r.json()["error"]["code"] == "endpoint_retired"
 
 
-def test_checkout_endpoint_rejects_mismatched_workspace_key(client):
-    c, ws = client
-    workspace_id, _raw_key = ws.create_workspace(owner_email="a@example.com")
-    r = c.post("/v1/billing/checkout",
-               headers={"X-Workspace-Id": workspace_id,
-                        "X-Workspace-Key": "wk_live_not_the_key"})
-    assert r.status_code == 401
-
-
-def test_checkout_url_carries_client_reference_id_for_that_workspace(client, monkeypatch):
-    """The point of the re-key (D-1162): the upgrade link must identify the
-    workspace, because client_reference_id is what the Stripe webhook reads to
-    mark it Pro. Without it a real card payment charges the card and upgrades
-    nothing. No Stripe API key and no browser session is involved any more."""
+def test_checkout_endpoint_is_retired_for_valid_credentials_too(client):
+    """A workspace with a real key cannot buy through the human door either —
+    the only paid path is the agent's own x402 rail."""
     c, ws = client
     workspace_id, raw_key = ws.create_workspace(owner_email="a@example.com")
-    monkeypatch.setenv("AL_STRIPE_PAYMENT_LINK", "https://buy.stripe.com/test_link")
     r = c.post("/v1/billing/checkout",
-               headers={"X-Workspace-Id": workspace_id, "X-Workspace-Key": raw_key})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["workspace_id"] == workspace_id
-    assert body["checkout_url"] == (
-        f"https://buy.stripe.com/test_link?client_reference_id={workspace_id}")
-    assert raw_key not in json.dumps(body)
+               headers={"X-Workspace-Id": workspace_id,
+                        "X-Workspace-Key": raw_key})
+    assert r.status_code == 410
+    env_err = r.json()["error"]
+    assert env_err["code"] == "endpoint_retired"
+    assert "/v1/billing/x402" in env_err["message"], (
+        "the retirement must hand the caller the live paid path")
+    # no credential is ever reflected back
+    assert raw_key not in r.text

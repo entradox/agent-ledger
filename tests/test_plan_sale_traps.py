@@ -1,22 +1,27 @@
-"""The two money-path honesty defects found live on 2026-09-24.
+"""The two money-path honesty defects found live on 2026-09-24, and the door
+that replaced them (blueprint v2, 2026-10-11).
 
 Both were MEASURED against production, not theorised:
 
 ITEM 2 — `POST /v1/billing/checkout?plan=team` returned HTTP 200 carrying the $19
 Starter link with `plan: "starter"`. The label was honest but the CALLER had asked
 for Team; a machine receiving 200 reads it as "Team bought" and then delivers a $79
-entitlement nobody paid for. Worse, the old code passed through when
-AL_STRIPE_TEAM_LINK was unset — the exact live state.
+entitlement nobody paid for.
 
 ITEM 3 — `POST /start?plan=starter` with `Accept: application/json` returned 200 and
 silently minted a FREE workspace. An agent asked for a paid plan, got 200, and ended
 up owning a 3-agent free workspace — while llms.txt advertised that exact URL as how
 to subscribe.
 
-What these tests hold:
-  * asking for Team without a Team link is REFUSED, never substituted downward
+Blueprint v2 removed the human checkout entirely: POST /v1/billing/checkout now
+answers 410 `endpoint_retired` for every caller, and the only paid path is
+POST /v1/billing/x402. What these tests hold now:
+
+  * the retired checkout can NEVER transact — not for Team, not for Starter,
+    and not when an operator sets a stale link env var
+  * the 410 names the real replacement (x402) rather than stranding the caller
   * a machine asking /start for a paid plan is REFUSED before anything is minted
-  * the happy paths (human form, machine free mint, real Team link) still work
+  * the happy paths (human form, machine free mint) still work
   * llms.txt/pricing copy no longer tells machines to subscribe via /start
 """
 import importlib
@@ -55,55 +60,47 @@ def _fresh_creds(we):
     return ws_id, raw_key
 
 
-# ── ITEM 2: the plan=team trap ──────────────────────────────────────────────
+# ── the retired checkout door ───────────────────────────────────────────────
 
-def test_team_request_is_refused_when_team_link_is_unset(env):
-    """THE defect. Was: 200 + the $19 Starter link under a Team request."""
+def test_checkout_route_is_gone_for_a_team_request(env):
+    """The Team trap cannot recur: the route that used to hand back the wrong
+    price no longer sells anything at all."""
     client, we = env
     ws_id, raw_key = _fresh_creds(we)
 
     r = client.post("/v1/billing/checkout?plan=team",
                     headers={"X-Workspace-Id": ws_id, "X-Workspace-Key": raw_key})
 
-    assert r.status_code == 409, (
-        f"a Team request must not be answered with a cheaper plan; got {r.status_code} "
+    assert r.status_code == 410, (
+        f"the retired checkout must answer 410, got {r.status_code} "
         f"{r.text[:200]}")
     body = r.text
-    assert "plan_not_available" in body, "the refusal must be typed"
-    # The fatal failure mode: silently handing back the Starter link.
-    assert STARTER not in body, (
-        "the $19 Starter link was returned for a Team request — that charges the "
-        "wrong amount and sells a $79 promise")
+    assert "endpoint_retired" in body, "the retirement must be typed"
+    # The fatal failure mode: any link it could charge through.
+    assert STARTER not in body and "buy.stripe" not in body, (
+        "the retired route still emitted a Stripe link a caller could pay")
 
 
-def test_team_request_is_refused_before_any_charge(env):
-    """409, not 402: no payment fixes a missing Team link on this deployment."""
-    client, we = env
-    ws_id, raw_key = _fresh_creds(we)
-    r = client.post("/v1/billing/checkout?plan=team",
-                    headers={"X-Workspace-Id": ws_id, "X-Workspace-Key": raw_key})
-    assert r.status_code != 402, (
-        "402 means 'pay me' and an agent would retry payment forever; the Team link "
-        "cannot be fixed by paying")
-
-
-def test_starter_request_still_returns_the_starter_link(env):
-    """Canary: the refusal must not break the plan that DOES exist."""
+def test_checkout_route_is_gone_for_a_starter_request_too(env):
+    """No half-retirement: the plan that DID work must fail the same way."""
     client, we = env
     ws_id, raw_key = _fresh_creds(we)
     r = client.post("/v1/billing/checkout?plan=starter",
                     headers={"X-Workspace-Id": ws_id, "X-Workspace-Key": raw_key})
-    assert r.status_code == 200, r.text[:200]
-    j = r.json()
-    assert j["plan"] == "starter"
-    assert j["checkout_url"].startswith(STARTER)
-    assert ws_id in j["checkout_url"], "the link must carry client_reference_id"
+    assert r.status_code == 410, r.text[:200]
+    assert "checkout_url" not in r.json(), "a checkout URL was still issued"
+    env_err = r.json()["error"]
+    assert env_err["code"] == "endpoint_retired"
+    assert "/v1/billing/x402" in env_err["message"], (
+        "the retirement must point the caller at the live paid path")
 
 
-def test_a_real_team_link_is_used_when_configured(env, monkeypatch):
-    """When the operator sets the link, plan=team must sell TEAM."""
+def test_checkout_stays_retired_even_when_a_link_env_is_set(env, monkeypatch):
+    """A stale env var must not resurrect the door — the same class of drift
+    that made a $79 request settle $19."""
     client, we = env
     monkeypatch.setenv("AL_STRIPE_TEAM_LINK", TEAM)
+    monkeypatch.setenv("AL_STRIPE_PAYMENT_LINK", STARTER)
     import routes_billing
     importlib.reload(routes_billing)
     import api_server
@@ -112,13 +109,26 @@ def test_a_real_team_link_is_used_when_configured(env, monkeypatch):
     client = TestClient(api_server.app)
 
     ws_id, raw_key = _fresh_creds(we)
+    for plan in ("team", "starter", ""):
+        suffix = f"?plan={plan}" if plan else ""
+        r = client.post(f"/v1/billing/checkout{suffix}",
+                        headers={"X-Workspace-Id": ws_id,
+                                 "X-Workspace-Key": raw_key})
+        assert r.status_code == 410, (
+            f"checkout resurrected by env vars for plan={plan!r}: {r.status_code}")
+        assert "buy.stripe" not in r.text
+
+
+def test_the_retirement_never_answers_pay_me(env):
+    """410, not 402: nothing about paying fixes a retired route, and an agent
+    must not retry payment against a door that cannot grant."""
+    client, we = env
+    ws_id, raw_key = _fresh_creds(we)
     r = client.post("/v1/billing/checkout?plan=team",
                     headers={"X-Workspace-Id": ws_id, "X-Workspace-Key": raw_key})
-    assert r.status_code == 200, r.text[:200]
-    j = r.json()
-    assert j["plan"] == "team", "a configured Team link must be labelled team"
-    assert j["checkout_url"].startswith(TEAM), "the Team link was not used"
-    assert STARTER not in j["checkout_url"], "fell back to Starter with Team set"
+    assert r.status_code != 402, (
+        "402 means 'pay me' — an agent would retry payment forever against a "
+        "route that can never transact")
 
 
 # ── ITEM 3: the /start plan trap ────────────────────────────────────────────
@@ -132,7 +142,7 @@ def test_machine_asking_start_for_a_paid_plan_is_refused(env):
         f"a machine asking /start for a paid plan must not get a free mint; got "
         f"{r.status_code}")
     body = r.text
-    assert "plan_requires_human_checkout" in body, "the refusal must be typed"
+    assert "plan_requires_agent_payment" in body, "the refusal must be typed"
     assert "workspace_key" not in body, (
         "a free WORKSPACE WAS MINTED and its key returned for a paid plan request — "
         "the agent now owns a free workspace believing it subscribed")
@@ -178,20 +188,22 @@ def test_llms_txt_no_longer_sends_machines_to_start_to_subscribe(env):
     assert "subscribe at /start" not in txt, (
         "llms.txt still tells agents to subscribe via /start, which mints a free "
         "workspace and returns 200")
-    assert "/v1/billing/checkout" in txt, (
-        "the human-checkout route is no longer discoverable from llms.txt")
+    assert "/v1/billing/checkout" not in txt, (
+        "the retired human-checkout route is still discoverable from llms.txt")
+    assert "/v1/billing/x402" in txt, (
+        "the only paid path is not discoverable from llms.txt")
 
 
-def test_llms_txt_says_monthly_plans_need_a_human(env):
-    """The honest version: agent-purchasable is x402; monthly needs a person."""
+def test_llms_txt_says_there_is_no_human_checkout(env):
+    """The honest version: the only paid path is the agent's own rail."""
     client, _ = env
     txt = client.get("/llms.txt").text
-    assert "human" in txt.lower(), (
-        "llms.txt must say the monthly plans require a human checkout")
+    assert "no human checkout" in txt.lower(), (
+        "llms.txt must say plainly that no human checkout exists")
 
 
-def test_checkout_route_is_discoverable_as_the_monthly_path(env):
+def test_the_paid_path_constant_points_at_the_rail_that_transacts(env):
     """The paid path an agent is pointed at must itself behave honestly."""
     import x402_verify
-    assert x402_verify.X402_TRIAL_PAID_PATH == "/v1/billing/checkout", (
+    assert x402_verify.X402_PAID_PATH == "/v1/billing/x402", (
         "the documented paid path drifted off the route that can actually transact")

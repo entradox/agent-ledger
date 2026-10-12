@@ -285,24 +285,17 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
             if d.is_dir() and (d / "workspace_id.txt").exists()
             and (d / "workspace_id.txt").read_text().strip() == workspace["workspace_id"])
         if claimed_in_workspace >= agent_cap:
-            _link = os.environ.get(
-                "AL_STRIPE_PAYMENT_LINK",
-                "https://buy.stripe.com/14AbJ0clUeoE9QN3Nl2400e")
             import x402_verify
             pass_hours = round(x402_verify.X402_PRO_PASS_SECONDS / 3600)
             raise BetaCapExceededError(
-                f"Free tier: {agent_cap} agents per workspace. Two ways to lift it, no "
-                "human required for either: "
-                f"(1) POST /v1/billing/x402 with a wallet payment ({x402_verify.X402_MINT_PRICE}) "
-                f"for a Pro pass — unlimited agents for {pass_hours}h. Paying mints/resolves "
-                "a workspace bound to your wallet, which is a DIFFERENT workspace from this "
-                "one if this one wasn't created that way — the agents already on this "
-                "workspace stay here; "
-                "(2) upgrade THIS workspace to Starter ($19/mo, up to 10 agents, no expiry): "
-                f"{_link}?client_reference_id={workspace_id} "
-                "(or POST /v1/billing/checkout with this workspace's credentials to get "
-                "that link programmatically — needs client_reference_id or the payment "
-                "can't be attached to a workspace).")
+                f"Free tier: {agent_cap} agents per workspace. The only paid "
+                "path is the agent rail — there is no human checkout: "
+                f"POST /v1/billing/x402 with a wallet payment ({x402_verify.X402_MINT_PRICE}) "
+                f"buys a renewable Pro pass — {x402_verify.x402_pass_agent_limit()} for {pass_hours}h "
+                "per payment. Paying mints/resolves a workspace bound to your "
+                "wallet, which is a DIFFERENT workspace from this one if this "
+                "one wasn't created that way — the agents already on this "
+                "workspace stay here.")
 
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)

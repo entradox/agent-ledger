@@ -170,6 +170,7 @@ text-align:center;color:var(--muted);font-size:12.5px}}
 <a href="/">home</a> &middot; <a href="/agent-ledger">AgentLedger</a> &middot;
 <a href="/perimeter-watch">Perimeter Watch</a> &middot; <a href="/cited">Cited</a> &middot;
 <a href="/agent-watch">Agent Watch</a> &middot; <a href="/trust-scan">TrustScan</a> &middot;
+<a href="/workbench">AI Workbench</a> &middot;
 <a href="/privacy">privacy</a> &middot; <a href="/terms">terms</a>
 </div></body></html>"""
 
@@ -195,6 +196,7 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 <div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p></div>
 <div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy</p></div>
 <div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust</p></div>
+<div class="card"><h3><a class="plain" href="/workbench">AI Workbench</a></h3><p class="mut">The audit trail for agent work &mdash; gates, frame cards, verifiable receipts</p></div>
 
 <h2>Start here</h2>
 <p class="mut">A workspace needs no signup and no card, and the key is shown once.</p>
@@ -283,9 +285,10 @@ price challenge &mdash; the handshake your agent would do, without your agent.</
 <button class="go" onclick="checkWatch()">Check status</button>
 </div>
 <div class="res" id="watch-res"></div>
-<p class="mut" style="margin-top:10px">Monitoring subscriptions with email alerts
-are <b>$29/mo</b> — pick a plan below and checkout is self-serve. Every MCP tool
-&mdash; including <span class="ver">aw_watch</span> &mdash; works today for subscribers.</p>
+<p class="mut" style="margin-top:10px">Every MCP tool
+&mdash; including <span class="ver">aw_watch</span> &mdash; works today, free.
+There is no paid human tier on this domain; the city's only paid path is the
+agent rail (x402).</p>
 </div>
 
 {PRICING_AGENT_WATCH}
@@ -397,7 +400,7 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 <li><b>trust_scan_file</b>(filepath) &mdash; scan a single file</li>
 </ul>
 <p class="mut">The deep scan runs over MCP, where the scanner has the code in front of it
-&mdash; teams wire it into CI on the <b>Team plan</b> below.</p>
+&mdash; wire it into CI on the free plan below.</p>
 </div>
 
 {PRICING_TRUST_SCAN}
@@ -434,6 +437,54 @@ box.innerHTML='<div class="err">Request failed — check your connection and try
 btn.disabled=false}
 document.getElementById("ts-pkg").addEventListener("keydown",function(e){
 if(e.key==="Enter")runNpmCheck()});
+</script>
+"""
+
+
+WORKBENCH_PAGE = """
+<div class="kicker">// human-readable &middot; aiagentscity.com/workbench</div>
+<h1>AI Workbench — the audit trail for agent work.</h1>
+<p class="lede">One command installs the discipline: every task gets framed,
+every write is gated against the frame's scope, and every close produces a
+<b>receipt anyone can recompute</b>. It is a local kit, not a service &mdash;
+the evidence lives on the operator's machine.</p>
+<p><span class="ver">npm @aiagentscity/setup</span> <span class="ver">local kit &mdash; no MCP, no account</span> <span class="ver">live</span></p>
+
+<div class="card">
+<h3>Install</h3>
+<pre><button class="cb" onclick="copyPre(this)">copy</button>npx @aiagentscity/setup workbench</pre>
+<p class="mut">The installer detects Claude Code, Codex, Cursor, OpenCode, Hermes
+and OpenClaw, wires the gate into whichever it finds, and installs a skill so
+the agent knows the rules. Works on macOS and Linux.</p>
+</div>
+
+<div class="card">
+<h3>How a task runs</h3>
+<ul class="feat">
+<li><b>wb frame "the task"</b> &mdash; one line creates a typed card: owner, agent-of-record, scope, acceptance</li>
+<li><b>Every write is gated</b> &mdash; in-scope writes pass; out-of-scope writes are refused with the reason</li>
+<li><b>wb receipt</b> &mdash; the close produces a machine-witnessed record: card hash, gate rows, ledger digest</li>
+<li><b>wb verify</b> &mdash; anyone recomputes every hash against the live ledger. A forged receipt fails</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Who is who</h3>
+<ul class="feat">
+<li><b>The operator</b> runs the agents and produces the work &mdash; the receipts are theirs to show.</li>
+<li><b>The owner</b> is who the work is for &mdash; a client, an employer, anyone who needs to trust it.
+Owners verify receipts free, forever; verification is never a paid feature.</li>
+</ul>
+<p class="mut">Cards carry both identities (<code>WB_OWNER</code>, <code>WB_AGENT</code>),
+and so does every receipt. Local evidence never leaves the machine unasked.</p>
+</div>
+
+{PRICING_WORKBENCH}
+
+<script>
+function copyPre(b){var t=b.parentElement.innerText.replace(/^copy\\n/,"");
+navigator.clipboard.writeText(t).then(()=>{b.textContent="copied";
+setTimeout(()=>b.textContent="copy",1500)})}
 </script>
 """
 
@@ -766,7 +817,8 @@ a flat per-agent ledger.</li>
 <li><b>Revenium</b> — free developer tier, SMB/enterprise pricing not
 published. The closest direct rival: hard spend limits plus cost attribution
 across agent, workflow, tool and human review. AgentLedger's wedge against it
-is the simpler self-serve motion at a fixed $19.</li>
+is that the agent buys its own Pro — a $0.01 x402 payment, no human in the
+loop.</li>
 <li><b>LangSmith Gateway</b> — $39/seat/month plus gateway usage. LangSmith's
 2026 gateway beta added org/workspace/key/user-level caps on top of its
 existing trace suite — an installed base adding enforcement, not a
@@ -774,14 +826,15 @@ purpose-built agent-budget product.</li>
 </ul>
 <p class="mut">None of these are wrong tools — several are excellent at what
 they do. The distinction is unit of accounting (agent, not seat or key) and
-price (flat $19/workspace per month, not per-seat or usage-scaled).</p>
+who the customer is: the agent itself pays, $0.01 per 24h pass over x402 —
+no seat, no subscription, no human checkout.</p>
 
 <h2>What we are not</h2>
 <p class="mut">We are not a trace viewer, an eval platform, or a prompt
 playground, and we are not trying to be. If you need deep trace inspection,
 pair one of the above with us: they show you the call, we keep the total from
-becoming a surprise. AgentLedger is $19/month per workspace, flat, regardless of
-seat count.</p>
+becoming a surprise. AgentLedger is free up to 3 agents; Pro is $0.01 per
+24-hour pass, bought by the agent itself over x402.</p>
 """
 
 # ── /reliability (D-1250) ──────────────────────────────────────────────────
@@ -838,7 +891,7 @@ with your own data. <a href="/quickstart">Connect a real agent →</a></p>
 """
 
 
-# ── Pricing sections (rendered from pricing.py; env-driven Stripe links) ─────
+# ── Pricing sections (rendered from pricing.py — free tiers + the x402 rail) ──
 try:
     import pricing as _pricing
 
@@ -850,6 +903,8 @@ try:
         "{PRICING_PERIMETER_WATCH}", _pricing.pricing_section("perimeter-watch"))
     CITED_PAGE = CITED_PAGE.replace(
         "{PRICING_CITED}", _pricing.pricing_section("cited"))
+    WORKBENCH_PAGE = WORKBENCH_PAGE.replace(
+        "{PRICING_WORKBENCH}", _pricing.pricing_section("workbench"))
 
     CITY_SHELL = CITY_SHELL.replace("</style>",
                                     _pricing.PRICING_CSS + "\n</style>", 1)
@@ -865,100 +920,85 @@ except Exception:
 # only becomes true after the customer has integrated and used it. The till worked; there
 # was no door from where the need arises.
 #
-# /pricing renders from pricing.PRODUCTS so it cannot disagree with the checkout route or
-# the Terms. /upgrade calls the EXISTING POST /v1/billing/checkout from the browser with the
-# customer's own workspace key — the same pattern the dashboard already uses. Neither page
-# reads or changes Stripe config, and neither claims a payment completes.
+# /pricing renders from pricing.PRODUCTS so it cannot disagree with the Terms or any
+# product's own pricing section. /upgrade explains the agent rail — blueprint v2 removed
+# the human checkout (POST /v1/billing/checkout now returns 410), so neither page can
+# offer a paid human tier.
 
 _UPGRADE_PAGE_BODY = """
 <h1>Lift the 3-agent cap</h1>
-<p>The Free plan tracks up to <b>3 agents per workspace</b>. Past that, a 4th new agent is
+<p>The Free tier tracks up to <b>3 agents per workspace</b>. Past that, a 4th new agent is
 refused — and that refusal is usually the first time this matters, because it happens
-<i>after</i> you have wired the product in. Upgrade here, from wherever you are.</p>
+<i>after</i> you have wired the product in.</p>
 
-<div class="card" id="keybox">
-  <p><b>Paste this workspace's key</b> to build its upgrade link.</p>
-  <p class="muted">It starts <code>wk_live_</code>. It is sent only to this site, as a
-  request header, to build the link — it is not stored on the server.</p>
-  <p><input id="wk" type="password" autocomplete="off" spellcheck="false"
-            placeholder="wk_live_..."></p>
-  <p><button id="go">Continue to checkout</button></p>
-  <p id="err" class="muted" style="color:#B91C1C"></p>
-</div>
+<h2>The only paid path is the agent rail</h2>
+<p>Blueprint v2 (2026-10-11): there is no human checkout on this domain. Pro is bought
+by the agent itself over x402 — a {X402_PRICE} USDC payment buys a 24-hour Pro pass
+({X402_LIMIT} on the workspace the paying wallet resolves to), and every payment
+buys a fresh window:</p>
+<pre>POST /v1/billing/x402
+Header: X-PAYMENT: &lt;signed x402 payment&gt;
+# → workspace_id + workspace_key (shown once), 24h Pro</pre>
+<p class="muted">Network: <code>{X402_NETWORK}</code>. Request and response format:
+<a href="/.well-known/x402.json">/.well-known/x402.json</a>.</p>
 
-<h2>Plans</h2>
+<h2>Reading this as a human?</h2>
+<p class="muted">Your free workspace is free forever — nothing to cancel. One honest
+caveat: the pass binds to the paying <b>wallet's</b> workspace, not this one. If this
+workspace was minted free at /start, an x402 payment mints or resolves a separate
+wallet-bound workspace — it does not lift this workspace's 3-agent cap, and agents
+already claimed stay on the free tier. There is no migrate-a-workspace path yet;
+to reconcile workspaces, see <a href="/about">/about</a>.</p>
+
 {PRICING_AGENT_LEDGER}
-
-<p class="muted">Billed through Stripe. Cancel any time. Agents can also buy a 24-hour
-AgentLedger Pro pass for <b>$0.01 USDC</b> over x402 on the Base network
-(<code>{X402_NETWORK}</code>) with no human in the loop — see
-<a href="/agent-ledger#pricing">the AgentLedger page</a>.</p>
-
-<script>
-document.getElementById('go').addEventListener('click', function(){
-  var k=document.getElementById('wk').value.trim();
-  var e=document.getElementById('err');
-  if(!k){ e.textContent='Paste the workspace key first.'; return; }
-  e.textContent='';
-  // Ask the API which workspace this key belongs to, then let the API build the
-  // checkout URL. Both calls are the product's own existing routes.
-  fetch('/v1/workspace/summary?days=1', {headers:{'X-Workspace-Key':k}})
-    .then(function(r){ if(!r.ok) throw new Error(r.status===401?'That key was not accepted.':'HTTP '+r.status); return r.json(); })
-    .then(function(d){
-      return fetch('/v1/billing/checkout', {method:'POST',
-        headers:{'X-Workspace-Id':d.workspace_id||'','X-Workspace-Key':k}})
-        .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
-    })
-    .then(function(j){
-      if(j && j.checkout_url){ window.location.href=j.checkout_url; }
-      else { e.textContent='No checkout link was returned for this workspace.'; }
-    })
-    .catch(function(ex){ e.textContent='Could not start checkout ('+ex.message+').'; });
-});
-</script>
 """
 
 
 def _render_upgrade() -> str:
-    """The durable upgrade door. Renders the real plan cards from pricing.PRODUCTS and
-    wires the button to the existing checkout route; refuses to invent a price."""
+    """The durable upgrade explainer. Renders the real cards from pricing.PRODUCTS —
+    free tier plus the agent rail — and refuses to invent a checkout."""
     try:
         import pricing as _p
         cards = _p.pricing_section("agent-ledger")
     except Exception:
-        # Never let a missing price table produce a blank pay page — say so plainly
-        # instead, so the page cannot silently look fine while offering nothing.
         cards = ("<p class='muted'>The plan table could not be loaded. "
                  "Use <a href=\"/start\">/start</a> to get a workspace, or email us.</p>")
-    return _UPGRADE_PAGE_BODY.replace("{PRICING_AGENT_LEDGER}", cards)
+    import x402_verify
+    return (_UPGRADE_PAGE_BODY
+            .replace("{PRICING_AGENT_LEDGER}", cards)
+            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE)
+            .replace("{X402_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 
 _PRICING_PAGE_BODY = """
 <h1>Pricing</h1>
 <p>One workspace, every rail. The free tier is real — 3 agents, no expiry, no card.</p>
 {PRICING_AGENT_LEDGER}
-<h2>Which plan do I need?</h2>
-<p>Most people need Starter the day a 4th agent shows up. If you are running agents across
-a team, or tracking more than ten, Team. Nothing is gated behind a sales call.</p>
-<p><a href="/upgrade">Upgrade an existing workspace →</a> ·
+<h2>How do I lift the cap?</h2>
+<p>The agent pays its own way: a {X402_PRICE} USDC x402 payment buys a renewable 24-hour
+Pro pass — {X402_LIMIT} on the workspace the paying wallet resolves to. There is no
+human checkout on this domain, and nothing is gated behind a sales call.</p>
+<p><a href="/upgrade">How the agent rail works →</a> ·
    <a href="/start">Get a workspace — no signup, no card</a></p>
-<p class="muted">Prices in USD. Billed through Stripe; cancel any time. An agent with a Base
-wallet can buy a 24-hour Pro pass for $0.01 USDC over x402
-(<code>{X402_NETWORK}</code>) with no human in the loop. Refund policy:
-<a href="/terms#refunds">14 days on a first paid purchase</a>.</p>
+<p class="muted">Prices in USD. Free tiers never expire. Pass purchases are final once
+settled — <a href="/terms#refunds">refund policy</a>.</p>
 """
 
 
 def _render_pricing() -> str:
     """The canonical /pricing page, rendered from pricing.PRODUCTS so it cannot drift from
-    the checkout route, the Terms, or any product's own pricing section."""
+    the Terms or any product's own pricing section."""
     try:
         import pricing as _p
         cards = _p.pricing_section("agent-ledger")
     except Exception:
         cards = ("<p class='muted'>The plan table could not be loaded. "
                  "Use <a href=\"/start\">/start</a> to get a workspace, or email us.</p>")
-    return _PRICING_PAGE_BODY.replace("{PRICING_AGENT_LEDGER}", cards)
+    import x402_verify
+    return (_PRICING_PAGE_BODY
+            .replace("{PRICING_AGENT_LEDGER}", cards)
+            .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE)
+            .replace("{X402_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 
 
@@ -968,8 +1008,10 @@ def okf_index_md() -> str:
     manifests already describe the interface better than markdown could."""
     return """# AI Agent City — agent-readable knowledge index
 
-Umbrella site for five products: AgentLedger, Agent Watch, Perimeter Watch,
-TrustScan, Cited. AgentLedger is the ledger service served by this process.
+Umbrella site for six products: AgentLedger, Agent Watch, Perimeter Watch,
+TrustScan, Cited, AI Workbench. AgentLedger is the ledger service served by
+this process; AI Workbench is a local kit installed via npm, not an MCP
+endpoint.
 
 ## Machine surfaces
 
@@ -995,6 +1037,7 @@ TrustScan, Cited. AgentLedger is the ledger service served by this process.
 - Perimeter Watch — domain-perimeter monitoring: /perimeter-watch
 - TrustScan — npm/MCP package trust scoring: /trust-scan
 - Cited — AI-search visibility scans: /cited
+- AI Workbench — audit trail for agent work; local kit (no MCP): /workbench
 - Comparison: /compare · All products: /products
 
 ## Sister product (separate service, same domain)

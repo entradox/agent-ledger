@@ -21,8 +21,9 @@ def test_pricing_md_serves_every_product_and_tier_price():
         assert f"## {prod['name']}" in body
         for t in prod["tiers"]:
             assert f"**{t['name']} — " in body
-    # prices come from PRODUCTS, not invented literals
-    assert "$19/mo" in body and "$79/mo" in body and "$49 one-time" in body
+    # prices come from PRODUCTS, not invented literals — blueprint v2: no human tier
+    assert "$19" not in body and "$79" not in body, (
+        "a human monthly plan is advertised on a domain with no human checkout")
     # the x402 rail states its real configured price
     import x402_verify
     assert x402_verify.X402_MINT_PRICE in body

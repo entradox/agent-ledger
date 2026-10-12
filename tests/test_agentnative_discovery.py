@@ -59,9 +59,12 @@ def test_discovery_pricing_points_at_product_pricing_not_the_model_table():
 
 
 def test_the_pricing_pointer_target_really_prices_the_product():
-    """Follow the pointer the way an agent would, and check it answers with OUR prices."""
+    """Follow the pointer the way an agent would, and check it answers with OUR offer:
+    free tiers plus the agent rail — and no retired human tier."""
     body = _client().get("/pricing").text
-    assert "$19" in body and "$79" in body, "/pricing is not the product pricing page"
+    assert "/v1/billing/x402" in body, "/pricing lost the agent rail"
+    assert "$19" not in body and "$79" not in body, (
+        "/pricing still advertises a human monthly plan that cannot be bought")
 
 
 def test_model_price_table_is_still_reachable():

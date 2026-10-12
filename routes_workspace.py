@@ -158,14 +158,9 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
 
 <div id="app" style="display:none">
   <!-- D-1404 / item 3.5 — the pay door, where the need actually arises.
-       The only pay link used to be on /start, shown ONCE right after minting, and
-       labelled "Optional, and not needed today". But the pay trigger is "past 3 agents",
-       a condition that becomes true only AFTER the customer has integrated and used the
-       product — at which point that screen is long gone, /upgrade and /pricing 404'd, and
-       the cap error pointed at minting ANOTHER free workspace. The till worked; there was
-       no door from where the need arises. This block is that door: persistent, next to the
-       agent count the cap is measured against, and built from the same checkout route the
-       product already ships (no Stripe config, no new secret, no payment). -->
+       Persistent, next to the agent count the cap is measured against. Blueprint v2
+       (2026-10-11): the Stripe checkout it used to call is retired (410); the button
+       now links to /upgrade, which explains the agent rail — the only paid path. -->
   <div id="planbar" class="card" style="margin:16px 0;display:none">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <div style="flex:1 1 260px">
@@ -174,7 +169,7 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
       </div>
       <div id="payactions" style="display:flex;gap:8px;flex-wrap:wrap">
         <a id="upgradelink" href="/upgrade" style="text-decoration:none">
-          <button>Upgrade to Starter — $19/mo</button></a>
+          <button>More agents — $0.01 x402 pass</button></a>
         <a href="/pricing" style="text-decoration:none">
           <button class="ghost">See pricing</button></a>
       </div>
@@ -185,9 +180,11 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="card" id="planbox">
     <p style="margin-top:0"><b>Plan: <span id="plantier">free</span></b>
        <span class="muted">— free tier is 3 agents per workspace.</span></p>
-    <p class="muted" id="planhint" style="margin-bottom:8px">Need more? $19/mo Starter raises the
-       agent limit on this workspace to 10. No migration, same key.</p>
-    <p><button id="upgrade">Upgrade to Starter — $19/mo</button>
+    <p class="muted" id="planhint" style="margin-bottom:8px">Need more? A $0.01 x402 payment
+       buys a renewable 24h Pro pass — paid by the agent itself, no human checkout.
+       The pass binds to the paying wallet's workspace, which is a different
+       workspace from this one — this workspace stays on the free tier.</p>
+    <p><button id="upgrade">More agents — $0.01 x402 pass</button>
        <span class="muted" id="upmsg"></span></p>
   </div>
   <p><button class="ghost" id="csv">Download CSV</button>
@@ -304,12 +301,9 @@ function render(d){
 function kpi(k,v){ return '<div class="card kpi"><div class="k">'+esc(k)+
   '</div><div class="v">'+esc(v)+'</div></div>'; }
 
-// D-1404 / item 3.5. The pay door. Renders the plan + agent count against the free cap
-// and points the upgrade button at the EXISTING checkout route so the link carries this
-// workspace's id (client_reference_id), exactly as /start's link did. No Stripe config is
-// read or changed here, no secret, no payment — this only builds a URL the product
-// already knew how to build. Failures are shown, never silently swallowed: a dead pay
-// link that looks fine is the defect this block exists to fix.
+// D-1404 / item 3.5. The pay door. Renders the plan + agent count against the free cap.
+// Blueprint v2: the human checkout route is retired, so the upgrade button is simply a
+// link to /upgrade — which explains the agent rail, the only paid path.
 function renderPlanBar(d, key){
   var agents=(d.agents||[]), n=agents.length;
   var tiers=agents.map(function(a){return a.tier;});
@@ -319,8 +313,8 @@ function renderPlanBar(d, key){
   document.getElementById('planline').textContent = anyPro ? 'Paid plan' : 'Free plan';
   // The cap per tier is REAL and tier-specific — mark_pro sets
   // starter -> STARTER_AGENT_CAP (10), team -> TEAM_AGENT_CAP (50), pro -> None (unbounded,
-  // which is the x402 pass). Saying "unlimited" for any paid plan would be false for the
-  // two Stripe tiers, so read the actual tier and state its actual limit.
+  // which is the x402 pass). starter/team can still exist on workspaces grandfathered
+  // from the retired Stripe door, so read the actual tier and state its actual limit.
   var paidTier = null;
   for (var i=0;i<tiers.length;i++){
     if(tiers[i]==='pro'){ paidTier='pro'; break; }
@@ -335,34 +329,18 @@ function renderPlanBar(d, key){
   } else if(paidTier==='starter'){
     line='Starter plan — up to 10 agents per workspace.';
   } else if(n>=cap){
-    line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused; this is the moment to upgrade.';
+    line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused here; an x402 pass lives on the paying wallet\'s workspace.';
   } else {
-    line=n+' of '+cap+' free agents used. The cap bites at '+cap+'; upgrading lifts it.';
+    line=n+' of '+cap+' free agents used. The cap bites at '+cap+' on this workspace.';
   }
   document.getElementById('capline').textContent=line;
   bar.style.display='block';
-  // The /demo page renders this same function with no workspace key. There is no
-  // workspace to check out, so do not attempt a checkout call there — show the static
-  // pricing link instead and leave the error line empty.
+  // The /demo page renders this same function with no workspace key — the link
+  // still goes to /upgrade, which needs no workspace context.
   if(!key){
     document.getElementById('upgradelink').href='/pricing';
     return;
   }
-  // Point the button at the real checkout for THIS workspace.
-  fetch('/v1/billing/checkout', {method:'POST',
-      headers:{'X-Workspace-Id':(d.workspace_id||''),'X-Workspace-Key':key}})
-    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(j){
-      if(j && j.checkout_url){
-        document.getElementById('upgradelink').href=j.checkout_url;
-        document.getElementById('upgradelink').setAttribute('rel','nofollow noopener');
-      }
-    })
-    .catch(function(e){
-      // Keep /upgrade as the href — it is a real page now — and say what happened.
-      document.getElementById('payerr').textContent =
-        'Could not build a direct checkout link ('+esc(e.message)+'). Use the upgrade button above.';
-    });
 }
 
 function load(key){
@@ -403,38 +381,13 @@ var existing = recall();
 if (existing) load(existing);
 
 // ── the pay door ───────────────────────────────────────────────────────────
-// WHY THIS EXISTS (2026-09-18, D-1382). The checkout endpoint worked and the
-// success screen linked to it — but that screen is shown ONCE, at mint, labelled
-// "Optional, and not needed today." The thing that triggers a purchase is the
-// 3-agent cap, and that happens LATER, after integration, on THIS page. At that
-// moment there was no upgrade control here and /upgrade and /pricing were both
-// 404, so the customer who had just hit the exact limit we charge for had no
-// door to walk through. Same defect class as the webhooks surface below: the
-// endpoint existed and no page linked to it.
+// WHY THIS EXISTS (2026-09-18, D-1382). The thing that triggers a purchase is the
+// 3-agent cap, and that happens LATER, after integration, on THIS page — so the
+// upgrade control lives here, not only on the once-shown mint screen. Blueprint v2
+// (2026-10-11): the Stripe checkout endpoint it used to call is retired (410); the
+// button now goes to /upgrade, which explains the agent rail — the only paid path.
 document.getElementById('upgrade').onclick = function(){
-  if(!KEY) return;
-  var btn = this, msg = document.getElementById('upmsg');
-  btn.disabled = true; msg.textContent = 'Creating your checkout…';
-  msg.style.color = '#8b949e';
-  fetch('/v1/billing/checkout', {
-    method:'POST',
-    headers:{'X-Workspace-Key':KEY, 'X-Workspace-Id':WSID || '', 'Content-Type':'application/json'},
-    body:'{}'
-  })
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
-    .then(function(res){
-      var url = res.body && res.body.checkout_url;
-      if (url) { msg.textContent = 'Opening secure checkout…'; location.href = url; return; }
-      btn.disabled = false;
-      msg.textContent = (res.body && res.body.error && res.body.error.message) ||
-                        'Could not start checkout — email entradox@icloud.com and we will sort it.';
-      msg.style.color = '#f85149';
-    })
-    .catch(function(){
-      btn.disabled = false;
-      msg.textContent = 'Network error — try again.';
-      msg.style.color = '#f85149';
-    });
+  location.href = '/upgrade';
 };
 
 // ── webhooks ───────────────────────────────────────────────────────────────

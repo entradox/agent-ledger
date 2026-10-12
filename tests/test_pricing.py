@@ -32,30 +32,33 @@ def test_free_tier_cta_goes_to_free_entry():
     assert "https://entradox.github.io/cited-site/" in html
 
 
-def test_unconfigured_paid_tier_falls_back_to_free_entry():
-    # Without Stripe links configured, paid CTAs must not point at a
-    # checkout that does not exist.
+def test_no_stripe_link_can_render_on_any_product():
+    # Blueprint v2: the Stripe env vars are dead config — setting one must NOT
+    # flip a CTA to a checkout that no longer exists.
     for pid in pricing.PRODUCTS:
         for name in ("AW_STRIPE_WATCH_LINK", "PW_STRIPE_LITE_LINK",
                      "TS_STRIPE_TEAM_LINK", "CT_STRIPE_REPORT_LINK"):
             os.environ.pop(name, None)
     html = pricing.pricing_section("agent-watch")
     assert "buy.stripe.com" not in html
-    assert "Start free" in html
+    assert "Probe free" in html
 
 
-def test_configured_link_flips_cta_to_checkout(monkeypatch):
+def test_configured_link_env_var_does_not_resurrect_a_checkout(monkeypatch):
     monkeypatch.setenv("AW_STRIPE_WATCH_LINK",
                        "https://buy.stripe.com/test_watch")
     html = pricing.pricing_section("agent-watch")
-    assert "https://buy.stripe.com/test_watch" in html
-    assert ">Get Watch</a>" in html
+    assert "buy.stripe.com" not in html, (
+        "a stale Stripe env var resurrected a paid door on the pricing section")
 
 
-def test_annual_toggle_present_for_subscriptions():
-    assert "Annual" in pricing.pricing_section("perimeter-watch")
-    # Cited's one-time report has no toggle of its own, but Monitoring does.
-    assert "pzToggle" in pricing.pricing_section("cited")
+def test_no_annual_toggle_for_any_product():
+    """The monthly/annual switch existed to sell human subscriptions; with no
+    paid tier it would be a control whose backend does not exist."""
+    for pid in pricing.PRODUCTS:
+        html = pricing.pricing_section(pid)
+        assert "Annual" not in html, f"{pid} still offers a billing period it cannot sell"
+        assert "pzToggle" not in html
 
 
 def test_css_is_format_safe():
@@ -121,3 +124,23 @@ def test_amount_to_tier_table_matches_pricing():
         "routes_billing.py").read_text()
     for cents in ("1900", "19000", "7900", "79000"):
         assert cents in src
+
+
+def test_starter_configured_pass_never_advertises_unlimited(monkeypatch):
+    """D-1645 review: with X402_TRIAL_GRANT=starter the pass grants a 10-agent
+    cap — every offer surface must say so, not 'unlimited agents'."""
+    import x402_verify
+    import pricing
+    monkeypatch.setattr(x402_verify, "X402_TRIAL_GRANT", "starter")
+    assert x402_verify.x402_pass_agent_limit() == "up to 10 agents"
+    html = pricing.pricing_section("agent-ledger")
+    assert "up to 10 agents" in html
+    assert "unlimited" not in html
+
+
+def test_unlimited_grant_advertises_unlimited():
+    import x402_verify
+    import pricing
+    assert x402_verify.x402_pass_tier() == "pro"
+    assert x402_verify.x402_pass_agent_limit() == "unlimited agents"
+    assert "unlimited agents" in pricing.pricing_section("agent-ledger")
