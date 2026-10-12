@@ -200,7 +200,12 @@ def test_wallet_bound_elsewhere_refused_without_settlement(env):
     r2 = _pay(env, bind_to=ws_b, key=key_b)
     assert r2.status_code == 409
     assert r2.json()["error"]["code"] == "wallet_already_bound"
-    assert ws_a in r2.json()["error"]["message"]
+    # The payer is decoded from a signed-but-not-yet-verified header, so
+    # pre-settlement anyone can claim to be any wallet. Naming the bound
+    # workspace_id here would be a free wallet→workspace de-anonymization
+    # oracle — the refusal must name no workspace at all.
+    assert ws_a not in r2.json()["error"]["message"]
+    assert ws_b not in r2.json()["error"]["message"]
     assert env.stub.settle_calls == 1, "the refused bind settled money anyway"
     assert env.we.get_workspace(ws_b)["wallet_address"] is None
 
@@ -218,6 +223,32 @@ def test_workspace_bound_to_other_wallet_refused_without_settlement(env):
     assert env.stub.settle_calls == 1, "wallet B's payment was never attempted"
     # Wallet B is untouched — no workspace minted for it either.
     assert env.we.get_workspace_by_wallet(WALLET_B) is None
+
+
+def test_mpp_rail_bad_bind_headers_refuse_before_settlement(env, monkeypatch):
+    """Regression (Morgan F1): the MPP credential verifies — i.e. SETTLES —
+    inside verify_credential. If the bind checks ran after that call, a bad
+    bind request on the MPP rail would take the money AND 4xx. The
+    credential-independent refusals must precede ALL settlement."""
+    import mpp_verify
+    settled = []
+    def fake_verify(auth):
+        settled.append(auth)
+        return {"result": {"verified": True, "payer_wallet": WALLET_A,
+                           "tx_hash": "0xMPP1", "recipient": "0xTreasury"}}
+    monkeypatch.setattr(mpp_verify, "verify_credential", fake_verify)
+
+    ws_id, raw_key = _free_ws(env)
+    auth = {"Authorization": "Payment realm-test"}
+    r1 = env.client.post("/v1/billing/x402",
+                         headers={**auth, "X-Workspace-Id": ws_id})
+    r2 = env.client.post("/v1/billing/x402",
+                         headers={**auth, "X-Workspace-Id": ws_id,
+                                  "X-Workspace-Key": "wk_live_wrong"})
+    assert r1.status_code == 400 and r2.status_code == 401
+    assert settled == [], (
+        "an MPP credential was verified (settlement attempted) before the "
+        "bind headers were refused — money moved and nothing was granted")
 
 
 # ── Money is never eaten ─────────────────────────────────────────────────────
@@ -244,6 +275,19 @@ def test_post_settlement_bind_race_falls_back_to_wallet_workspace(env):
     assert rec["pro_period_source"] == "x402_pass", (
         "money settled but no pass was granted anywhere")
     assert env.stub.settle_calls == 1
+
+
+def test_ambiguous_settlement_failure_is_never_a_retryable_answer(env):
+    """Regression (Morgan F2): process_settlement raising means the payment
+    reached the rail and may have moved — a 402/503 would invite a second
+    payment on top of the first. The route must answer non-retryable."""
+    def boom(payload, reqs, ctx):
+        raise RuntimeError("facilitator timeout")
+    env.stub.process_settlement = boom
+    r = _pay(env)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "x402_settlement_outcome_unknown"
+    assert "do NOT retry" in r.json()["error"]["message"]
 
 
 # ── Entitlement protection on the bound target ──────────────────────────────

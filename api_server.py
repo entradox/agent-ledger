@@ -982,8 +982,11 @@ POST /v1/billing/x402              — self-serve workspace minting for an agent
                                       To upgrade an EXISTING workspace instead of minting
                                       a new one: add X-Workspace-Id + X-Workspace-Key
                                       headers to the paid request — the wallet binds to
-                                      that workspace and renewals resolve it with no
-                                      headers. Refused binds return 4xx before settlement;
+                                      that workspace permanently (it becomes the
+                                      workspace's payment identity and can reissue the
+                                      workspace_key via /v1/billing/x402/recover) and
+                                      renewals resolve it with no headers. On the x402
+                                      rail, refused binds return 4xx before settlement;
                                       a payment is never taken without granting.
 
 Payable resources (x402, per-call — no workspace needed, the payment IS the
