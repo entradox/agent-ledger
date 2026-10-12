@@ -979,6 +979,12 @@ POST /v1/billing/x402              — self-serve workspace minting for an agent
                                       {X402_SETTLEMENT}
                                       Use POST /start instead if you have no wallet
                                       (GET /start only renders the form).
+                                      To upgrade an EXISTING workspace instead of minting
+                                      a new one: add X-Workspace-Id + X-Workspace-Key
+                                      headers to the paid request — the wallet binds to
+                                      that workspace and renewals resolve it with no
+                                      headers. Refused binds return 4xx before settlement;
+                                      a payment is never taken without granting.
 
 Payable resources (x402, per-call — no workspace needed, the payment IS the
 request; discovery metadata at /.well-known/x402):

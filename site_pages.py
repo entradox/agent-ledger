@@ -943,12 +943,14 @@ Header: X-PAYMENT: &lt;signed x402 payment&gt;
 <a href="/.well-known/x402.json">/.well-known/x402.json</a>.</p>
 
 <h2>Reading this as a human?</h2>
-<p class="muted">Your free workspace is free forever — nothing to cancel. One honest
-caveat: the pass binds to the paying <b>wallet's</b> workspace, not this one. If this
-workspace was minted free at /start, an x402 payment mints or resolves a separate
-wallet-bound workspace — it does not lift this workspace's 3-agent cap, and agents
-already claimed stay on the free tier. There is no migrate-a-workspace path yet;
-to reconcile workspaces, see <a href="/about">/about</a>.</p>
+<p class="muted">Your free workspace is free forever — nothing to cancel. If you want
+<b>this</b> workspace upgraded (rather than a new wallet-bound one), the paying
+agent sends this workspace's credentials with the payment:
+<code>X-Workspace-Id</code> + <code>X-Workspace-Key</code> headers on
+<code>POST /v1/billing/x402</code>. The wallet binds to this workspace —
+its agents, cap, and history all upgrade in place — and renewals from that
+wallet resolve here with no headers needed. Send the payment without those
+headers and it mints or renews a separate wallet-bound workspace instead.</p>
 
 {PRICING_AGENT_LEDGER}
 """

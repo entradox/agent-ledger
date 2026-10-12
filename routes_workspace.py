@@ -182,8 +182,10 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
        <span class="muted">— free tier is 3 agents per workspace.</span></p>
     <p class="muted" id="planhint" style="margin-bottom:8px">Need more? A $0.01 x402 payment
        buys a renewable 24h Pro pass — paid by the agent itself, no human checkout.
-       The pass binds to the paying wallet's workspace, which is a different
-       workspace from this one — this workspace stays on the free tier.</p>
+       To upgrade THIS workspace, the paying agent sends
+       <code>X-Workspace-Id</code> + <code>X-Workspace-Key</code> (this workspace's
+       id and the key you pasted above) with the payment; without them, the pass
+       binds to the paying wallet's own workspace instead.</p>
     <p><button id="upgrade">More agents — $0.01 x402 pass</button>
        <span class="muted" id="upmsg"></span></p>
   </div>
