@@ -200,8 +200,8 @@ PRODUCTS = {
     # WB_STRIPE_PRO_LINK is the env-var the real Payment Link lands in —
     # creating it flips Reserve to checkout with no code change.
     "workbench": {
-        "name": "Workbench",
-        "free_entry": "/",
+        "name": "AI Workbench",
+        "free_entry": "/workbench",
         "tiers": [
             {"name": "Free", "kind": "free", "price_mo": 0,
              "blurb": "The audit trail for agent work. Free forever.",
@@ -210,7 +210,7 @@ PRODUCTS = {
                           "Frame cards + machine-witnessed gate ledger",
                           "Close receipts, verifiable by anyone",
                           "Local-only: nothing leaves the machine"],
-             "cta": "Install free", "href": "/"},
+             "cta": "Install free", "href": "/workbench"},
             {"name": "Pro", "kind": "sub", "price_mo": 29, "price_yr": 290,
              "blurb": "For operators proving agent work to clients. $29/mo.",
              "features": ["city-attested countersign — hash + timestamp + operator key",

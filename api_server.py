@@ -236,7 +236,11 @@ REACH_EXEMPT = {
 # the reach guard exists to stop exactly that kind of silent gap, so the honest fix
 # is to track them. /demo is the same class — the landing page's "Try the live
 # demo" CTA makes it a top-of-funnel surface, so it is tracked, not exempted.
-REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto", "/demo"}
+REACH_PATHS = REACH_PATHS | {"/pricing", "/upgrade", "/manifesto", "/demo",
+                             # /workbench is a funnel entry by construction —
+                             # it carries the npx install line that mints the
+                             # --attempt id feeding setup_connect_funnel.
+                             "/workbench"}
 
 # Two HTML routes that are real pages but not funnel entries: /dashboard is the
 # workspace-owner tool surface (the key is pasted in the browser after signup —
@@ -2188,6 +2192,7 @@ def sitemap_xml():
         ("/agent-watch",  "0.8", "weekly"),
         ("/cited",        "0.8", "weekly"),
         ("/trust-scan",   "0.8", "weekly"),
+        ("/workbench",    "0.8", "weekly"),
         ("/pricing",      "0.9", "weekly"),
         ("/upgrade",      "0.8", "weekly"),
         ("/demo",         "0.8", "weekly"),
@@ -2365,6 +2370,16 @@ def trust_scan_page():
         "TrustScan — AI Agent City",
         "Scan before you trust.",
         site_pages.TRUST_SCAN_PAGE))
+
+
+@app.get("/workbench", response_class=HTMLResponse)
+def workbench_page():
+    import site_pages
+    return HTMLResponse(site_pages.city_page(
+        "AI Workbench — AI Agent City",
+        "The audit trail for agent work: scoped write gates, frame cards, "
+        "and close receipts anyone can recompute. A local kit, not a service.",
+        site_pages.WORKBENCH_PAGE))
 
 
 _BOOT_TS = _time.time()

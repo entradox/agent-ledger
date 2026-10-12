@@ -170,6 +170,7 @@ text-align:center;color:var(--muted);font-size:12.5px}}
 <a href="/">home</a> &middot; <a href="/agent-ledger">AgentLedger</a> &middot;
 <a href="/perimeter-watch">Perimeter Watch</a> &middot; <a href="/cited">Cited</a> &middot;
 <a href="/agent-watch">Agent Watch</a> &middot; <a href="/trust-scan">TrustScan</a> &middot;
+<a href="/workbench">AI Workbench</a> &middot;
 <a href="/privacy">privacy</a> &middot; <a href="/terms">terms</a>
 </div></body></html>"""
 
@@ -195,6 +196,7 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 <div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p></div>
 <div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy</p></div>
 <div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust</p></div>
+<div class="card"><h3><a class="plain" href="/workbench">AI Workbench</a></h3><p class="mut">The audit trail for agent work &mdash; gates, frame cards, verifiable receipts</p></div>
 
 <h2>Start here</h2>
 <p class="mut">A workspace needs no signup and no card, and the key is shown once.</p>
@@ -434,6 +436,54 @@ box.innerHTML='<div class="err">Request failed — check your connection and try
 btn.disabled=false}
 document.getElementById("ts-pkg").addEventListener("keydown",function(e){
 if(e.key==="Enter")runNpmCheck()});
+</script>
+"""
+
+
+WORKBENCH_PAGE = """
+<div class="kicker">// human-readable &middot; aiagentscity.com/workbench</div>
+<h1>AI Workbench — the audit trail for agent work.</h1>
+<p class="lede">One command installs the discipline: every task gets framed,
+every write is gated against the frame's scope, and every close produces a
+<b>receipt anyone can recompute</b>. It is a local kit, not a service &mdash;
+the evidence lives on the operator's machine.</p>
+<p><span class="ver">npm @aiagentscity/setup</span> <span class="ver">local kit &mdash; no MCP, no account</span> <span class="ver">live</span></p>
+
+<div class="card">
+<h3>Install</h3>
+<pre><button class="cb" onclick="copyPre(this)">copy</button>npx @aiagentscity/setup workbench</pre>
+<p class="mut">The installer detects Claude Code, Codex, Cursor, OpenCode, Hermes
+and OpenClaw, wires the gate into whichever it finds, and installs a skill so
+the agent knows the rules. Works on macOS and Linux.</p>
+</div>
+
+<div class="card">
+<h3>How a task runs</h3>
+<ul class="feat">
+<li><b>wb frame "the task"</b> &mdash; one line creates a typed card: owner, agent-of-record, scope, acceptance</li>
+<li><b>Every write is gated</b> &mdash; in-scope writes pass; out-of-scope writes are refused with the reason</li>
+<li><b>wb receipt</b> &mdash; the close produces a machine-witnessed record: card hash, gate rows, ledger digest</li>
+<li><b>wb verify</b> &mdash; anyone recomputes every hash against the live ledger. A forged receipt fails</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Who is who</h3>
+<ul class="feat">
+<li><b>The operator</b> runs the agents and produces the work &mdash; the receipts are theirs to show.</li>
+<li><b>The owner</b> is who the work is for &mdash; a client, an employer, anyone who needs to trust it.
+Owners verify receipts free, forever; verification is never a paid feature.</li>
+</ul>
+<p class="mut">Cards carry both identities (<code>WB_OWNER</code>, <code>WB_AGENT</code>),
+and so does every receipt. Local evidence never leaves the machine unasked.</p>
+</div>
+
+{PRICING_WORKBENCH}
+
+<script>
+function copyPre(b){var t=b.parentElement.innerText.replace(/^copy\\n/,"");
+navigator.clipboard.writeText(t).then(()=>{b.textContent="copied";
+setTimeout(()=>b.textContent="copy",1500)})}
 </script>
 """
 
@@ -847,6 +897,8 @@ try:
         "{PRICING_PERIMETER_WATCH}", _pricing.pricing_section("perimeter-watch"))
     CITED_PAGE = CITED_PAGE.replace(
         "{PRICING_CITED}", _pricing.pricing_section("cited"))
+    WORKBENCH_PAGE = WORKBENCH_PAGE.replace(
+        "{PRICING_WORKBENCH}", _pricing.pricing_section("workbench"))
 
     CITY_SHELL = CITY_SHELL.replace("</style>",
                                     _pricing.PRICING_CSS + "\n</style>", 1)
@@ -965,8 +1017,10 @@ def okf_index_md() -> str:
     manifests already describe the interface better than markdown could."""
     return """# AI Agent City — agent-readable knowledge index
 
-Umbrella site for five products: AgentLedger, Agent Watch, Perimeter Watch,
-TrustScan, Cited. AgentLedger is the ledger service served by this process.
+Umbrella site for six products: AgentLedger, Agent Watch, Perimeter Watch,
+TrustScan, Cited, AI Workbench. AgentLedger is the ledger service served by
+this process; AI Workbench is a local kit installed via npm, not an MCP
+endpoint.
 
 ## Machine surfaces
 
@@ -992,6 +1046,7 @@ TrustScan, Cited. AgentLedger is the ledger service served by this process.
 - Perimeter Watch — domain-perimeter monitoring: /perimeter-watch
 - TrustScan — npm/MCP package trust scoring: /trust-scan
 - Cited — AI-search visibility scans: /cited
+- AI Workbench — audit trail for agent work; local kit (no MCP): /workbench
 - Comparison: /compare · All products: /products
 
 ## Sister product (separate service, same domain)
