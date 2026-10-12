@@ -400,7 +400,7 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 <li><b>trust_scan_file</b>(filepath) &mdash; scan a single file</li>
 </ul>
 <p class="mut">The deep scan runs over MCP, where the scanner has the code in front of it
-&mdash; teams wire it into CI on the <b>Team plan</b> below.</p>
+&mdash; wire it into CI on the free plan below.</p>
 </div>
 
 {PRICING_TRUST_SCAN}

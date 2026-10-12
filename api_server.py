@@ -2400,7 +2400,9 @@ PRIVACY_BODY = """
 <h2>What is stored</h2>
 <p>Per spend entry: the agent id, the payment rail, the service label, the amount, token counts,
 the model name and a timestamp. Per workspace: the workspace id, a hash of the workspace key, the
-plan and billing state, and — if you register one — an alert webhook URL. If you subscribe through
+plan and billing state, and — if you register one — an alert webhook URL. A workspace paid through
+the agent rail stores the paying wallet address — on that rail the wallet IS the workspace
+identity. If you subscribe through
 a marketplace (RapidAPI), we also store the marketplace account identifier it sends us so your
 subscription maps to a workspace. Keys and secrets are stored as hashes or as files readable only
 by the service.</p>
@@ -2418,6 +2420,8 @@ over the x402 protocol via the configured payment facilitator (Coinbase CDP or t
 public x402 facilitator), which sees the paying wallet address — we never see card
 numbers. RapidAPI (Nokia) processes marketplace
 subscriptions and tells us your marketplace account identifier when you call through its gateway.
+Stripe processed the human subscriptions sold before October 2026 and continues to process any of
+those subscriptions still renewing until they are cancelled (see Terms — Legacy subscriptions).
 Alert webhooks, if you register one, carry cost metadata to the URL you chose. The product does not
 send email to arbitrary addresses on your behalf. Nothing else receives your data.</p>
 
@@ -2462,20 +2466,31 @@ the service available for everyone.</p>
 
 <h2>Plans and payment</h2>
 <p>The Free plan supports up to 3 agents per workspace. Paid access is sold only through
-the agent rail: a 24-hour AgentLedger Pro pass for $0.01 USDC over x402 on the
+the agent rail: a 24-hour AgentLedger Pro pass for {X402_PRICE} USDC over x402 on the
 Base network (<code>{X402_NETWORK}</code>). The pass covers {X402_AGENT_LIMIT} on the
 workspace the paying wallet resolves to, and expires 24 hours after settlement. It is
-renewable — continued access requires another payment — and it is the only thing for
+renewable — continued access requires another payment, which resets the 24-hour
+window rather than stacking time — and it is the only thing for
 sale on this domain; there is no monthly plan and no human checkout. The current plan
 features and limits shown on the
 <a href="/agent-ledger#pricing">AgentLedger pricing page</a> form part of these Terms, and any
 future change to plans, prices or limits will be reflected in both places at the same time.</p>
 
 <h2 id="refunds">Refunds</h2>
-<p>The $0.01 x402 Pro pass is a single micro-payment and is non-refundable. Passes do not
+<p>The {X402_PRICE} x402 Pro pass is a single micro-payment and is non-refundable. Passes do not
 renew automatically, so there is nothing to cancel — access simply expires. For duplicate
 settlement failures email
 <a href="mailto:entradox@icloud.com">entradox@icloud.com</a>.</p>
+
+<h2>Legacy subscriptions</h2>
+<p>Workspaces that subscribed under the retired Stripe plans (before October 2026) keep
+their paid tier until the subscription ends. Those subscriptions renew through Stripe
+until cancelled; there is no checkout on this domain, but a subscription already in
+flight continues under its original terms. Cancel by emailing
+<a href="mailto:entradox@icloud.com">entradox@icloud.com</a> naming your workspace id.
+For purchases made under those plans, the refund terms in effect at purchase apply:
+cancellation at any time prevents future renewals, and a first paid purchase may
+request a refund within 14 days of purchase.</p>
 
 <h2>Availability and liability</h2>
 <p>The service is offered without warranty of uptime or fitness for a particular purpose. To the
@@ -2683,6 +2698,7 @@ def terms_page():
         title="Terms",
         body=TERMS_BODY
         .replace("{X402_NETWORK}", x402_verify.X402_NETWORK)
+        .replace("{X402_PRICE}", x402_verify.X402_MINT_PRICE)
         .replace("{X402_AGENT_LIMIT}", x402_verify.x402_pass_agent_limit()))
 
 

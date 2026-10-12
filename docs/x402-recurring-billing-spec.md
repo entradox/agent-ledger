@@ -1,5 +1,12 @@
 # x402 recurring billing — spec + price recommendation
 
+> ## SUPERSEDED 2026-10-11 — blueprint v2 / D-1645
+>
+> This spec proposed a $19/30-day x402 pass at Stripe parity. Blueprint v2
+> settled differently: the human door is removed, the $0.01/24h pass is now the
+> **only** paid path and is **renewable** (repeat payment resets the window).
+> Kept as historical record only — do not implement from it.
+
 **For:** principal decision (**price** + **trial coexistence**) · **Author:** Hermes
 · **Date:** 2026-09-24 · **Status:** **PRICE LOCKED BY PRINCIPAL — build still HELD.**
 
