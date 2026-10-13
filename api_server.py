@@ -1704,7 +1704,7 @@ CITY_CATALOG = [
                "aw_list_monitored", "aw_alerts", "aw_watch",
                "skills_list_tool", "read_skill"]},
     {"id": "perimeter-watch", "title": "Perimeter Watch",
-     "tagline": "Is the endpoint your agent is pointed at still what it claims?",
+     "tagline": "Is your endpoint still what it claims — checked from the outside?",
      "mcp_url": "https://aiagentscity.com/mcp/perimeter-watch",
      "human_url": "https://aiagentscity.com/perimeter-watch",
      "version": "v1.0", "status": "live",
@@ -2547,7 +2547,7 @@ def perimeter_watch_page():
     import site_pages
     return HTMLResponse(site_pages.city_page(
         "Perimeter Watch — AI Agent City",
-        "Is the endpoint your agent is pointed at still what it claims? "
+        "Is your endpoint still what it claims — checked from the outside? "
         "Cert expiry, dangling DNS, lookalike domains.",
         site_pages.PERIMETER_WATCH_PAGE))
 
