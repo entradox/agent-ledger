@@ -205,8 +205,9 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 
 PERIMETER_WATCH_PAGE = """
 <h1>Perimeter Watch</h1>
-<p class="mut">Passive external-perimeter monitoring for web agencies</p>
-<p class="mut">v1.30.0 &middot; 6 MCP tools</p>
+<p class="mut">Is the endpoint your agent is pointed at still what it claims?
+Passive external-perimeter monitoring &mdash; cert expiry, dangling DNS, lookalikes.</p>
+<p class="mut">v1.0 &middot; 6 MCP tools</p>
 
 <h2>Try it</h2>
 <ul>
@@ -229,8 +230,8 @@ to the product's documented REST API &mdash; handshake and all 6 tools verified 
 
 CITED_PAGE = """
 <h1>Cited</h1>
-<p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p>
-<p class="mut">v1.30.0 &middot; 9 MCP tools</p>
+<p class="mut">Verify the claim that AI recommends this brand &mdash; verbatim evidence, free.</p>
+<p class="mut">v1.0 &middot; 9 MCP tools</p>
 
 <h2>Try it</h2>
 <ul>
@@ -257,7 +258,7 @@ AGENT_WATCH_PAGE = """
 <p class="lede"><b>Non-human traffic is hitting your APIs and you can't see it.</b>
 Agent Watch monitors the agent economy's endpoints &mdash; liveness, latency, schema
 drift, auth posture, price integrity. Probe any endpoint below, free, no signup.</p>
-<p><span class="ver">v1.30.0</span> <span class="ver">8 MCP tools</span> <span class="ver">live</span></p>
+<p><span class="ver">v0.1.0</span> <span class="ver">8 MCP tools</span> <span class="ver">live</span></p>
 
 <div class="card" id="probe">
 <h3>Probe an endpoint now</h3>
@@ -366,7 +367,7 @@ TRUST_SCAN_PAGE = """
 <p class="lede">Your agent is about to install a stranger's MCP server or skill.
 <b>Know who you're dealing with before your agent does.</b> Check any npm package
 below &mdash; free, no signup &mdash; then run the deep code scan over MCP.</p>
-<p><span class="ver">v4.0.3</span> <span class="ver">4 MCP tools</span> <span class="ver">live</span></p>
+<p><span class="ver">v0.1.0</span> <span class="ver">4 MCP tools</span> <span class="ver">live</span></p>
 
 <div class="card" id="npmcheck">
 <h3>Check an npm package</h3>
@@ -399,8 +400,11 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 <li><b>trust_scan_server</b>(path, package_name) &mdash; full security scan of an MCP server or skill package</li>
 <li><b>trust_scan_file</b>(filepath) &mdash; scan a single file</li>
 </ul>
-<p class="mut">The deep scan runs over MCP, where the scanner has the code in front of it
-&mdash; wire it into CI on the free plan below.</p>
+<p class="mut">Remote scans run on the TrustScan host and are path-scoped to the
+host&rsquo;s own code &mdash; the free npm check above is the metadata half for
+YOUR package, and the deep scan of your code is the x402 route
+(POST /api/x402/trustscan/npm). To scan arbitrary code free, run the scanner
+locally (pip install).</p>
 </div>
 
 {PRICING_TRUST_SCAN}
@@ -1016,8 +1020,10 @@ def okf_index_md() -> str:
     manifests already describe the interface better than markdown could."""
     return """# AI Agent City — agent-readable knowledge index
 
-Umbrella site for six products: AgentLedger, Agent Watch, Perimeter Watch,
-TrustScan, Cited, AI Workbench. AgentLedger is the ledger service served by
+Umbrella site for seven products, each answering one of two questions —
+TRUST (verify the counterparty before acting) or OUTCOME (prove the result
+after): AgentLedger, Agent Watch, Perimeter Watch, TrustScan, Cited,
+Benefits City, AI Workbench. AgentLedger is the ledger service served by
 this process; AI Workbench is a local kit installed via npm, not an MCP
 endpoint.
 
@@ -1040,17 +1046,14 @@ endpoint.
 
 ## Products
 
-- AgentLedger — per-agent spend tracking, budgets, alerts. Landing: /agent-ledger · self-serve workspace: /start
-- Agent Watch — alerts when new AI agents hit your endpoints: /agent-watch
-- Perimeter Watch — domain-perimeter monitoring: /perimeter-watch
-- TrustScan — npm/MCP package trust scoring: /trust-scan
-- Cited — AI-search visibility scans: /cited
-- AI Workbench — audit trail for agent work; local kit (no MCP): /workbench
+- AgentLedger — per-agent spend tracking, budgets, alerts. Landing: /agent-ledger · self-serve workspace: /start  [outcome · spine]
+- Agent Watch — alerts when new AI agents hit your endpoints: /agent-watch  [trust · outward]
+- Perimeter Watch — is the endpoint still what it claims: /perimeter-watch  [trust · outward]
+- TrustScan — npm/MCP package trust scoring: /trust-scan  [trust · outward]
+- Cited — verify AI-recommendation claims, verbatim evidence: /cited  [outcome · outward]
+- Benefits City — verified US bank/card signup bonuses, MCP + JSON feed: /benefits/  [outcome · outward]
+- AI Workbench — audit trail for agent work; local kit (no MCP): /workbench  [trust+outcome · inward]
 - Comparison: /compare · All products: /products
-
-## Sister product (separate service, same domain)
-
-- Benefits City — verified US bank/card signup bonuses, MCP + JSON feed: /benefits/
 
 ## Data handling
 

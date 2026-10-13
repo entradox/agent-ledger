@@ -2543,8 +2543,8 @@ def perimeter_watch_page():
     import site_pages
     return HTMLResponse(site_pages.city_page(
         "Perimeter Watch — AI Agent City",
-        "Passive external-perimeter monitoring for web agencies: cert expiry, "
-        "dangling DNS, lookalike domains.",
+        "Is the endpoint your agent is pointed at still what it claims? "
+        "Cert expiry, dangling DNS, lookalike domains.",
         site_pages.PERIMETER_WATCH_PAGE))
 
 
@@ -2553,7 +2553,8 @@ def cited_page():
     import site_pages
     return HTMLResponse(site_pages.city_page(
         "Cited — AI Agent City",
-        "Does AI recommend your practice? Instant free scan, verbatim evidence.",
+        "Verify the claim that AI recommends this brand — verbatim evidence, "
+        "free scan.",
         site_pages.CITED_PAGE))
 
 
