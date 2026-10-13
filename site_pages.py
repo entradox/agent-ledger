@@ -191,12 +191,13 @@ below is independently installable and solves one operational problem end to end
 Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST + CLI.</p>
 
 <h2>Products</h2>
-<div class="card"><h3><a class="plain" href="/agent-ledger">AgentLedger</a></h3><p class="mut">Spending limits for AI agents</p></div>
-<div class="card"><h3><a class="plain" href="/perimeter-watch">Perimeter Watch</a></h3><p class="mut">Passive external-perimeter monitoring for web agencies</p></div>
-<div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Does AI recommend your practice? Instant free scan, verbatim evidence.</p></div>
-<div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy</p></div>
-<div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust</p></div>
-<div class="card"><h3><a class="plain" href="/workbench">AI Workbench</a></h3><p class="mut">The audit trail for agent work &mdash; gates, frame cards, verifiable receipts</p></div>
+<div class="card"><h3><a class="plain" href="/agent-ledger">AgentLedger</a></h3><p class="mut">Spending limits for AI agents [outcome · spine]</p></div>
+<div class="card"><h3><a class="plain" href="/perimeter-watch">Perimeter Watch</a></h3><p class="mut">Is the endpoint still what it claims? [trust · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Verify the claim that AI recommends this brand — verbatim evidence [outcome · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy [trust · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust [trust · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/benefits">Benefits City</a></h3><p class="mut">Verified offer records — will this action actually pay? [outcome · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/workbench">AI Workbench</a></h3><p class="mut">The audit trail for agent work &mdash; gates, frame cards, verifiable receipts [trust+outcome · inward]</p></div>
 
 <h2>Start here</h2>
 <p class="mut">A workspace needs no signup and no card, and the key is shown once.</p>
@@ -286,10 +287,12 @@ price challenge &mdash; the handshake your agent would do, without your agent.</
 <button class="go" onclick="checkWatch()">Check status</button>
 </div>
 <div class="res" id="watch-res"></div>
-<p class="mut" style="margin-top:10px">Every MCP tool
-&mdash; including <span class="ver">aw_watch</span> &mdash; works today, free.
-There is no paid human tier on this domain; the city's only paid path is the
-agent rail (x402).</p>
+<p class="mut" style="margin-top:10px">Open reads
+(<span class="ver">aw_health</span>, <span class="ver">aw_census</span>,
+<span class="ver">aw_check_endpoint</span>, <span class="ver">aw_alerts</span>)
+need nothing; <span class="ver">aw_watch</span> serves existing watch-token
+holders. There is no paid human tier on this domain; the city's only paid
+path is the agent rail (x402).</p>
 </div>
 
 {PRICING_AGENT_WATCH}
@@ -366,7 +369,8 @@ TRUST_SCAN_PAGE = """
 <h1>Scan before you trust.</h1>
 <p class="lede">Your agent is about to install a stranger's MCP server or skill.
 <b>Know who you're dealing with before your agent does.</b> Check any npm package
-below &mdash; free, no signup &mdash; then run the deep code scan over MCP.</p>
+below &mdash; free, no signup. The MCP server also exposes the deep code
+scanner that produced these checks.</p>
 <p><span class="ver">v0.1.0</span> <span class="ver">4 MCP tools</span> <span class="ver">live</span></p>
 
 <div class="card" id="npmcheck">
@@ -397,14 +401,14 @@ as a 0&ndash;100 score, a letter grade, and detailed findings.</p>
 <h3>MCP &mdash; no signup</h3>
 <pre><button class="cb" onclick="copyPre(this)">copy</button>claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</pre>
 <ul class="feat">
-<li><b>trust_scan_server</b>(path, package_name) &mdash; full security scan of an MCP server or skill package</li>
-<li><b>trust_scan_file</b>(filepath) &mdash; scan a single file</li>
+<li><b>trust_scan_server</b>(path, package_name) &mdash; full security scan of an MCP server or skill package <i>on the TrustScan host</i></li>
+<li><b>trust_scan_file</b>(filepath) &mdash; scan a single file <i>on the TrustScan host</i></li>
 </ul>
 <p class="mut">Remote scans run on the TrustScan host and are path-scoped to the
-host&rsquo;s own code &mdash; the free npm check above is the metadata half for
-YOUR package, and the deep scan of your code is the x402 route
-(POST /api/x402/trustscan/npm). To scan arbitrary code free, run the scanner
-locally (pip install).</p>
+host&rsquo;s own code &mdash; they demonstrate the scanner, they cannot scan
+your package. For YOUR package the reachable check is the npm metadata scan
+above &mdash; free, or payable per call over x402
+(POST /api/x402/trustscan/npm) without the rate limit.</p>
 </div>
 
 {PRICING_TRUST_SCAN}

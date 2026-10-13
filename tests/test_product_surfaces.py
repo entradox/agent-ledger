@@ -129,3 +129,36 @@ def test_trustscan_free_proof_is_the_honest_check(registry):
     ts = next(p for p in registry["products"] if p["id"] == "trustscan")
     assert "api/trustscan/npm" in ts["free_proof"]
     assert "path-scoped" in ts["free_proof"]
+
+
+def test_no_surface_sells_the_x402_npm_route_as_a_code_scan(client):
+    """Morgan F1 (semantic, not status-code): /api/x402/trustscan/npm is the
+    same metadata check as the free route — payable per call, no rate limit.
+    It cannot scan code. No served surface may describe it as a code-scanning
+    path."""
+    import site_pages
+    surfaces = [client.get(p).text for p in
+                ("/trust-scan", "/products", "/developers", "/llms.txt")]
+    surfaces.append(site_pages.okf_index_md())
+    for body in surfaces:
+        # the x402 route may only be described as the paid npm check, never
+        # as "deep scan" or "scan your code"
+        assert "x402 route" not in body or "metadata scan" in body or \
+               "without the rate limit" in body or "rate limit" in body
+
+
+def test_no_surface_invents_a_local_install_for_trustscan(client):
+    """Morgan F2: the trust-scan repo is private and has no pip/pyproject —
+    'run the scanner locally (pip install)' is a connect line to nothing."""
+    import site_pages
+    body = client.get("/trust-scan").text + site_pages.okf_index_md()
+    assert "pip install" not in body
+
+
+def test_llms_txt_trustscan_block_discloses_path_scope(client):
+    """Morgan F3: the machine contract must not imply arbitrary remote deep
+    scans are possible."""
+    llms = client.get("/llms.txt").text
+    i = llms.find("trust_scan_server")
+    assert "path-scoped" in llms[i:i + 900], \
+        "trustscan llms.txt block lacks the remote-scan scope note"
