@@ -26,7 +26,7 @@
         "paid_call": "POST https://aiagentscity.com/api/x402/trustscan/npm",
         "human": "https://aiagentscity.com/trust-scan"
       },
-      "free_proof": "POST /api/trustscan/npm returns registry facts + a typosquat screen for any package, unauthenticated — remote deep scans are path-scoped to the host; scan YOUR code via the x402 route or the local pip install"
+      "free_proof": "POST /api/trustscan/npm returns registry facts + a typosquat screen for any package, unauthenticated — the same check is payable per call over x402 without the rate limit; remote deep scans are path-scoped to the host"
     },
     {
       "id": "agent-watch",
@@ -58,7 +58,7 @@
       "title": "Benefits City",
       "slot": "outcome",
       "direction": "outward",
-      "tagline": "Verified payout outcomes — will this action actually pay?",
+      "tagline": "Verified offer records — will this action actually pay?",
       "connect": {
         "mcp": "https://aiagentscity.com/benefits/mcp",
         "human": "https://aiagentscity.com/benefits"

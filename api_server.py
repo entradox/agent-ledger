@@ -283,7 +283,7 @@ COUNTS_FILE = DATA_DIR / "counts.jsonl"
 # omitted the product landing pages, so AgentLedger's REAL landing page (/agent-ledger,
 # 21 KB, carries the pitch and the pricing, links to /start) was invisible to metrics, while
 # the numerator (/start) was counted against a denominator (/ = the AI Agent City umbrella
-# hub, which cannot convert — it lists five products and has no price and no /start link).
+# hub, which cannot convert — it lists products and has no price and no /start link).
 # The "92% never reach the mint" figure was arithmetic over two different populations, not
 # user behaviour. Guarded by test_reach_instrumentation.py, which fails if any registered
 # HTML GET route is neither listed here nor explicitly exempted with a reason.
@@ -1163,8 +1163,12 @@ Tool lists below are each server's live tools/list (2026-09-19).
   trusting it (invisible-Unicode prompt injection, dangerous code
   patterns MCP001-MCP006, hardcoded secrets, typosquat names);
   returns a 0-100 score, letter grade, and findings. Read-only.
-  trust_scan_file — security-scan a single file for invisible Unicode,
-  dangerous patterns, and secrets. Read-only.
+  NOTE: remote scans are path-scoped to the TrustScan host's own code —
+  for YOUR package the reachable check is POST /api/trustscan/npm (free,
+  registry facts + typosquat screen) or the same call payable per call
+  over x402 without the rate limit.
+  trust_scan_file — security-scan a single file on the host for invisible
+  Unicode, dangerous patterns, and secrets. Read-only.
   skills_list_tool, read_skill
   (alias /mcp/trust-scan resolves to the same server)
   Re-probed 2026-10-07: native MCP dispatch completes initialize + tools/list +
@@ -1700,7 +1704,7 @@ CITY_CATALOG = [
                "aw_list_monitored", "aw_alerts", "aw_watch",
                "skills_list_tool", "read_skill"]},
     {"id": "perimeter-watch", "title": "Perimeter Watch",
-     "tagline": "Passive external-perimeter monitoring",
+     "tagline": "Is the endpoint your agent is pointed at still what it claims?",
      "mcp_url": "https://aiagentscity.com/mcp/perimeter-watch",
      "human_url": "https://aiagentscity.com/perimeter-watch",
      "version": "v1.0", "status": "live",
@@ -1711,7 +1715,7 @@ CITY_CATALOG = [
      "tools": ["pw_health", "pw_snapshot", "pw_watch_status", "pw_stats",
                "skills_list_tool", "read_skill"]},
     {"id": "cited", "title": "Cited",
-     "tagline": "Does AI recommend your practice?",
+     "tagline": "Verify the claim that AI recommends this brand — verbatim evidence",
      "mcp_url": "https://aiagentscity.com/mcp/cited",
      "human_url": "https://aiagentscity.com/cited",
      "version": "v1.0", "status": "live",
@@ -2503,7 +2507,7 @@ def _city_response(path: str, request: Request) -> Response:
 
 @app.get("/products", response_class=HTMLResponse)
 def city_products(request: Request):
-    """The five-product stack page (two surfaces)."""
+    """The seven-product stack page (two surfaces)."""
     return _city_response("/products", request)
 
 
