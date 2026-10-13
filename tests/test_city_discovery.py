@@ -30,13 +30,19 @@ import api_server
 
 # FROZEN expectations. Deliberately duplicated from CITY_CATALOG so that the
 # test and the code cannot drift together. Update BOTH when the city changes.
-EXPECTED_PRODUCT_IDS = {"agent-ledger", "agent-watch", "perimeter-watch", "cited", "trustscan"}
-EXPECTED_COUNT = 5
+# D-1644: benefits-city and workbench-kit joined the index — 7 products.
+# workbench-kit has no MCP by design (local kit), so the MCP server catalog
+# is the product set minus it — two sets, each frozen on purpose.
+EXPECTED_PRODUCT_IDS = {"agent-ledger", "agent-watch", "perimeter-watch",
+                        "cited", "trustscan", "benefits-city", "workbench-kit"}
+EXPECTED_MCP_SERVER_IDS = EXPECTED_PRODUCT_IDS - {"workbench-kit"}
+EXPECTED_COUNT = 7
+EXPECTED_MCP_COUNT = 6
 # Tool counts per product, as actually served. A count that silently drops is a
 # user-visible regression on a public surface.
 EXPECTED_TOOL_COUNTS = {
     "agent-ledger": 18, "agent-watch": 8, "perimeter-watch": 6,
-    "cited": 9, "trustscan": 4,
+    "cited": 9, "trustscan": 4, "benefits-city": 6, "workbench-kit": 0,
 }
 
 
@@ -70,7 +76,12 @@ def test_products_catalog_tool_counts_are_what_we_claim(client):
         assert p["tool_count"] == len(p["tools"]), p["id"]
         assert p["tool_count"] == EXPECTED_TOOL_COUNTS[p["id"]], \
             f"{p['id']} tool count is {p['tool_count']}, expected {EXPECTED_TOOL_COUNTS[p['id']]}"
-        assert p["mcp_url"].startswith("https://"), p
+        # An MCP-backed product must name a real https endpoint; a local kit
+        # (workbench-kit, no MCP by design) carries null — never a fake URL.
+        if p["tools"]:
+            assert p["mcp_url"].startswith("https://"), p
+        else:
+            assert p["mcp_url"] is None, p
         assert p["status"], p
 
 
@@ -181,9 +192,12 @@ def test_mcp_catalog_and_products_agree_on_versions(client):
     strings, and a change here must be a conscious act, not a silent carry-over."""
     expected = {
         "agent-ledger": "v0.4.7", "agent-watch": "v0.1.0", "perimeter-watch": "v1.0",
-        "cited": "v1.0", "trustscan": "v0.1.0",
+        "cited": "v1.0", "trustscan": "v0.1.0", "benefits-city": "v0.3.0",
     }
-    cat = {p["id"]: p["version"] for p in client.get("/v1/products").json()["products"]}
+    # Only MCP-backed products appear in the server catalog — workbench-kit
+    # (local kit) is a product row but not an MCP server.
+    cat = {p["id"]: p["version"] for p in client.get("/v1/products").json()["products"]
+           if p["mcp_url"]}
     mcp = {s["id"]: s["version"] for s in client.get("/.well-known/mcp.json").json()["servers"]}
     assert cat == mcp, f"catalog vs mcp.json disagree: {cat} != {mcp}"
     assert cat == expected, f"versions drifted from the frozen set: {cat} != {expected}"
@@ -196,8 +210,8 @@ def test_mcp_catalog_refactor_lists_exactly_the_expected_servers(client):
     r = client.get("/.well-known/mcp.json")
     assert r.status_code == 200
     d = r.json()
-    assert {s["id"] for s in d["servers"]} == EXPECTED_PRODUCT_IDS
-    assert len(d["servers"]) == EXPECTED_COUNT
+    assert {s["id"] for s in d["servers"]} == EXPECTED_MCP_SERVER_IDS
+    assert len(d["servers"]) == EXPECTED_MCP_COUNT
     assert "up.railway.app" not in r.text
 
 def test_catalog_lists_exactly_the_tools_the_mcp_server_actually_serves():

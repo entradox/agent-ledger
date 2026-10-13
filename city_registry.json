@@ -1,0 +1,107 @@
+{
+  "_comment": "The AI Agent City index registry (blueprint v2, approved sha 441bc3b4a1d1) — the trust-and-outcome map every machine index surface is generated from: /llms.txt products section, /v1/products enrichment, openapi x-products, the root Accept:application/json block, and the 404 index payload all read THIS file via city_index.py. Adding a row here changes every rendered index. slot/direction values are verbatim from BLUEPRINT.md v2's product table — never invent new categories. The master fleet registry (which this file's product set mirrors) is ~/AI-Workbench/projects/product-skill-surface/registry.json — a build-side file that does not exist in the deploy container; this vendored copy is the deployable source of truth for index rendering. Keep product rows equal between the two.",
+  "frame": "trust-and-outcome",
+  "tagline": "The trust-and-outcome clearing layer for the agent economy: before an agent acts, it verifies the counterparty; after it acts, it proves the result.",
+  "questions": {
+    "trust": "Before an agent acts — can it trust the counterparty?",
+    "outcome": "After an agent acts — did it work?"
+  },
+  "directions": {
+    "outward": "verifies counterparties outside your fleet",
+    "spine": "the receipts rail every instrument writes through",
+    "inward": "verifies your own fleet's work"
+  },
+  "parked": [
+    {"id": "agent-compass", "why": "no live endpoint — parked until it has one (blueprint v2 rule)"}
+  ],
+  "products": [
+    {
+      "id": "trustscan",
+      "title": "TrustScan",
+      "slot": "trust",
+      "direction": "outward",
+      "tagline": "Scan before you trust",
+      "connect": {
+        "mcp": "https://aiagentscity.com/mcp/trustscan",
+        "paid_call": "POST https://aiagentscity.com/api/x402/trustscan/npm",
+        "human": "https://aiagentscity.com/trust-scan"
+      },
+      "free_proof": "trust_scan_server / trust_scan_file MCP tools are read-only and unauthenticated — a scan is the proof"
+    },
+    {
+      "id": "agent-watch",
+      "title": "Agent Watch",
+      "slot": "trust",
+      "direction": "outward",
+      "tagline": "Is this agent or MCP server real and still behaving?",
+      "connect": {
+        "mcp": "https://aiagentscity.com/mcp/agent-watch",
+        "paid_call": "POST https://aiagentscity.com/api/x402/agent-watch/probe",
+        "human": "https://aiagentscity.com/agent-watch"
+      },
+      "free_proof": "aw_health + aw_census MCP tools are open reads — live census data, no auth"
+    },
+    {
+      "id": "perimeter-watch",
+      "title": "Perimeter Watch",
+      "slot": "trust",
+      "direction": "outward",
+      "tagline": "Is the endpoint your agent is pointed at still what it claims?",
+      "connect": {
+        "mcp": "https://aiagentscity.com/mcp/perimeter-watch",
+        "human": "https://aiagentscity.com/perimeter-watch"
+      },
+      "free_proof": "free browser snapshot — https://entradox.github.io/perimeter-watch-site/"
+    },
+    {
+      "id": "benefits-city",
+      "title": "Benefits City",
+      "slot": "outcome",
+      "direction": "outward",
+      "tagline": "Verified payout outcomes — will this action actually pay?",
+      "connect": {
+        "mcp": "https://aiagentscity.com/benefits/mcp",
+        "human": "https://aiagentscity.com/benefits"
+      },
+      "free_proof": "search_bonuses / get_bonus MCP tools return hand-verified records with source URLs — no auth"
+    },
+    {
+      "id": "cited",
+      "title": "Cited",
+      "slot": "outcome",
+      "direction": "outward",
+      "tagline": "Prove the claim that AI recommends you — verbatim evidence",
+      "connect": {
+        "mcp": "https://aiagentscity.com/mcp/cited",
+        "human": "https://aiagentscity.com/cited"
+      },
+      "free_proof": "free browser scan — https://entradox.github.io/cited-site/"
+    },
+    {
+      "id": "agent-ledger",
+      "title": "AgentLedger",
+      "slot": "outcome",
+      "direction": "spine",
+      "tagline": "Metered, capped, receipted agent spend — proof of what every cent bought",
+      "connect": {
+        "mcp": "https://aiagentscity.com/mcp/",
+        "rest": "https://aiagentscity.com/v1/",
+        "install": "npx @aiagentscity/setup ledger",
+        "human": "https://aiagentscity.com/agent-ledger"
+      },
+      "free_proof": "POST /start mints a free workspace (3 agents, every rail) — no signup, no card"
+    },
+    {
+      "id": "workbench-kit",
+      "title": "AI Workbench",
+      "slot": "trust+outcome",
+      "direction": "inward",
+      "tagline": "Frame, gate, and close-receipt every agent task — proof of what your agents did",
+      "connect": {
+        "install": "npx @aiagentscity/setup workbench",
+        "human": "https://aiagentscity.com/workbench"
+      },
+      "free_proof": "the whole kit is free and runs fully offline — `wb verify <receipt_id>` recomputes a close receipt against the local ledger"
+    }
+  ]
+}

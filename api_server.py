@@ -35,6 +35,7 @@ import x402_verify
 from client_ip import client_ip
 
 from fastapi import FastAPI, HTTPException, Request
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
@@ -177,6 +178,15 @@ def _augmented_openapi():
         # Verified against https://mpp.dev/advanced/discovery ("x-service-info …
         # add service-level metadata to the document root").
         schema["x-service-info"] = {"docs": {"llms": "/llms.txt"}}
+        # The trust-and-outcome product map (D-1644): slot/direction/connect
+        # as root-level extension fields so an agent can classify every
+        # product without parsing prose. Generated from city_registry.json.
+        try:
+            import city_index
+            schema["x-products"] = city_index.openapi_products()
+            schema["x-frame"] = city_index.frame()
+        except Exception:
+            pass
 
         info = schema.setdefault("info", {})
         info["x-guidance"] = (
@@ -224,6 +234,7 @@ from routes_paid import router as paid_router
 app.include_router(paid_router)
 
 @app.exception_handler(HTTPException)
+@app.exception_handler(StarletteHTTPException)
 async def _typed_error_handler(request: Request, exc: HTTPException):
     """Single source for the typed error envelope on every REST error path
     (launch-kit v0.3). Raise sites that already pass an envelope dict as
@@ -232,6 +243,26 @@ async def _typed_error_handler(request: Request, exc: HTTPException):
     without changing any status code."""
     if isinstance(exc.detail, dict) and "error" in exc.detail:
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    if exc.status_code == 404:
+        # Wrong-path = discovery moment (D-1644, J6): an agent that mistyped
+        # a path should land on the index, not a bare error. API-prefixed
+        # 404s stay plain — a missing workspace is an error, not a product
+        # discovery question.
+        path = request.url.path
+        api_path = path.startswith(("/v1/", "/api/", "/mcp", "/proxy/"))
+        wants_html = "text/html" in (request.headers.get("accept") or "")
+        if not api_path and wants_html:
+            import city_index
+            return HTMLResponse(status_code=404,
+                                content=city_index.NOT_FOUND_PAGE)
+        if not api_path:
+            import city_index
+            return JSONResponse(
+                status_code=404,
+                content={**error_envelope(
+                    404, "path not found — the product index is attached",
+                    code="not_found"),
+                    "index": city_index.index_payload()})
     return JSONResponse(status_code=exc.status_code,
                          content=error_envelope(exc.status_code, str(exc.detail)))
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
@@ -851,6 +882,7 @@ Buyer skill (how an agent buys this, as markdown): GET /skill.md
 Authentication (credential paths, as markdown): GET /auth.md
 Privacy: GET /privacy · Terms: GET /terms
 
+{INDEX_PRODUCTS}
 Data handling: cost metadata only — agent id, rail, service label, amount, token
 counts, model, timestamp. There is no field for prompt or response content; none
 is collected and none is stored. Prompts and responses are never used to train
@@ -1128,6 +1160,14 @@ Tool lists below are each server's live tools/list (2026-09-19).
   Re-probed 2026-10-07: native MCP dispatch completes initialize + tools/list +
   tools/call through the gateway.
 
+- benefits-city:      /benefits/mcp           (v0.3.0, 6 tools)
+  search_bonuses, get_bonus, expiring_soon, compare_bonuses,
+  benefits_api_docs, benefits_examples
+  STATUS live: its own streamable-http server on this host (not a /mcp/<slug>
+  proxy). Probed 2026-10-13: initialize + tools/list + tools/call all
+  complete; search_bonuses returns hand-verified records with source URLs —
+  unauthenticated, read-only.
+
 Note: MCP and REST are credential-equivalent. ledger_report/ledger_alerts
 take agent_secret/workspace_key parameters and enforce the same access rule
 as GET /v1/report and GET /v1/alerts — there is no unauthenticated read path
@@ -1160,13 +1200,26 @@ def glama_claim():
         "claim": "glama_claim_waz6O2PC6GoDz7HpLpGshyVk0UGWUo9i",
     }, media_type="application/json")
 
+def _index_products_words() -> str:
+    """The trust-and-outcome product block, rendered per request from
+    city_registry.json — the same rule as the MPP sentences above: a claim
+    that cannot drift from what is actually indexed. On a broken registry the
+    placeholder still never reaches the wire."""
+    try:
+        import city_index
+        return city_index.llms_products_block()
+    except Exception:
+        return "## Products\n\n(product index unavailable — see /v1/products)\n"
+
+
 @app.get("/llms.txt", response_class=PlainTextResponse)
 def llms_txt():
     """Served with the MPP claims derived per request, so the document cannot
     advertise a rail that this deployment has not actually enabled."""
     return (LLMS_TXT
             .replace("{MPP_ACCEPTANCE}", _mpp_acceptance_words())
-            .replace("{MPP_OR}", _mpp_or_words()))
+            .replace("{MPP_OR}", _mpp_or_words())
+            .replace("{INDEX_PRODUCTS}", _index_products_words()))
 
 # `Disallow: /v1/` keeps an unauthenticated crawler out of the API, but
 # /v1/products and /v1/pricing are the machine catalog that every discovery
@@ -1666,6 +1719,31 @@ CITY_CATALOG = [
      "version": "v0.1.0", "status": "live",
      "tools": ["trust_scan_server", "trust_scan_file",
                "skills_list_tool", "read_skill"]},
+    {"id": "benefits-city", "title": "Benefits City",
+     "tagline": "Verified payout outcomes — will this action actually pay?",
+     "mcp_url": "https://aiagentscity.com/benefits/mcp",
+     "human_url": "https://aiagentscity.com/benefits",
+     "version": "v0.3.0", "status": "live",
+     "status_note": "Live 2026-10-13: initialize + tools/list + tools/call all "
+                    "complete on this host (6/6 tools); search_bonuses returns "
+                    "hand-verified records with source URLs, unauthenticated.",
+     # tools = the server's OWN tools/list, probed live 2026-10-13.
+     "tools": ["search_bonuses", "get_bonus", "expiring_soon",
+               "compare_bonuses", "benefits_api_docs", "benefits_examples"]},
+    {"id": "workbench-kit", "title": "AI Workbench",
+     "tagline": "The audit trail for agent work — gates, frame cards, "
+                "verifiable receipts",
+     # No MCP and no hosted surface by design: the kit is local governance
+     # machinery (frame cards, pre-write gates, hashed close receipts) that
+     # installs on the operator's machine. mcp_url is null rather than a fake
+     # — the MCP catalog render skips rows without one.
+     "mcp_url": None,
+     "human_url": "https://aiagentscity.com/workbench",
+     "version": "local", "status": "live",
+     "status_note": "Local kit — install: npx @aiagentscity/setup workbench. "
+                    "Runs fully offline; `wb verify <receipt_id>` recomputes "
+                    "a close receipt against the local ledger.",
+     "tools": []},
 ]
 
 # Read-only, unauthenticated, no PII — discovery needs no workspace. Kept
@@ -1716,13 +1794,21 @@ def _city_discovery_guard(request: Request) -> None:
 def _products_payload() -> dict:
     """The city's catalog as data — the single source for every product,
     endpoint, tool list and status. /v1/products and the PAP discovery
-    document are two renderings of THIS dict, never two hand-written lists."""
+    document are two renderings of THIS dict, never two hand-written lists.
+
+    Slot/direction/connect/free_proof come from city_registry.json via
+    city_index (D-1644): the trust-and-outcome frame is a FIELD on every row,
+    not copy — the catalog and the registry cannot drift because this is
+    where they merge."""
+    import city_index
+    frame = city_index.frame()
     return {
         "name": "AI Agent City",
         "url": "https://aiagentscity.com",
-        "description": "One site, two readers: a human-readable product index "
-                       "and a machine-readable catalog. Five live, independently "
-                       "usable, agent-callable products from one operator.",
+        "description": frame.get("tagline") or (
+            "The trust-and-outcome clearing layer for the agent economy"),
+        "frame": frame.get("frame"),
+        "questions": frame.get("questions"),
         "operator": "Parmanand LLC (AI Agent City)",
         "count": len(CITY_CATALOG),
         # Satellite versions are probed over HTTP and cannot be derived in-process,
@@ -1734,7 +1820,8 @@ def _products_payload() -> dict:
              "status": s["status"], "version": s["version"],
              "mcp_url": s["mcp_url"], "human_url": s["human_url"],
              "tool_count": len(s["tools"]), "tools": s["tools"],
-             **({"status_note": s["status_note"]} if s.get("status_note") else {})}
+             **({"status_note": s["status_note"]} if s.get("status_note") else {}),
+             **city_index.registry_enrichment(s["id"])}
             for s in CITY_CATALOG
         ],
         "discovery": {
@@ -1988,7 +2075,7 @@ def mcp_wellknown_json():
             {"id": s["id"], "url": s["mcp_url"], "version": s["version"],
              "status": s["status"], **({"status_note": s["status_note"]} if s.get("status_note") else {}),
              "tools": s["tools"]}
-            for s in CITY_CATALOG
+            for s in CITY_CATALOG if s.get("mcp_url")
         ],
         "documentation": "https://aiagentscity.com/llms.txt",
         "payment": {"protocol": "x402",
@@ -2353,6 +2440,12 @@ def _accept_prefers_markdown(request: Request) -> bool:
 def front_door(request: Request):
     """The AI Agent City umbrella index: one site, two readers (human + agent
     surfaces, Human | Agent toggle). Ported from the two-surfaces mockup."""
+    # The root IS the index (J1): an agent asking for JSON gets the
+    # trust-and-outcome product map straight from the registry, not a page it
+    # has to scrape (D-1644).
+    if "application/json" in (request.headers.get("accept") or ""):
+        import city_index
+        return JSONResponse(content=city_index.index_payload())
     return _city_response("/", request)
 
 

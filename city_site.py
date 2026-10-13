@@ -577,15 +577,17 @@ PAGE_MANIFESTO = """<div class="agent-surface">
 PAGE_PRODUCTS = """<div class="agent-surface">
   <div class="kicker"><span class="ra">// machine-readable</span> · what an agent sees on /products</div>
   <div class="term"><div class="thead">$ agent-view /products</div><pre>
+<span class="k">frame:</span> trust-and-outcome — before an agent acts it verifies the counterparty; after it acts it proves the result
 <span class="k">products:</span>
-  - id: agent-ledger · mcp: /mcp/ (18 tools) · rest: /v1/*
+  - id: trustscan · slot: trust · direction: outward · mcp: /mcp/trustscan (4 tools) · live
+  - id: agent-watch · slot: trust · direction: outward · mcp: /mcp/agent-watch (8 tools) · status: live (gateway-verified 2026-10-07)
+  - id: perimeter-watch · slot: trust · direction: outward · mcp: /mcp/perimeter-watch (6 tools) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
+  - id: benefits-city · slot: outcome · direction: outward · mcp: /benefits/mcp (6 tools · verified 2026-10-13)
+  - id: cited · slot: outcome · direction: outward · mcp: /mcp/cited (9 tools) · free_scan: https://entradox.github.io/cited-site/
+  - id: agent-ledger · slot: outcome · direction: spine · mcp: /mcp/ (18 tools) · rest: /v1/*
     pricing: {free: "≤3 agents", pro_pass: "$0.01 USDC / 24h via x402, renewable — the only paid path"}
-  - id: agent-watch · mcp: /mcp/agent-watch (8 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway)
-  - id: perimeter-watch · mcp: /mcp/perimeter-watch (6 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway) · free_snapshot: https://entradox.github.io/perimeter-watch-site/
-  - id: trustscan · mcp: /mcp/trustscan (4 tools · v4.0.3) · live
-  - id: cited · mcp: /mcp/cited (9 tools) · status: live (MCP verified 2026-09-20; tool calls translated to REST by the city gateway) · free_scan: https://entradox.github.io/cited-site/
-  - id: workbench · kind: local kit (no MCP — gates, cards + receipts run on the operator's machine) · install: npx @aiagentscity/setup workbench · verify: wb verify &lt;receipt_id&gt;
-<span class="k">capabilities:</span> [spend-caps, monitoring, perimeter-scan, trust-scan, ai-visibility, work-governance]
+  - id: workbench-kit · slot: trust+outcome · direction: inward · kind: local kit (no MCP — gates, cards + receipts run on the operator's machine) · install: npx @aiagentscity/setup workbench · verify: wb verify &lt;receipt_id&gt;
+<span class="k">index:</span> Accept: application/json on / returns this map as JSON · /v1/products · /.well-known/mcp.json
 <span class="k">auth:</span> workspace_key (human) | X-PAYMENT x402 (agent, no human)
 </pre></div>
   <footer class="site"><div><a href="/">← /</a></div><div>AI Agent City</div></footer>
