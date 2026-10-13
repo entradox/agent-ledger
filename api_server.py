@@ -251,18 +251,28 @@ async def _typed_error_handler(request: Request, exc: HTTPException):
         path = request.url.path
         api_path = path.startswith(("/v1/", "/api/", "/mcp", "/proxy/"))
         wants_html = "text/html" in (request.headers.get("accept") or "")
-        if not api_path and wants_html:
-            import city_index
-            return HTMLResponse(status_code=404,
-                                content=city_index.NOT_FOUND_PAGE)
         if not api_path:
-            import city_index
-            return JSONResponse(
-                status_code=404,
-                content={**error_envelope(
-                    404, "path not found — the product index is attached",
-                    code="not_found"),
-                    "index": city_index.index_payload()})
+            # F6: a raise site that supplied a non-default detail ("server.json
+            # not deployed") keeps its specific message — a monitor probing a
+            # broken deploy must see the real cause, not a generic redirect.
+            specific = (exc.detail if isinstance(exc.detail, str)
+                        and exc.detail != "Not Found" else None)
+            detail = specific or "path not found — the product index is attached"
+            try:
+                import city_index
+                if wants_html:
+                    return HTMLResponse(status_code=404,
+                                        content=city_index.NOT_FOUND_PAGE)
+                return JSONResponse(
+                    status_code=404,
+                    content={**error_envelope(404, detail, code="not_found"),
+                             "index": city_index.index_payload()})
+            except Exception:
+                # F2: a missing/corrupt registry degrades to the plain
+                # envelope — the 404 handler itself must never 500 a typo.
+                return JSONResponse(
+                    status_code=404,
+                    content=error_envelope(404, detail, code="not_found"))
     return JSONResponse(status_code=exc.status_code,
                          content=error_envelope(exc.status_code, str(exc.detail)))
 DATA_DIR = Path(os.environ.get("AGENT_LEDGER_DATA", os.path.expanduser("~/.agent-ledger")))
@@ -1657,7 +1667,7 @@ def auth_md_page():
 # duplicates and now delegate here instead: the /llms.txt body (which advertised
 # v1.30.0/v4.0.3 for four satellites) and the MCP dispatch comments. If you add a
 # third surface that names a version, read it from CITY_CATALOG; do not retype it.
-CITY_CATALOG_VERSIONS_OBSERVED = "2026-10-07"
+CITY_CATALOG_VERSIONS_OBSERVED = "2026-10-13"
 CITY_CATALOG = [
     {"id": "agent-ledger", "title": "AgentLedger",
      "tagline": "Spending limits for AI agents",
@@ -1800,8 +1810,14 @@ def _products_payload() -> dict:
     city_index (D-1644): the trust-and-outcome frame is a FIELD on every row,
     not copy — the catalog and the registry cannot drift because this is
     where they merge."""
-    import city_index
-    frame = city_index.frame()
+    # F2: a missing/corrupt registry degrades to catalog rows without the
+    # frame enrichment — never a 500 on the catalog endpoint.
+    try:
+        import city_index
+        frame = city_index.frame()
+        enrichment = city_index.registry_enrichment
+    except Exception:
+        frame, enrichment = {}, lambda _id: {}
     return {
         "name": "AI Agent City",
         "url": "https://aiagentscity.com",
@@ -1821,7 +1837,7 @@ def _products_payload() -> dict:
              "mcp_url": s["mcp_url"], "human_url": s["human_url"],
              "tool_count": len(s["tools"]), "tools": s["tools"],
              **({"status_note": s["status_note"]} if s.get("status_note") else {}),
-             **city_index.registry_enrichment(s["id"])}
+             **enrichment(s["id"])}
             for s in CITY_CATALOG
         ],
         "discovery": {
@@ -1915,8 +1931,10 @@ def personal_agent_discovery(request: Request):
         "products": [
             {"id": s["id"], "title": s["title"], "tagline": s["tagline"],
              "mcp_url": s["mcp_url"], "human_url": s["human_url"],
-             "status": s["status"], "tool_count": len(s["tools"])}
-            for s in CITY_CATALOG
+             "status": s["status"], "tool_count": s["tool_count"],
+             **({"slot": s["slot"]} if s.get("slot") else {}),
+             **({"direction": s["direction"]} if s.get("direction") else {})}
+            for s in p["products"]
         ],
         "catalog": "https://aiagentscity.com/v1/products",
     })
@@ -2054,7 +2072,7 @@ def agent_card_json():
 
 @app.get("/.well-known/mcp.json")
 def mcp_wellknown_json():
-    """City-wide MCP catalog: all five servers, true tool lists.
+    """City-wide MCP catalog: all six MCP servers, true tool lists.
 
     Distinct from /.well-known/mcp/server-card.json (which is the richer
     registry card for AgentLedger alone). Tool names and counts live in
@@ -2444,8 +2462,16 @@ def front_door(request: Request):
     # trust-and-outcome product map straight from the registry, not a page it
     # has to scrape (D-1644).
     if "application/json" in (request.headers.get("accept") or ""):
-        import city_index
-        return JSONResponse(content=city_index.index_payload())
+        # F2: a missing/corrupt registry falls back to the human index — the
+        # root route must never 500 on an agent's Accept header.
+        try:
+            import city_index
+            # F4: Vary: Accept is load-bearing (Railway edge cache) — same as
+            # the markdown twin below.
+            return JSONResponse(content=city_index.index_payload(),
+                                headers={"Vary": "Accept"})
+        except Exception:
+            pass
     return _city_response("/", request)
 
 

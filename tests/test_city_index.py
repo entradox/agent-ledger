@@ -154,6 +154,45 @@ def test_api_path_404_stays_a_plain_error(client):
     assert "index" not in r.json()
 
 
+def test_a_specific_404_detail_survives_the_index_attachment(client):
+    """Morgan F6: a raise site with a non-default detail ("not deployed")
+    keeps its specific message — a monitor probing a broken deploy must see
+    the real cause, not a generic redirect. The index still attaches."""
+    from fastapi import HTTPException
+
+    @api_server.app.get("/probe-specific-404")
+    def _probe():
+        raise HTTPException(404, "fixture resource not deployed")
+
+    r = client.get("/probe-specific-404",
+                   headers={"Accept": "application/json"})
+    assert r.status_code == 404
+    d = r.json()
+    assert d["error"]["message"] == "fixture resource not deployed"
+    assert "index" in d
+
+
+def test_a_broken_registry_degrades_instead_of_500ing(client, monkeypatch):
+    """Morgan F2: city_registry.json is the designed edit point — when it
+    breaks, /v1/products drops enrichment, the root falls back to HTML, and
+    a typo'd path still returns a typed 404 — nothing 500s."""
+    monkeypatch.setenv("CITY_REGISTRY_PATH",
+                       "/nonexistent/city_registry.json")
+
+    r = client.get("/v1/products")
+    assert r.status_code == 200
+    assert {p["id"] for p in r.json()["products"]} == {
+        s["id"] for s in api_server.CITY_CATALOG}
+
+    r = client.get("/", headers={"Accept": "application/json"})
+    assert r.status_code == 200  # human index fallback, never a 500
+
+    r = client.get("/definitely-not-a-real-path",
+                   headers={"Accept": "application/json"})
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "not_found"
+
+
 # ── Criterion 4: one-pass classification ────────────────────────────────────
 
 def test_an_agent_can_classify_every_product_in_one_pass(client):

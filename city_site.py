@@ -615,7 +615,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>02</b> — MONITOR <span class="ver">v1.30.0 · 8 MCP tools</span></div>
+    <div class="stacknum"><b>02</b> — MONITOR <span class="ver">v0.1.0 · 8 MCP tools</span></div>
     <h3>Agent Watch — monitoring for the agent economy</h3>
     <p><b>Non-human traffic is hitting your APIs and you can't see it.</b> What changed this week, alerts the moment a new agent calls your endpoints, anomaly summaries — before they become incidents or invoices.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Alert me when a new agent calls our API, with a weekly activity summary."</span></pre>
@@ -624,7 +624,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.30.0 · 6 MCP tools</span></div>
+    <div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.0 · 6 MCP tools</span></div>
     <h3>Perimeter Watch — passive external-perimeter monitoring for web agencies</h3>
     <p><b>Attackers view your clients' domains from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan example.com for dangling DNS and cert expiry, then check lookalikes."</span></pre>
@@ -633,14 +633,14 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>04</b> — TRUST <span class="ver">v4.0.3 · 4 MCP tools · live</span></div>
+    <div class="stacknum"><b>04</b> — TRUST <span class="ver">v0.1.0 · 4 MCP tools · live</span></div>
     <h3>TrustScan — scan before you trust</h3>
     <p><b>Your agent is about to install a stranger's MCP server.</b> TrustScan answers the question every agent should ask first: <i>is this safe to wire in?</i> Invisible-Unicode prompt-injection, dangerous code patterns (MCP001&ndash;MCP006), hardcoded secrets, typosquat names — a 0&ndash;100 score, a letter grade, and evidence. Live over MCP today, read-only, no signup.</p>
     <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Scan a server</a><a class="btn btn-ghost" href="/trust-scan#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add trustscan →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.30.0 · 9 MCP tools</span></div>
+    <div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.0 · 9 MCP tools</span></div>
     <h3>Cited — does AI recommend your practice?</h3>
     <p><b>Your customers stopped Googling. They ask AI.</b> Instant scan of what the AI engines say about your business — with verbatim evidence. Free.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan Gentry Dentistry of Suwanee for AI visibility — verbatim quotes."</span></pre>
@@ -696,7 +696,7 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
     <tr><td><b>agent-watch</b> <span class="ver">8 tools</span></td><td style="color:var(--mut)">Activity briefs, new-agent alerts, anomaly summaries</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/agent-watch</code></td></tr>
     <tr><td><b>perimeter-watch</b> <span class="ver">6 tools</span></td><td style="color:var(--mut)">Dangling-DNS scans, cert watch, lookalike checks</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/perimeter-watch</code></td></tr>
     <tr><td><b>cited</b> <span class="ver">9 tools</span></td><td style="color:var(--mut)">AI-visibility scans with verbatim evidence</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/cited</code></td></tr>
-    <tr><td><b>trustscan</b> <span class="ver">4 tools · v4.0.3 · live</span></td><td style="color:var(--mut)">MCP-server/skill security scans (prompt-injection, secrets, typosquat)</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/trustscan</code></td></tr>
+    <tr><td><b>trustscan</b> <span class="ver">4 tools · v0.1.0 · live</span></td><td style="color:var(--mut)">MCP-server/skill security scans (prompt-injection, secrets, typosquat)</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/trustscan</code></td></tr>
   </table>
   <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command — detects your agent harness and registers the MCP</span>
 npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__
