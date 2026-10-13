@@ -11,9 +11,7 @@
     "spine": "the receipts rail every instrument writes through",
     "inward": "verifies your own fleet's work"
   },
-  "parked": [
-    {"id": "agent-compass", "why": "no live endpoint — parked until it has one (blueprint v2 rule)"}
-  ],
+  "parked": [],
   "products": [
     {
       "id": "trustscan",
