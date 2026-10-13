@@ -230,6 +230,34 @@ def create_workspace(*, owner_email: Optional[str] = None,
                                grant_scarcity=grant_scarcity, is_demo=is_demo)
 
 
+def bind_wallet_to_workspace(workspace_id: str, wallet_address: str) -> None:
+    """Attach a settled payer's wallet to an EXISTING workspace (D-1647).
+
+    Called from the x402 route after settlement, with workspace credentials
+    already verified and both conflict checks already passed — but re-checked
+    here under the mint lock because the pre-settlement check can race a
+    concurrent bind. Wallet↔workspace is 1:1 in both directions: a second
+    wallet can never claim a bound workspace, and a bound wallet can never
+    own a second workspace.
+    """
+    norm = _normalize_wallet(wallet_address)
+    with _mint_lock:
+        record = get_workspace(workspace_id)
+        if record is None:
+            raise WorkspaceError(f"workspace not found: {workspace_id}")
+        existing = record.get("wallet_address")
+        if existing and existing != norm:
+            raise WorkspaceError(
+                "workspace already bound to a different wallet")
+        other = get_workspace_by_wallet(norm)
+        if other and other["workspace_id"] != workspace_id:
+            raise WorkspaceError(
+                "wallet already bound to a different workspace")
+        record["wallet_address"] = norm
+        _write_workspace(record)
+        (_index_dir("by_wallet") / _hash(norm)).write_text(workspace_id)
+
+
 def _mint_workspace(*, owner_email, google_sub, wallet_address, rapidapi_user,
                     grant_scarcity, is_demo) -> tuple[str, Optional[str]]:
     workspace_id = "ws_" + secrets.token_urlsafe(16)

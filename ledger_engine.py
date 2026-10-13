@@ -292,10 +292,11 @@ def ensure_agent_secret(agent_id: str, provided_secret: Optional[str] = None,
                 "path is the agent rail — there is no human checkout: "
                 f"POST /v1/billing/x402 with a wallet payment ({x402_verify.X402_MINT_PRICE}) "
                 f"buys a renewable Pro pass — {x402_verify.x402_pass_agent_limit()} for {pass_hours}h "
-                "per payment. Paying mints/resolves a workspace bound to your "
-                "wallet, which is a DIFFERENT workspace from this one if this "
-                "one wasn't created that way — the agents already on this "
-                "workspace stay here.")
+                "per payment. To upgrade THIS workspace in place (agents, cap "
+                "and history kept), send X-Workspace-Id + X-Workspace-Key with "
+                "the payment — the wallet binds to this workspace. Without "
+                "them, the pass lands on a workspace bound to your wallet, "
+                "which is a DIFFERENT workspace from this one.")
 
     new_secret = secrets.token_urlsafe(24)
     _agent_dir(agent_id).mkdir(parents=True, exist_ok=True)

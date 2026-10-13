@@ -437,6 +437,31 @@ def _payer_from_payload(payment_payload) -> str | None:
     return None
 
 
+def payer_from_payment_header(request) -> "str | None":
+    """Decode the paying wallet from a signed payment header WITHOUT settling.
+
+    The X-PAYMENT / PAYMENT-SIGNATURE header is base64url JSON whose payload
+    carries the same authorization-from field _payer_from_payload reads after
+    verification. Needed by the workspace-bind path (D-1647): a refused bind
+    must happen before settlement, which means before verify_payment exists.
+    Returns None when the header is missing or unreadable — never a refusal:
+    an undecodable header belongs to the verifier's challenge path.
+    """
+    import base64
+    import json as _json
+    raw = (request.headers.get("payment-signature")
+           or request.headers.get("x-payment"))
+    if not raw:
+        return None
+    try:
+        decoded = _json.loads(base64.urlsafe_b64decode(
+            raw + "=" * (-len(raw) % 4)))   # tolerate stripped padding
+    except Exception:
+        return None
+    inner = decoded.get("payload") if isinstance(decoded, dict) else None
+    return _payer_from_payload(type("P", (), {"payload": inner})())
+
+
 def verify_payment(request, route_key: str = ROUTE_KEY) -> dict:
     """Verify + settle the x402 payment carried on `request`.
 

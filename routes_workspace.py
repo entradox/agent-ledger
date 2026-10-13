@@ -182,8 +182,12 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
        <span class="muted">— free tier is 3 agents per workspace.</span></p>
     <p class="muted" id="planhint" style="margin-bottom:8px">Need more? A $0.01 x402 payment
        buys a renewable 24h Pro pass — paid by the agent itself, no human checkout.
-       The pass binds to the paying wallet's workspace, which is a different
-       workspace from this one — this workspace stays on the free tier.</p>
+       To upgrade THIS workspace, the paying agent sends
+       <code>X-Workspace-Id</code> + <code>X-Workspace-Key</code> (this workspace's
+       id and the key you pasted above) with the payment; without them, the pass
+       binds to the paying wallet's own workspace instead. Binding is permanent:
+       the bound wallet becomes this workspace's payment identity and can
+       reissue the workspace key — only do it for a wallet you control.</p>
     <p><button id="upgrade">More agents — $0.01 x402 pass</button>
        <span class="muted" id="upmsg"></span></p>
   </div>
@@ -329,7 +333,7 @@ function renderPlanBar(d, key){
   } else if(paidTier==='starter'){
     line='Starter plan — up to 10 agents per workspace.';
   } else if(n>=cap){
-    line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused here; an x402 pass lives on the paying wallet\'s workspace.';
+    line=n+' of '+cap+' free agents used — you are AT the cap. A 4th new agent is refused here; send X-Workspace-Id + X-Workspace-Key with the x402 payment to upgrade THIS workspace in place.';
   } else {
     line=n+' of '+cap+' free agents used. The cap bites at '+cap+' on this workspace.';
   }

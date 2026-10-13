@@ -941,6 +941,35 @@ def x402_billing(request: Request):
                                IdempotencyKeyTooLongError, IdempotencyConflictError)
     import x402_verify, workspace_engine, mpp_verify
 
+    # ── Workspace binding (D-1647), part 1 — BEFORE any settlement ─────────
+    # A caller holding an existing workspace (typically a free /start
+    # workspace that hit its agent cap) may attach this payment to it instead
+    # of minting a new wallet workspace: send X-Workspace-Id + X-Workspace-Key
+    # alongside the payment header. The workspace_key is the credential —
+    # a settled payment alone never proves workspace ownership.
+    #
+    # ORDER IS LOAD-BEARING: mpp_verify.verify_credential settles inside —
+    # so header-pair and credential checks must precede the MPP block below,
+    # or a bad bind request on the MPP rail would take the money AND 4xx.
+    # The payer-dependent conflict checks live in part 2 below: the payer is
+    # only knowable pre-settlement on the x402 rail (decoded from the signed
+    # payment header); on MPP there is no header to pre-decode, so a conflict
+    # is caught post-settlement by bind_wallet_to_workspace and the pass
+    # falls back to the wallet's own workspace — money paid is money
+    # honoured, a refused bind never eats the settlement.
+    bind_ws = (request.headers.get("x-workspace-id") or "").strip()
+    bind_key = (request.headers.get("x-workspace-key") or "").strip()
+    if bind_ws or bind_key:
+        import identity
+        if not (bind_ws and bind_key):
+            raise HTTPException(400, detail=error_envelope(
+                400, "bind requires BOTH X-Workspace-Id and X-Workspace-Key "
+                     "headers", code="bind_headers_incomplete"))
+        if identity.resolve_workspace_key(bind_key) != bind_ws:
+            raise HTTPException(401, detail=error_envelope(
+                401, "workspace_key does not match X-Workspace-Id",
+                code="workspace_key_mismatch"))
+
     # Path A: an MPP credential can pay the same x402 settlement rail.
     # Check for MPP first because the x402 SDK treats a missing/invalid
     # X-PAYMENT header as a new 402 challenge; an MPP credential in
@@ -983,6 +1012,34 @@ def x402_billing(request: Request):
             # exception that reaches here was raised BEFORE settlement, so
             # nothing settled and a plain "not paid" answer is truthful.
             pass
+    # ── Workspace binding (D-1647), part 2 — payer-dependent refusals ──────
+    # These need the paying wallet. On the x402 rail it is decoded from the
+    # signed payment header, so a conflicted bind is refused before
+    # verify_payment settles a cent. On the MPP rail the payer only exists
+    # after settlement — those conflicts are handled post-settlement by the
+    # bind write + fallback below.
+    if bind_ws:
+        payer_pre = x402_verify.payer_from_payment_header(request)
+        if payer_pre:
+            norm = workspace_engine._normalize_wallet(payer_pre)
+            target = workspace_engine.get_workspace(bind_ws)
+            if (target is not None and target.get("wallet_address")
+                    and target["wallet_address"] != norm):
+                raise HTTPException(409, detail=error_envelope(
+                    409, "this workspace is already bound to a different "
+                         "wallet", code="wallet_conflict"))
+            other = workspace_engine.get_workspace_by_wallet(norm)
+            if other is not None and other["workspace_id"] != bind_ws:
+                # Do NOT name the bound workspace_id: the payer is decoded
+                # from a signed-but-unverified header, so before settlement
+                # anyone can claim to be any wallet — naming ws_ would be a
+                # free wallet→workspace oracle.
+                raise HTTPException(409, detail=error_envelope(
+                    409, "this wallet is already bound to a different "
+                         "workspace — renewals resolve it without workspace "
+                         "headers; drop the headers to renew it",
+                         code="wallet_already_bound"))
+
     if mpp_receipt:
         # The MPP intent settled via the existing x402 path. Transform its
         # receipt into the same shape x402_verify returns so the rest of the
@@ -1037,6 +1094,20 @@ def x402_billing(request: Request):
     else:
         try:
             result = x402_verify.verify_payment(request)
+        except x402_verify.SettlementOutcomeUnknown as ambiguous:
+            # Same money-safety rule as the MPP branch above: the payment
+            # reached the settlement rail and then failed ambiguously — USDC
+            # may have moved. A retryable 402/503 here would invite a second
+            # payment on top of the first; answer non-retryable instead.
+            logging.error("x402 settlement outcome unknown on "
+                          "/v1/billing/x402: %r", ambiguous)
+            raise HTTPException(409, detail=error_envelope(
+                409,
+                "your payment may have settled but could not be confirmed; "
+                "do NOT retry with a new payment — quote this reference to "
+                "support and it will be reconciled",
+                error_type="payment_outcome_unknown",
+                code="x402_settlement_outcome_unknown"))
         except x402_verify.X402Unavailable as e:
             # Path A: even when x402 itself is unavailable (e.g. mainnet without CDP
             # creds), emit the MPP challenge if MPP is configured, so MPP-only
@@ -1175,11 +1246,37 @@ def x402_billing(request: Request):
         return JSONResponse(status_code=cached["status_code"],
                             content=cached["response"])
 
-    try:
-        workspace_id, raw_key = workspace_engine.create_workspace(wallet_address=wallet)
-    except Exception:
-        idempotency_release(tx_hash, wallet, "x402_mint")
-        raise
+    bound = False
+    bind_error = None
+    if bind_ws:
+        try:
+            # Re-validates wallet↔workspace 1:1 under the mint lock — the
+            # pre-settlement check above can race a concurrent bind.
+            workspace_engine.bind_wallet_to_workspace(bind_ws, wallet)
+            workspace_id, raw_key, bound = bind_ws, None, True
+        except workspace_engine.WorkspaceError as e:
+            # Settlement already happened: the pass must land on SOME
+            # workspace the payer controls. The wallet's own workspace is
+            # that fallback — a refused bind never eats the payment. The
+            # caller sees the refusal reason in `bind_error`.
+            bind_error = str(e)
+        except Exception as e:  # noqa: BLE001 — money moved; degrade, never eat
+            # A non-WorkspaceError here (corrupt record, IO fault) is a
+            # paid-but-ungranted risk: record it for repair and fall back —
+            # the fallback grant below is what honours the payment.
+            logging.error("x402 bind raised post-settlement (tx %s): %r",
+                          tx_hash, e)
+            _record_grant_failure("x402_bind_exception", tx_hash, "",
+                                  detail=repr(e), workspace_id=bind_ws)
+            bind_error = ("internal bind failure — logged for repair; the "
+                          "pass was applied to your wallet's workspace")
+    if not bound:
+        try:
+            workspace_id, raw_key = workspace_engine.create_workspace(
+                wallet_address=wallet)
+        except Exception:
+            idempotency_release(tx_hash, wallet, "x402_mint")
+            raise
 
     # Grant the Pro pass this settlement paid for. Every verified, deduplicated
     # settlement reaches this line exactly once (a replayed tx_hash returned
@@ -1195,18 +1292,29 @@ def x402_billing(request: Request):
     # lapsed one does NOT: revoke_pro keeps stripe_customer_id for the index,
     # and keying off that field alone took a former subscriber's payment and
     # granted nothing.
-    existing = None if raw_key is not None else workspace_engine.get_workspace(workspace_id)
-    if existing and _has_active_non_pass_entitlement(existing):
-        logging.warning("x402 purchase honoured without touching plan: "
-                        "workspace %s holds a live %s entitlement",
-                        workspace_id,
-                        existing.get("pro_period_source") or "paid")
-    else:
-        workspace_engine.mark_pro(workspace_id,
-                                  (existing or {}).get("stripe_customer_id") or "",
-                                  pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
-                                  period_source="x402_pass",
-                                  tier=x402_verify.x402_pass_tier())
+    try:
+        existing = None if raw_key is not None else workspace_engine.get_workspace(workspace_id)
+        if existing and _has_active_non_pass_entitlement(existing):
+            logging.warning("x402 purchase honoured without touching plan: "
+                            "workspace %s holds a live %s entitlement",
+                            workspace_id,
+                            existing.get("pro_period_source") or "paid")
+        else:
+            workspace_engine.mark_pro(
+                workspace_id,
+                (existing or {}).get("stripe_customer_id") or "",
+                pro_until=time.time() + x402_verify.X402_PRO_PASS_SECONDS,
+                period_source="x402_pass",
+                tier=x402_verify.x402_pass_tier())
+    except Exception as grant_err:
+        # Settlement succeeded but the grant failed — the one outcome this
+        # route exists to prevent. Record it for repair and KEEP the
+        # idempotency row in-flight so a replayed tx_hash is a 409 conflict,
+        # not a silent second mint.
+        _record_grant_failure("x402_pass_grant_exception", tx_hash, "",
+                              detail=repr(grant_err),
+                              workspace_id=workspace_id)
+        raise
 
     # amount is USDC atomic units (6 decimals) on the settlement the SDK
     # verified against — convert to cents for the same amount_cents field
@@ -1218,7 +1326,14 @@ def x402_billing(request: Request):
         amount_cents = None
     event_kwargs = {"amount_cents": amount_cents} if amount_cents is not None else {}
     metrics.record_event("x402_settled", **event_kwargs)
-    if raw_key is not None:
+    if bound:
+        # The card's demand signal: a free-workspace operator converting by
+        # binding their payment to a workspace they already hold.
+        metrics.record_onboarding("x402_bound_paid", workspace_id,
+                                  **event_kwargs)
+        logging.info("x402 bound purchase: wallet %s bound to workspace %s "
+                     "(tx %s)", wallet, workspace_id, tx_hash)
+    elif raw_key is not None:
         # A genuinely new workspace was minted by this payment.
         metrics.record_onboarding("workspace_minted", workspace_id, source="x402")
         metrics.record_onboarding("x402_paid", workspace_id, **event_kwargs)
@@ -1231,11 +1346,26 @@ def x402_billing(request: Request):
                      wallet, tx_hash, workspace_id)
 
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
-    if raw_key is None:
+    if bound:
+        payload["bound_wallet"] = wallet
+        payload["message"] = (
+            "This payment upgraded the workspace named by your "
+            "X-Workspace-Id/X-Workspace-Key headers and bound wallet "
+            f"{wallet} to it — renewals from this wallet resolve here "
+            "without the headers.")
+    elif raw_key is None:
         payload["message"] = (
             "This payment resolved to your existing workspace; the original "
             "workspace_key is shown once at mint. To rotate into a fresh key, "
             "POST /v1/billing/x402/recover with a wallet signature.")
+    if bind_error:
+        # The payment settled but the bind raced/conflicted post-check — the
+        # pass landed on the wallet's own workspace instead. Say so plainly.
+        payload["bind_error"] = bind_error
+        payload["message"] = (
+            f"Workspace bind refused after settlement ({bind_error}); the "
+            "payment was NOT lost — the pass was applied to the workspace "
+            "bound to your paying wallet instead.")
     # SECURITY: the raw workspace_key must never be persisted in the
     # idempotency cache — a replayable cached response would re-expose it to
     # anyone who can name the settlement tx_hash. Same rule (and same shape)
