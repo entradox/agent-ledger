@@ -63,7 +63,18 @@ def test_every_connect_surface_is_a_route_the_app_or_an_mcp_serves(client, regis
 def test_perimeter_watch_carries_the_repositioned_question(client):
     body = client.get("/perimeter-watch").text
     assert "still what it claims" in body
+    # Morgan F5: the tool only verifies owned endpoints (authority:true) —
+    # the copy must scope to YOUR perimeter, not a counterparty's.
+    assert "your endpoint" in body
     assert "v1.0" in body and "v1.30.0" not in body
+
+
+def test_perimeter_watch_nowhere_claims_counterparty_verification(client):
+    """pw_snapshot requires authority attestation — surfaces must not
+    suggest it verifies endpoints the caller doesn't own."""
+    for path in ("/perimeter-watch", "/products", "/"):
+        body = client.get(path).text
+        assert "agent is pointed at" not in body, path
 
 
 def test_cited_carries_the_outcome_proof_positioning(client):

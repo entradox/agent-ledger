@@ -46,7 +46,7 @@
       "title": "Perimeter Watch",
       "slot": "trust",
       "direction": "outward",
-      "tagline": "Is the endpoint your agent is pointed at still what it claims?",
+      "tagline": "Is your endpoint still what it claims — checked from the outside?",
       "connect": {
         "mcp": "https://aiagentscity.com/mcp/perimeter-watch",
         "human": "https://aiagentscity.com/perimeter-watch"

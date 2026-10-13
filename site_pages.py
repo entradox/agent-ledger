@@ -192,7 +192,7 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 
 <h2>Products</h2>
 <div class="card"><h3><a class="plain" href="/agent-ledger">AgentLedger</a></h3><p class="mut">Spending limits for AI agents [outcome · spine]</p></div>
-<div class="card"><h3><a class="plain" href="/perimeter-watch">Perimeter Watch</a></h3><p class="mut">Is the endpoint still what it claims? [trust · outward]</p></div>
+<div class="card"><h3><a class="plain" href="/perimeter-watch">Perimeter Watch</a></h3><p class="mut">Is your endpoint still what it claims — from the outside? [trust · outward]</p></div>
 <div class="card"><h3><a class="plain" href="/cited">Cited</a></h3><p class="mut">Verify the claim that AI recommends this brand — verbatim evidence [outcome · outward]</p></div>
 <div class="card"><h3><a class="plain" href="/agent-watch">Agent Watch</a></h3><p class="mut">Monitoring for the agent economy [trust · outward]</p></div>
 <div class="card"><h3><a class="plain" href="/trust-scan">TrustScan</a></h3><p class="mut">Scan before you trust [trust · outward]</p></div>
@@ -206,7 +206,7 @@ Agent-readable at <b>aiagentscity.com</b> &mdash; every product ships MCP + REST
 
 PERIMETER_WATCH_PAGE = """
 <h1>Perimeter Watch</h1>
-<p class="mut">Is the endpoint your agent is pointed at still what it claims?
+<p class="mut">Is your endpoint still what it claims — checked from the outside?
 Passive external-perimeter monitoring &mdash; cert expiry, dangling DNS, lookalikes.</p>
 <p class="mut">v1.0 &middot; 6 MCP tools</p>
 
@@ -1052,7 +1052,7 @@ endpoint.
 
 - AgentLedger — per-agent spend tracking, budgets, alerts. Landing: /agent-ledger · self-serve workspace: /start  [outcome · spine]
 - Agent Watch — alerts when new AI agents hit your endpoints: /agent-watch  [trust · outward]
-- Perimeter Watch — is the endpoint still what it claims: /perimeter-watch  [trust · outward]
+- Perimeter Watch — is your endpoint still what it claims: /perimeter-watch  [trust · outward]
 - TrustScan — npm/MCP package trust scoring: /trust-scan  [trust · outward]
 - Cited — verify AI-recommendation claims, verbatim evidence: /cited  [outcome · outward]
 - Benefits City — verified US bank/card signup bonuses, MCP + JSON feed: /benefits/  [outcome · outward]
