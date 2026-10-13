@@ -658,6 +658,54 @@ async def _head_get_equivalence(request: Request, call_next):
     return Response(status_code=response.status_code, headers=headers)
 
 
+# Security headers (D-1664): applied at the outermost middleware so every
+# response carries them — pages, API errors, redirects, 404s alike.
+# CSP is scoped to HTML responses we control; /docs and /redoc load assets
+# from jsdelivr and get the CDN sources whitelisted instead of a blanket
+# 'unsafe-inline' for scripts — our own pages still get inline-allowed
+# because the page shells use inline <script>/<style> blocks throughout.
+_DOCS_PATHS = {"/docs", "/docs/oauth2-redirect", "/redoc"}
+_CSP_SELF = ("default-src 'self'; "
+             "script-src 'self' 'unsafe-inline'; "
+             "style-src 'self' 'unsafe-inline'; "
+             "img-src 'self' data: https:; "
+             "font-src 'self' data:; "
+             "connect-src 'self'; "
+             "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+_CSP_DOCS = ("default-src 'self'; "
+             "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+             "img-src 'self' data: https://fastapi.tiangolo.com; "
+             "font-src 'self' data:; "
+             "connect-src 'self'; "
+             "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+
+
+@app.middleware("http")
+async def _security_headers_middleware(request: Request, call_next):
+    """Standard hardening headers on every response.
+
+    - HSTS: the site is HTTPS-only in production; subdomains included.
+    - nosniff: stops MIME confusion on user-influenced content.
+    - frame-ancestors 'none' + XFO DENY: clickjacking — /demo takes a
+      workspace key, it must never render inside a foreign frame.
+    - Referrer-Policy: keeps query strings (which can carry keys) from
+      leaking to third-party origins via Referer.
+    - Permissions-Policy: nothing on this site needs camera/mic/geo.
+    """
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
+    if "text/html" in h.get("content-type", ""):
+        h.setdefault("Content-Security-Policy",
+                     _CSP_DOCS if request.url.path in _DOCS_PATHS else _CSP_SELF)
+    return response
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "agent-ledger", "version": APP_VERSION}
