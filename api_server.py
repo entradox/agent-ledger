@@ -3195,12 +3195,14 @@ _WS_ID_RE = re.compile(r"^ws_[A-Za-z0-9_\-]{10,64}$")
 
 
 @app.get("/v1/_beacon")
-def connect_beacon(event: str, ws: str = ""):
+def connect_beacon(request: Request, event: str, ws: str = ""):
     """Fire-and-forget telemetry beacon for static-page interactions that have
     no natural server round-trip (launch-kit v0.3 item 4). The allowlist is
     closed on purpose — an open `event` value would let a caller write
     arbitrary metric kinds, and an open `ws` would let them invent workspaces
-    in the onboarding stream. Both are validated here."""
+    in the onboarding stream. Both are validated here. Shares the city
+    discovery rate bucket so a crawler cannot inflate the funnel counters."""
+    _city_discovery_guard(request)
     if event == "connect_page_view":
         try:
             metrics.record_event("connect_page_view")
