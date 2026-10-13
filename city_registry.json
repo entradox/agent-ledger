@@ -26,7 +26,7 @@
         "paid_call": "POST https://aiagentscity.com/api/x402/trustscan/npm",
         "human": "https://aiagentscity.com/trust-scan"
       },
-      "free_proof": "trust_scan_server / trust_scan_file MCP tools are read-only and unauthenticated — a scan is the proof"
+      "free_proof": "POST /api/trustscan/npm returns registry facts + a typosquat screen for any package, unauthenticated — remote deep scans are path-scoped to the host; scan YOUR code via the x402 route or the local pip install"
     },
     {
       "id": "agent-watch",

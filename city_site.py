@@ -423,8 +423,8 @@ PAGE_HOME = """<div class="agent-surface">
 <section>
   <div class="agent-hero">
     <div class="kicker"><span class="ra">// machine-readable</span> · ai agent city</div>
-    <h1>The operations layer agents run on.</h1>
-    <p class="lede">Budgets, monitoring, security, trust, discovery, governance — <b>six products, one MCP catalog, zero human required.</b> Read the contract, connect, transact.</p>
+    <h1>The trust-and-outcome clearing layer agents run on.</h1>
+    <p class="lede">Every product answers one of two questions: <b>TRUST</b> — can it trust the counterparty, before it acts. <b>OUTCOME</b> — did it work, after. <b>Seven products, one MCP catalog, zero human required.</b> Read the contract, connect, transact.</p>
   </div>
   <div class="kicker"><span class="ra">// live session</span></div>
   <div class="term">
@@ -438,7 +438,7 @@ PAGE_HOME = """<div class="agent-surface">
   </div>
   <p class="note">the agent-native surface, playing next to the contract — the whole site works like this</p>
   <div class="kicker"><span class="ra">// connect</span> · one command per product</div>
-  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">18 tools</span><span class="url">npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">workbench</span><span class="cnt">local kit</span><span class="url">npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for workbench">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(5,this)" aria-label="Copy connect command for cited">copy</button></div></div>
+  <div class="conn"><div class="conn-row"><span class="nm">agent-ledger</span><span class="cnt">18 tools</span><span class="url">npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(0,this)" aria-label="Copy connect command for agent-ledger">copy</button></div><div class="conn-row"><span class="nm">workbench</span><span class="cnt">local kit</span><span class="url">npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__</span><button class="copy" onclick="copyCmd(1,this)" aria-label="Copy connect command for workbench">copy</button></div><div class="conn-row"><span class="nm">agent-watch</span><span class="cnt">8 tools</span><span class="url">claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/</span><button class="copy" onclick="copyCmd(2,this)" aria-label="Copy connect command for agent-watch">copy</button></div><div class="conn-row"><span class="nm">perimeter-watch</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/</span><button class="copy" onclick="copyCmd(3,this)" aria-label="Copy connect command for perimeter-watch">copy</button></div><div class="conn-row"><span class="nm">trustscan</span><span class="cnt">4 tools</span><span class="url">claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/</span><button class="copy" onclick="copyCmd(4,this)" aria-label="Copy connect command for trustscan">copy</button></div><div class="conn-row"><span class="nm">cited</span><span class="cnt">9 tools</span><span class="url">claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/</span><button class="copy" onclick="copyCmd(5,this)" aria-label="Copy connect command for cited">copy</button></div><div class="conn-row"><span class="nm">benefits-city</span><span class="cnt">6 tools</span><span class="url">claude mcp add --transport http benefits-city https://aiagentscity.com/benefits/mcp</span><button class="copy" onclick="copyCmd(6,this)" aria-label="Copy connect command for benefits-city">copy</button></div></div>
   <p class="note">the installer detects claude-code, codex, cursor, opencode, hermes + openclaw and registers the right way for each. manual fallback: <code>claude mcp add --transport http agent-ledger https://aiagentscity.com/mcp/</code></p>
   <div class="buy">
     <span class="lbl">x402 · __NETWORK_LABEL__</span>
@@ -447,9 +447,9 @@ PAGE_HOME = """<div class="agent-surface">
 </section>
 <section>
   <div class="kicker"><span class="ra">// machine-readable</span> · the stack</div>
-  <h2>Six products, one contract.</h2>
-  <p class="lede">Five products are MCP-native — tool counts are the live <span style="font-family:var(--mono);font-size:13px">tools/list</span> output, not marketing. AI Workbench is a local kit installed over npx, not an MCP endpoint.</p>
-  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Govern</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
+  <h2>Two questions. Seven products.</h2>
+  <p class="lede"><b>TRUST</b> products verify the counterparty before an agent acts; <b>OUTCOME</b> products prove the result after. Six are MCP-native — tool counts are the live <span style="font-family:var(--mono);font-size:13px">tools/list</span> output, not marketing. Workbench Kit is a local kit installed over npx, not an MCP endpoint.</p>
+  <div class="card hl"><div class="stacknum"><b>01 · Outcome · Spine · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Trust</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Trust</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Is the endpoint your agent is pointed at still what it claims? Cert expiry, dangling DNS, lookalikes — caught before they're incidents.</p><div class="links"><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Outcome</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Verify the claim that AI recommends this brand — verbatim evidence.</p><div class="links"><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Outcome</b><span class="tc">6 tools</span></div><h3>Benefits City</h3><p>Will this action actually produce the payout? Hand-verified offer records — requirements, deadlines, source URLs — an agent can check before it promises the result.</p><div class="links"><a class="ag" href="/developers">$ mcp add benefits-city →</a></div></div><div class="card"><div class="stacknum"><b>07 · Trust + Outcome · Inward</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
   <div class="fine"><b>machine entry points</b><br>/.well-known/x402.json · /skill.md · /openapi.json · /server.json · /.well-known/mcp.json · /status · /llms.txt</div>
   <footer class="site"><div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a></div><div>AI Agent City · one site, two readers</div></footer>
 </section>
@@ -480,13 +480,13 @@ PAGE_HOME = """<div class="agent-surface">
     <div class="t"><div class="n">02</div><h4>Agents call your APIs</h4><p>Non-human traffic already hits production endpoints, and most teams can't see it. You can't secure or bill what you can't attribute.</p></div>
     <div class="t"><div class="n">03</div><h4>AI answers are the new search</h4><p>Customers ask ChatGPT and Claude instead of Googling. If the models don't recommend you — with receipts — you're invisible.</p></div>
   </div>
-  <div class="pull">"Every economic actor needs five things: a budget, a monitor, a perimeter, a reputation, and a way to be found. We're building all five — for agents."</div>
+  <div class="pull">"Every economic actor asks two questions before and after it acts: can I trust the counterparty — and did it work. We're building the layer that answers both — for agents."</div>
 </section>
 <section>
   <div class="kicker"><span class="rh">// human-readable</span> · the stack</div>
-  <h2>One stack. Six products.</h2>
-  <p class="lede">Each solves one operational problem end to end. Each is <b>live and independently usable.</b></p>
-  <div class="card hl"><div class="stacknum"><b>01 · Control spend · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Monitor</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Secure</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Dangling DNS, expiring certs, lookalike domains — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Be found</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Does AI recommend your practice? Instant scan, verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Govern</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a href="/workbench">Explore →</a><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
+  <h2>One stack. Two questions. Seven products.</h2>
+  <p class="lede">Each answers one question end to end: <b>can it trust the counterparty</b>, or <b>did it work</b>. Each is <b>live and independently usable.</b></p>
+  <div class="card hl"><div class="stacknum"><b>01 · Outcome · Spine · Flagship</b><span class="tc">18 tools</span></div><h3>AgentLedger — spending limits for AI agents</h3><p>Per-agent spend caps with 402 enforcement before the provider is ever called. The call that would break the budget <b>never reaches the provider</b>.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-ledger →</a></div></div><div class="card"><div class="stacknum"><b>02 · Trust</b><span class="tc">8 tools</span></div><h3>Agent Watch</h3><p>Monitoring for the agent economy. Know the moment a new agent touches your API.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add agent-watch →</a></div></div><div class="card"><div class="stacknum"><b>03 · Trust</b><span class="tc">6 tools</span></div><h3>Perimeter Watch</h3><p>Is the endpoint your agent is pointed at still what it claims? Cert expiry, dangling DNS, lookalikes — caught before they're incidents.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add perimeter-watch →</a></div></div><div class="card"><div class="stacknum"><b>04 · Trust</b><span class="tc">4 tools</span></div><h3>TrustScan</h3><p>Scan before you trust. Know who you're dealing with before your agent does.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add trustscan →</a></div></div><div class="card"><div class="stacknum"><b>05 · Outcome</b><span class="tc">9 tools</span></div><h3>Cited</h3><p>Verify the claim that AI recommends this brand — verbatim evidence.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add cited →</a></div></div><div class="card"><div class="stacknum"><b>06 · Outcome</b><span class="tc">6 tools</span></div><h3>Benefits City</h3><p>Will this action actually produce the payout? Hand-verified offer records — requirements, deadlines, source URLs — checked before your agent promises the result.</p><div class="links"><a href="/products">Explore →</a><a class="ag" href="/developers">$ mcp add benefits-city →</a></div></div><div class="card"><div class="stacknum"><b>07 · Trust + Outcome · Inward</b><span class="tc">local kit</span></div><h3>AI Workbench</h3><p>The audit trail for agent work. Frame every task, gate every write against its scope, close with a receipt anyone can recompute.</p><div class="links"><a href="/workbench">Explore →</a><a class="ag" href="/workbench">$ npx @aiagentscity/setup workbench →</a></div></div>
 </section>
 <section>
   <div class="kicker"><span class="rh">// human-readable</span> · proof</div>
@@ -514,7 +514,7 @@ PAGE_HOME = """<div class="agent-surface">
   </footer>
 </section>
 </div>
-<script>var HOME_CMDS = ["npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__", "npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/"];</script>"""
+<script>var HOME_CMDS = ["npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__", "npx @aiagentscity/setup workbench --attempt __SETUP_ATTEMPT__", "claude mcp add --transport http agent-watch https://aiagentscity.com/mcp/agent-watch/", "claude mcp add --transport http perimeter-watch https://aiagentscity.com/mcp/perimeter-watch/", "claude mcp add --transport http trustscan https://aiagentscity.com/mcp/trustscan/", "claude mcp add --transport http cited https://aiagentscity.com/mcp/cited/", "claude mcp add --transport http benefits-city https://aiagentscity.com/benefits/mcp"];</script>"""
 
 
 PAGE_MANIFESTO = """<div class="agent-surface">
@@ -595,11 +595,11 @@ PAGE_PRODUCTS = """<div class="agent-surface">
 
 <div class="human-surface">
   <div class="kicker"><span class="rh">// human-readable</span> · aiagentscity.com/products</div>
-  <h1>One stack.<br>Six products.</h1>
-  <p class="lede">Each solves one operational problem end to end. Each is <b>live, independently usable, and agent-callable</b> — MCP on the five services; AI Workbench installs on the operator's machine over npx.</p>
+  <h1>Two questions.<br>Seven products.</h1>
+  <p class="lede"><b>TRUST</b> products verify the counterparty before an agent acts; <b>OUTCOME</b> products prove the result after. Each is <b>live, independently usable, and agent-callable</b> — MCP on the six services; Workbench Kit installs on the operator's machine over npx.</p>
 
   <div class="card hl">
-    <div class="stacknum"><b>01</b> — CONTROL SPEND · FLAGSHIP <span class="ver">v0.4.7 · 18 tools</span></div>
+    <div class="stacknum"><b>01</b> — OUTCOME · SPINE · FLAGSHIP <span class="ver">v0.4.7 · 18 tools</span></div>
     <h3>AgentLedger — spending limits for AI agents</h3>
     <p><b>Your agents spend money. Give each one a spending limit.</b> Meters every call, shows a live P&amp;L per agent, and refuses the call that would cross the budget — before the provider is contacted.</p>
     <ul class="feat">
@@ -615,8 +615,8 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>02</b> — MONITOR <span class="ver">v0.1.0 · 8 MCP tools</span></div>
-    <h3>Agent Watch — monitoring for the agent economy</h3>
+    <div class="stacknum"><b>02</b> — TRUST · OUTWARD <span class="ver">v0.1.0 · 8 MCP tools</span></div>
+    <h3>Agent Watch — is this agent or endpoint real and still behaving?</h3>
     <p><b>Non-human traffic is hitting your APIs and you can't see it.</b> What changed this week, alerts the moment a new agent calls your endpoints, anomaly summaries — before they become incidents or invoices.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Alert me when a new agent calls our API, with a weekly activity summary."</span></pre>
     <p class="mut" style="font-size:13px">Status: <b>live</b> — MCP handshake and all 8 tools verified working (2026-09-20). Tool calls execute through the city gateway, which translates them to the product's documented REST API. <a href="/status">Live status →</a></p>
@@ -624,32 +624,41 @@ PAGE_PRODUCTS = """<div class="agent-surface">
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>03</b> — SECURE <span class="ver">v1.0 · 6 MCP tools</span></div>
-    <h3>Perimeter Watch — passive external-perimeter monitoring for web agencies</h3>
-    <p><b>Attackers view your clients' domains from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
+    <div class="stacknum"><b>03</b> — TRUST · OUTWARD <span class="ver">v1.0 · 6 MCP tools</span></div>
+    <h3>Perimeter Watch — is the endpoint still what it claims?</h3>
+    <p><b>Attackers view your endpoints from the outside. So do we.</b> Dangling DNS, expiring certs, lookalike domains — scanned passively, briefed weekly.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan example.com for dangling DNS and cert expiry, then check lookalikes."</span></pre>
     <p class="mut" style="font-size:13px">Status: <b>live</b> — MCP handshake and all 6 tools verified working (2026-09-20). Tool calls execute through the city gateway, which translates them to the product's documented REST API. The free browser snapshot works today. <a href="/status">Live status →</a></p>
     <div class="cta-row"><a class="btn btn-human" href="/perimeter-watch">Scan a domain</a><a class="btn btn-ghost" href="/perimeter-watch#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add perimeter-watch →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>04</b> — TRUST <span class="ver">v0.1.0 · 4 MCP tools · live</span></div>
+    <div class="stacknum"><b>04</b> — TRUST · OUTWARD <span class="ver">v0.1.0 · 4 MCP tools · live</span></div>
     <h3>TrustScan — scan before you trust</h3>
     <p><b>Your agent is about to install a stranger's MCP server.</b> TrustScan answers the question every agent should ask first: <i>is this safe to wire in?</i> Invisible-Unicode prompt-injection, dangerous code patterns (MCP001&ndash;MCP006), hardcoded secrets, typosquat names — a 0&ndash;100 score, a letter grade, and evidence. Live over MCP today, read-only, no signup.</p>
     <div class="cta-row"><a class="btn btn-human" href="/trust-scan">Scan a server</a><a class="btn btn-ghost" href="/trust-scan#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add trustscan →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>05</b> — BE FOUND <span class="ver">v1.0 · 9 MCP tools</span></div>
-    <h3>Cited — does AI recommend your practice?</h3>
-    <p><b>Your customers stopped Googling. They ask AI.</b> Instant scan of what the AI engines say about your business — with verbatim evidence. Free.</p>
+    <div class="stacknum"><b>05</b> — OUTCOME · OUTWARD <span class="ver">v1.0 · 9 MCP tools</span></div>
+    <h3>Cited — verify the claim that AI recommends this brand</h3>
+    <p><b>Your customers stopped Googling. They ask AI.</b> A scan of what the AI engines actually say about a business — with verbatim evidence, not vibes. Free.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Scan Gentry Dentistry of Suwanee for AI visibility — verbatim quotes."</span></pre>
     <p class="mut" style="font-size:13px">Status: <b>live</b> — MCP handshake and all 9 tools verified working (2026-09-20). Tool calls execute through the city gateway, which translates them to the product's documented REST API. The free browser scan works today. <a href="/status">Live status →</a></p>
     <div class="cta-row"><a class="btn btn-human" href="/cited">Run your free scan</a><a class="btn btn-ghost" href="/cited#pricing">Pricing →</a><a class="btn btn-agentb" href="/developers">$ mcp add cited →</a></div>
   </div>
 
   <div class="card">
-    <div class="stacknum"><b>06</b> — GOVERN <span class="ver">local kit · npm @aiagentscity/setup</span></div>
+    <div class="stacknum"><b>06</b> — OUTCOME · OUTWARD <span class="ver">v0.3.0 · 6 MCP tools · live</span></div>
+    <h3>Benefits City — will this action actually produce the payout?</h3>
+    <p><b>Bank and card bonuses have fine print that decides whether they pay.</b> Hand-verified offer records — exact requirements, minimums, deadlines, source URLs — so an agent can check the outcome before it promises the result.</p>
+    <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c">"Which checking-account bonuses expire this month, and what does each actually require?"</span></pre>
+    <p class="mut" style="font-size:13px">Status: <b>live</b> — MCP initialize, tools/list and tools/call verified (2026-10-13). <span class="ver">search_bonuses</span> and <span class="ver">expiring_soon</span> return verified records unauthenticated — the data is the free proof. <a href="/status">Live status →</a></p>
+    <div class="cta-row"><a class="btn btn-human" href="/benefits">Browse the offers</a><a class="btn btn-agentb" href="/developers">$ mcp add benefits-city →</a></div>
+  </div>
+
+  <div class="card">
+    <div class="stacknum"><b>07</b> — TRUST + OUTCOME · INWARD <span class="ver">local kit · npm @aiagentscity/setup</span></div>
     <h3>AI Workbench — the audit trail for agent work</h3>
     <p><b>Anyone can say the agent did the work. Prove it.</b> One command installs the discipline on the operator's machine: every task gets a frame card, every write is gated against the card's scope, and every close produces a receipt anyone can recompute against the ledger.</p>
     <pre><button class="copybtn" onclick="copyPre(this)">copy</button>npx @aiagentscity/setup workbench</pre>
@@ -657,7 +666,7 @@ PAGE_PRODUCTS = """<div class="agent-surface">
     <div class="cta-row"><a class="btn btn-human" href="/workbench">See how it works</a><a class="btn btn-ghost" href="/workbench#pricing">Pricing →</a></div>
   </div>
 
-  <div class="pull">Six products, one thesis: the agent economy needs operations. We're building the boring infrastructure that makes the exciting future possible.</div>
+  <div class="pull">Seven products, one thesis: before an agent acts, it verifies the counterparty; after it acts, it proves the result. We're building the boring infrastructure that makes the exciting future possible.</div>
   <footer class="site"><div><a href="/">← /</a><a href="/developers">/developers</a></div><div>AI Agent City</div></footer>
 </div>"""
 
@@ -671,6 +680,7 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
   perimeter-watch: .../mcp/perimeter-watch    <span class="c"># 6 tools · live: tool calls translated to REST by the city gateway</span>
   cited: .../mcp/cited                        <span class="c"># 9 tools · live: tool calls translated to REST by the city gateway</span>
   trustscan: .../mcp/trustscan                <span class="c"># 4 tools · live</span>
+  benefits-city: .../benefits/mcp             <span class="c"># 6 tools · live · verified 2026-10-13</span>
 <span class="k">purchase:</span>
   POST /v1/billing/x402 · header X-PAYMENT=&lt;signed&gt;
   price: $0.01 USDC · chain: __NETWORK__ · grants: 24h Pro
@@ -697,6 +707,7 @@ PAGE_DEVELOPERS = """<div class="agent-surface">
     <tr><td><b>perimeter-watch</b> <span class="ver">6 tools</span></td><td style="color:var(--mut)">Dangling-DNS scans, cert watch, lookalike checks</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/perimeter-watch</code></td></tr>
     <tr><td><b>cited</b> <span class="ver">9 tools</span></td><td style="color:var(--mut)">AI-visibility scans with verbatim evidence</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/cited</code></td></tr>
     <tr><td><b>trustscan</b> <span class="ver">4 tools · v0.1.0 · live</span></td><td style="color:var(--mut)">MCP-server/skill security scans (prompt-injection, secrets, typosquat)</td><td><code style="font-family:var(--mono);font-size:12px">…/mcp/trustscan</code></td></tr>
+    <tr><td><b>benefits-city</b> <span class="ver">6 tools · v0.3.0 · live</span></td><td style="color:var(--mut)">Verified bonus/offer records — requirements, deadlines, source URLs (unauthenticated reads)</td><td><code style="font-family:var(--mono);font-size:12px">…/benefits/mcp</code></td></tr>
   </table>
   <pre><button class="copybtn" onclick="copyPre(this)">copy</button><span class="c"># one command — detects your agent harness and registers the MCP</span>
 npx @aiagentscity/setup ledger --attempt __SETUP_ATTEMPT__
@@ -846,8 +857,8 @@ PAGE_CHANGELOG = """<div class="agent-surface">
 PAGES_META = {
     "/": ("PAGE_HOME", "AI Agent City", "AI Agent City is the operations layer for the agent economy: spending limits, monitoring, security, trust, and discovery for AI agents. Human-readable and machine-readable."),
     "/manifesto": ("PAGE_MANIFESTO", "Access vs spend — AI Agent City", "Kiteworks governs what agents can touch. AgentLedger governs what agents can spend. Two halves of one problem, and only one of them has an owner."),
-    "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Six products, one thesis: the agent economy needs operations. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, Cited, and AI Workbench — each live and independently usable."),
-    "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for the five MCP products; AI Workbench installs over npx."),
+    "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Two questions, seven products: trust before an agent acts, outcome after. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, Cited, Benefits City, and AI Workbench — each live and independently usable."),
+    "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for the six MCP products; AI Workbench installs over npx."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),
     "/changelog": ("PAGE_CHANGELOG", "Changelog — AI Agent City", "External-facing product releases across the AI Agent City suite. Human-readable and machine-readable."),
 }
