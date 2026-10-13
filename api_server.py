@@ -1734,7 +1734,7 @@ CITY_CATALOG = [
      "tools": ["trust_scan_server", "trust_scan_file",
                "skills_list_tool", "read_skill"]},
     {"id": "benefits-city", "title": "Benefits City",
-     "tagline": "Verified payout outcomes — will this action actually pay?",
+     "tagline": "Verified offer records — will this action actually pay?",
      "mcp_url": "https://aiagentscity.com/benefits/mcp",
      "human_url": "https://aiagentscity.com/benefits",
      "version": "v0.3.0", "status": "live",
