@@ -2,10 +2,14 @@
 """Trigger one real x402 settlement so the CDP Bazaar catalogs the endpoint.
 
 The Bazaar indexes a resource only when a settled PaymentPayload carries the
-bazaar extension (deployed bb292f6/f2bf665 today). This makes one $0.01
-self-payment through the live route — same as the 4 prior self-tests — so the
-facilitator sees the extension and catalogs us. Costs 0.01 USDC + gas from
-X402_PRIVATE_KEY, already earmarked for x402 self-tests.
+bazaar extension (deployed bb292f6/f2bf665 today). This makes one self-payment
+at the configured x402 price through the live route — same as the 4 prior
+self-tests — so the facilitator sees the extension and catalogs us. Costs the
+current configured price in USDC + gas from X402_PRIVATE_KEY, already
+earmarked for x402 self-tests. The price is NOT stated here as a literal: read
+it from x402_verify.X402_MINT_PRICE (env X402_MINT_PRICE) before running this,
+because a frozen number in a script goes stale the moment the price moves, and
+a live self-payment at the wrong amount is a wasted settlement.
 """
 import base64, json, os, sys, urllib.request
 

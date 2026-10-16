@@ -273,12 +273,14 @@ def test_claiming_recipes_send_a_workspace_key(pattern):
     assert "workspace_key" in get_example(pattern)
 
 
-# ── Served-surface PRICE integrity (D-1319 review) ──────────────────────────
+# ── Served-surface PRICE integrity (D-1319 review; broadened by D-1676) ─────
 # The defect this pins: /agents.txt served "pay $0.01 in USDC" as a hardcoded
 # literal while every other surface derived the price from
 # x402_verify.X402_MINT_PRICE. Reproduced: with X402_MINT_PRICE=$0.05 the SAME
 # document rendered the correct derived "$0.05" three lines below the stale
-# "$0.01" — so the document visibly contradicted itself.
+# "$0.01" — so the document visibly contradicted itself. The same defect then
+# recurred across city pages, the dashboard, the product pages and the docs,
+# because each fix patched one string instead of the seam.
 #
 # WHY THIS IS A PROPERTY, NOT A PHRASE LIST: this project has shipped five
 # stale-claim defects, and each earlier guard tested the phrasing someone
@@ -286,46 +288,211 @@ def test_claiming_recipes_send_a_workspace_key(pattern):
 # assertion is "no served surface holds a raw price literal at all" — which
 # catches every wording, and cannot be satisfied by rewording.
 #
-# The price is set to a value DIFFERENT from the shipped default so a hardcoded
-# "$0.01" fails even while the default is unchanged. That matters: a guard that
-# only fails under a non-default config is a guard that never fires in prod.
+# WHY THE BAN IS A SET, NOT ONE STRING: banning only "$0.01" meant the guard was
+# satisfied by shipping "$0.10" as a new literal — the same defect, one price
+# later. BOTH shipped defaults stay banned forever.
+#
+# WHY THE DEFAULT IS BANNED BUT ALSO EXPECTED: the ban is on a shipped literal
+# that is NOT the configured price. Under the sentinel below, "$0.10" is
+# evidence of a literal (the config says $0.05) while "$0.05" is evidence of
+# derivation. The app is booted under a price that is neither shipped default,
+# so a surface can only pass by actually reading the config.
 
 _PRICE_SENTINEL = "$0.05"
-# "$0.01" is the shipped default; any occurrence in a served body is a literal,
-# because every correct surface now derives from X402_MINT_PRICE.
-_DEFAULT_LITERAL = "$0.01"
+# Every price this product has SHIPPED as a served literal: "$0.01" until
+# D-1676, "$0.10" from it.
+_BANNED_LITERALS = ("$0.01", "$0.10")
+# A line reading "then $0.01" is a dated record of what the price USED to be (a
+# changelog entry, a superseded spec), not a claim about the offer. The
+# exemption is line-aware and marker-bound: it never exempts a whole file.
+_HISTORY_MARKER = "then "
 
 
-def _served_bodies(monkeypatch):
-    """Every text surface a caller can read, rendered under a sentinel price."""
-    monkeypatch.setenv("X402_MINT_PRICE", _PRICE_SENTINEL)
+def _stale_price_lines(text, configured):
+    """Lines stating a superseded price as a LIVE price. The detector.
+
+    Factored out so it can be canary-tested: a guard that cannot be shown to
+    fail is not a guard, and this project has already shipped one that could not
+    (it asserted a string the product always happened to contain).
+
+    Deliberately duplicated in ~/AI-Workbench/projects/agent-ledger/
+    probe_price_surface.py rather than shared: the probe must still be able to
+    disagree with this file, so that weakening the in-repo guard cannot silently
+    weaken the out-of-repo verification of it.
+    """
+    out = []
+    for line in text.splitlines():
+        for literal in _BANNED_LITERALS:
+            if literal == str(configured):
+                continue                      # the configured price is correct
+            if literal in line and (_HISTORY_MARKER + literal) not in line:
+                out.append((literal, line.strip()))
+                break
+    return out
+
+
+# Served text surfaces that state our price: the city landing page, the product
+# pages, the workspace/dashboard page, the pricing and upgrade doors, and the
+# agent-facing manifests. Every one of them must state the CONFIGURED price and
+# no shipped literal.
+TEXT_PRICE_SURFACES = (
+    "/", "/products", "/manifesto", "/developers", "/changelog", "/compare",
+    "/agent-ledger", "/dashboard", "/demo", "/start", "/terms",
+    "/pricing", "/upgrade", "/pricing.md",
+    "/agents.txt", "/skill.md", "/llms.txt",
+)
+
+
+@pytest.fixture(scope="module")
+def sentinel_app():
+    """The app booted under _PRICE_SENTINEL, with its served bodies already read.
+
+    The price is read from the environment at IMPORT time, so the sentinel needs
+    a reload of x402_verify AND of api_server (which freezes the price into
+    AGENT_JSON/LLMS_TXT at import). Both are reloaded back to the real config on
+    teardown so the sentinel cannot leak into the rest of the session.
+    """
     import importlib
+    import os as _os
+    from fastapi.testclient import TestClient
+
+    saved = {k: _os.environ.get(k)
+             for k in ("X402_MINT_PRICE", "X402_RESOURCE_PRICE")}
+    _os.environ["X402_MINT_PRICE"] = _PRICE_SENTINEL
+    _os.environ["X402_RESOURCE_PRICE"] = _PRICE_SENTINEL
     import x402_verify
     importlib.reload(x402_verify)
     import api_server
     importlib.reload(api_server)
 
-    bodies = {
-        "/agents.txt": api_server.agents_txt(),
-        "/skill.md": api_server._skill_markdown(),
-        "/llms.txt": api_server.LLMS_TXT,
-    }
-    return bodies
+    bodies = {}
+    with TestClient(api_server.app) as client:
+        for path in TEXT_PRICE_SURFACES:
+            bodies[path] = client.get(path).text
+        structured = {
+            "/.well-known/x402": client.get("/.well-known/x402").json(),
+            "/openapi.json": client.get("/openapi.json").json(),
+        }
+    try:
+        yield {"bodies": bodies, "structured": structured, "api_server": api_server}
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+        importlib.reload(x402_verify)
+        importlib.reload(api_server)
 
 
-@pytest.mark.parametrize("surface", ["/agents.txt", "/skill.md", "/llms.txt"])
-def test_no_served_surface_hardcodes_the_price(surface, monkeypatch):
-    """No served surface may carry a raw price literal — it must derive it.
+def test_the_two_configured_prices_are_one_number():
+    """The mint and the per-call resources are the same price by design: a page
+    can then never quote one while the till charges the other."""
+    import x402_verify
+    assert x402_verify.X402_MINT_PRICE == x402_verify.X402_RESOURCE_PRICE, (
+        "the workspace mint and the per-call resources disagree — 'our price' "
+        "is one number")
+    assert (x402_verify.x402_mint_price_atomic()
+            == x402_verify.x402_resource_price_atomic())
 
-    Fails if any surface still contains the default "$0.01" while the configured
-    price is "$0.05". A derived surface tracks the config; a literal cannot.
+
+@pytest.mark.parametrize("surface", TEXT_PRICE_SURFACES)
+def test_no_served_surface_hardcodes_the_price(surface, sentinel_app):
+    """Both directions, per surface: the configured price appears, the shipped
+    literals do not.
+
+    Fails if a surface carries "$0.01" or "$0.10" while the configured price is
+    "$0.05" — a derived surface tracks the config; a literal cannot.
     """
-    bodies = _served_bodies(monkeypatch)
-    text = bodies[surface]
-    assert _DEFAULT_LITERAL not in text, (
-        f"{surface} still hardcodes {_DEFAULT_LITERAL!r} while the configured "
-        f"price is {_PRICE_SENTINEL!r} — derive it from "
+    body = sentinel_app["bodies"][surface]
+    stale = _stale_price_lines(body, _PRICE_SENTINEL)
+    assert stale == [], (
+        f"{surface} states a shipped price literal (line-aware history "
+        f"exemption is only 'then $0.01') while the configured price is "
+        f"{_PRICE_SENTINEL!r}: {stale[:3]} — derive it from "
         f"x402_verify.X402_MINT_PRICE instead")
-    assert _PRICE_SENTINEL in text, (
+    assert _PRICE_SENTINEL in body, (
         f"{surface} never mentions the configured price {_PRICE_SENTINEL!r} — "
         f"either it is not deriving the price, or it drops the price entirely")
+    assert "{X402_" not in body and "__X402_" not in body, (
+        f"{surface} still carries an unsubstituted price token — the render "
+        f"path did not run (the D-1270 bug class)")
+
+
+def test_no_served_surface_hardcodes_the_price__canary_literal(sentinel_app):
+    """Canary: the detector above must FAIL when a literal is injected.
+
+    Without this, every assertion in this file could pass while the detector
+    quietly matched nothing. Both banned literals are injected, and the
+    line-aware history exemption is shown not to swallow a bare literal.
+    """
+    clean = sentinel_app["bodies"]["/"]
+    assert _stale_price_lines(clean, _PRICE_SENTINEL) == [], (
+        "precondition: the real served body must be clean")
+
+    for literal in _BANNED_LITERALS:
+        poisoned = clean + f"\n<p>Pro is {literal} USDC, paid by the agent.</p>\n"
+        found = _stale_price_lines(poisoned, _PRICE_SENTINEL)
+        assert found, (
+            f"canary_literal: the detector did NOT notice an injected "
+            f"{literal!r} — it cannot fail, so it verifies nothing")
+        assert found[0][0] == literal
+
+    # The configured price is not a literal — the detector must stay silent.
+    assert _stale_price_lines(
+        clean + f"\n<p>Pro is {_PRICE_SENTINEL} USDC.</p>\n", _PRICE_SENTINEL) == []
+
+    # History is exempt, line-aware, and only on the marked line.
+    history = "2026-09-16: x402 live on Base mainnet (then $0.01 USDC = 24h Pro)"
+    assert _stale_price_lines(history, _PRICE_SENTINEL) == []
+    assert _stale_price_lines(history + "\n<p>Pro is $0.01 USDC.</p>",
+                              _PRICE_SENTINEL), (
+        "a bare literal on a different line must not be exempted by a marked "
+        "historical one")
+
+
+def test_structured_surfaces_derive_the_price(sentinel_app):
+    """The machine-readable surfaces, where a stale number is worse than in
+    prose: a caller acting on it sends a payment the till rejects."""
+    wellknown = sentinel_app["structured"]["/.well-known/x402"]
+    assert wellknown["priceUsd"] == 0.05, (
+        f"the till publishes {wellknown['priceUsd']!r} while the configured "
+        f"price is {_PRICE_SENTINEL!r}")
+    percall = {p["route"]: p for p in wellknown["perCall"]}
+    assert percall, "the per-call resources vanished from the till"
+    for route, spec in percall.items():
+        assert spec["priceUsd"] == 0.05, (
+            f"{route} publishes {spec['priceUsd']!r} while the configured "
+            f"resource price is {_PRICE_SENTINEL!r}")
+
+    openapi = sentinel_app["structured"]["/openapi.json"]
+    priceable = [p for p, methods in openapi["paths"].items()
+                 for m, op in methods.items()
+                 if isinstance(op, dict) and "x-payment-info" in op]
+    assert priceable, "no path advertises x-payment-info any more"
+    for path in priceable:
+        for method, op in openapi["paths"][path].items():
+            info = op.get("x-payment-info")
+            if not info:
+                continue
+            assert info["x402"]["priceUsd"] == 0.05, (
+                f"{method.upper()} {path} advertises "
+                f"{info['x402']['priceUsd']!r}")
+
+    # The structured pricing block in the agent manifest, in-process.
+    amount = sentinel_app["api_server"].AGENT_JSON["pricing"]["amount_usd"]
+    assert amount == 0.05, (
+        f"AGENT_JSON.pricing.amount_usd = {amount!r} while the configured price "
+        f"is {_PRICE_SENTINEL!r}")
+
+    # And the buyer skill's atomic amount, which a paying agent signs against.
+    # Asserted as the full atomic string, never as a substring: at $0.10 the
+    # atomic amount is 100000, which CONTAINS "10000" — the old assertion passed
+    # by luck at the new price and would have kept passing if the skill dropped
+    # a zero.
+    import x402_verify
+    skill = sentinel_app["bodies"]["/skill.md"]
+    atomic = str(x402_verify.x402_mint_price_atomic())
+    assert atomic in skill, (
+        f"the served skill must carry the atomic amount {atomic} that a payer "
+        f"signs for")

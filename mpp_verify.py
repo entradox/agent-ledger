@@ -257,8 +257,9 @@ def build_challenge(request: Any, realm: str | None = None) -> Any:
     import asyncio
     import x402_verify
     # Mpp.charge() expects a human-readable decimal amount and converts to
-    # base units using the method's decimals (6 for USDC). Pass the dollar
-    # price (e.g. '0.01') so it emits 10000 atomic units.
+    # base units using the method's decimals (6 for USDC). Pass the configured
+    # dollar price so it emits the configured atomic amount — the example here
+    # used to name a literal number and went stale the moment the price moved.
     amount = str(float(str(x402_verify.X402_MINT_PRICE).lstrip("$")))
     # ── Advertise the credential contract ────────────────────────────────────
     # The intent requires the signed x402 payment under payload["x402_header"].

@@ -44,7 +44,7 @@ a support ticket.
 ### P1 — Skeptic-grade FAQ per product
 Spec: real FAQ on /agent-ledger and each product page — "What if my agent
 bypasses the proxy?" (answered: then it's not enforced — we say so), "Is the
-$0.01 x402 price subsidized?", "What do you store about my prompts?" (nothing —
+then $0.01 x402 price subsidized?", "What do you store about my prompts?" (nothing —
 and here's the test that proves it).
 
 ### P1 — /docs, not just llms.txt

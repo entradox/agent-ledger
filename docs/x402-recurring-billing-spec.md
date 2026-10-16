@@ -3,7 +3,7 @@
 > ## SUPERSEDED 2026-10-11 — blueprint v2 / D-1645
 >
 > This spec proposed a $19/30-day x402 pass at Stripe parity. Blueprint v2
-> settled differently: the human door is removed, the $0.01/24h pass is now the
+> settled differently: the human door is removed; the 24h pass (then $0.01) became the
 > **only** paid path and is **renewable** (repeat payment resets the window).
 > Kept as historical record only — do not implement from it.
 
@@ -20,7 +20,7 @@
 > - Parity with the Stripe Starter price — **no discount, no second SKU, no annual**
 > - **Renewal stacks from the EXISTING EXPIRY, never from purchase time**
 > - **A pass-holder is refused WITHOUT consuming the one-time trial**
-> - Trial ($0.01/24h) and the 30-day SKU **coexist** under the rules in §5
+> - Trial (then $0.01/24h) and the 30-day SKU **coexist** under the rules in §5
 >
 > **HOLD IS STILL IN FORCE: no recurring x402 code is to be built.** The build begins
 > only when a wallet actually asks to renew. Nothing in this document is implemented.
@@ -35,7 +35,7 @@
 
 Today there are exactly two ways to get AgentLedger to take money, and **an agent can
 only use one of them, exactly once.** `POST /v1/billing/x402` accepts real USDC on Base
-mainnet — $0.01 for a 24h pass — but it is a **one-time trial per wallet, forever**. After
+mainnet — then $0.01 for a 24h pass — but it is a **one-time trial per wallet, forever**. After
 that, the only paid path is Stripe, which is a **payment link a human must open in a
 browser**. So an agent that has used its trial and has no human has **no way to pay at
 all**. The recurring SKU below is the missing rung.
@@ -107,16 +107,16 @@ buyers.**
 
 **Honest caveat, stated plainly:** $19/mo is a *human* price point, and an agent has no
 salary. The right price is probably per-unit-of-work, not per-month. **We cannot know
-that yet.** That is exactly what the $0.01 trial is for — so ship parity, and let the
+that yet.** That is exactly what the trial (then $0.01) was for — so ship parity, and let the
 first 30 days set the real number rather than guessing it now.
 
 ## 5. Trial coexistence — the decision that needs your call
 
-The trial is $0.01 for 24h. The pass is $19 for 30 days. Three cases:
+The trial was then $0.01 for 24h. The pass is $19 for 30 days. Three cases:
 
 | Case | Recommended behaviour | Why |
 |---|---|---|
-| Wallet **used the trial**, then buys a pass | Allow. Pass runs 30 days from purchase. | The trial was a sample, not a discount. No proration — prorating $0.01 is noise. |
+| Wallet **used the trial**, then buys a pass | Allow. Pass runs 30 days from purchase. | The trial was a sample, not a discount. No proration — prorating a then $0.01 trial is noise. |
 | Wallet **has an active pass**, hits trial | Refuse, **preserve** trial eligibility | Prevents burning the one-time trial on an agent that is already paid up. |
 | Pass **expires**, agent re-buys | Stack from the expired date if within a grace window; else from now | Rewards a lapsed-but-returning agent without giving away unlimited back-dated time. |
 

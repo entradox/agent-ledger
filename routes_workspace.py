@@ -169,7 +169,7 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
       </div>
       <div id="payactions" style="display:flex;gap:8px;flex-wrap:wrap">
         <a id="upgradelink" href="/upgrade" style="text-decoration:none">
-          <button>More agents — $0.01 x402 pass</button></a>
+          <button>More agents — __X402_PRICE__ x402 pass</button></a>
         <a href="/pricing" style="text-decoration:none">
           <button class="ghost">See pricing</button></a>
       </div>
@@ -180,7 +180,7 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="card" id="planbox">
     <p style="margin-top:0"><b>Plan: <span id="plantier">free</span></b>
        <span class="muted">— free tier is 3 agents per workspace.</span></p>
-    <p class="muted" id="planhint" style="margin-bottom:8px">Need more? A $0.01 x402 payment
+    <p class="muted" id="planhint" style="margin-bottom:8px">Need more? A __X402_PRICE__ x402 payment
        buys a renewable 24h Pro pass — paid by the agent itself, no human checkout.
        To upgrade THIS workspace, the paying agent sends
        <code>X-Workspace-Id</code> + <code>X-Workspace-Key</code> (this workspace's
@@ -188,7 +188,7 @@ code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
        binds to the paying wallet's own workspace instead. Binding is permanent:
        the bound wallet becomes this workspace's payment identity and can
        reissue the workspace key — only do it for a wallet you control.</p>
-    <p><button id="upgrade">More agents — $0.01 x402 pass</button>
+    <p><button id="upgrade">More agents — __X402_PRICE__ x402 pass</button>
        <span class="muted" id="upmsg"></span></p>
   </div>
   <p><button class="ghost" id="csv">Download CSV</button>
@@ -525,7 +525,17 @@ _DASH_HEADERS = {
 
 
 def dashboard_html(demo: bool = False) -> str:
-    return _PAGE.replace("__DEMO__", "true" if demo else "false")
+    """The dashboard page, with the x402 price DERIVED per render.
+
+    The price used to be a literal in the plan bar, which is the same defect
+    class as the /agents.txt literal: the page quotes one number while the till
+    charges another. It is substituted here so the dashboard cannot disagree
+    with X402_MINT_PRICE.
+    """
+    import x402_verify
+    return (_PAGE
+            .replace("__DEMO__", "true" if demo else "false")
+            .replace("__X402_PRICE__", x402_verify.X402_MINT_PRICE))
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

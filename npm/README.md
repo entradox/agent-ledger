@@ -162,7 +162,10 @@ Runnable code recipes: [`recipes.md`](./recipes.md)
 - **Per-workspace isolation** — your agents, your cap, your subscription; nothing is shared across customers
 - **Free tier: 3 agents per workspace** — the only paid path is the agent rail:
   `POST /v1/billing/x402` buys a renewable 24h Pro pass (unlimited agents on the
-  wallet's workspace) for $0.01 USDC. There is no human checkout or monthly plan.
+  wallet's workspace) for $0.10 USDC. There is no human checkout or monthly plan.
+  The number the service charges is `X402_MINT_PRICE` (env, default `$0.10`) and the
+  live figure is published at `/.well-known/x402` — read it there rather than
+  trusting this line, which is the copy that goes stale.
 
 ## Architecture
 
