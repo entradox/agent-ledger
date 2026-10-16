@@ -10,6 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
 
+import x402_verify
+
 
 @pytest.fixture
 def client(monkeypatch):
@@ -330,7 +332,13 @@ def test_wellknown_lists_paid_resources(client, monkeypatch):
     assert "GET https://aiagentscity.com/api/x402/agent-watch/census" in res
     assert "POST https://aiagentscity.com/api/x402/trustscan/npm" in res
     percall = {p["route"]: p for p in r.json()["perCall"]}
-    assert percall["/api/x402/agent-watch/probe"]["priceUsd"] == 0.01
+    # The published price must BE the configured price, so the assertion is
+    # derived from the constant rather than pinned to a number. Pinned at 0.01 it
+    # went red for a legitimate price move (D-1676) while staying green if the
+    # document had served a hardcoded 0.01 the till never charged — this project's
+    # most-repeated served-surface defect.
+    expected = float(str(x402_verify.X402_RESOURCE_PRICE).lstrip("$"))
+    assert percall["/api/x402/agent-watch/probe"]["priceUsd"] == expected
     assert percall["/api/x402/agent-watch/census"]["method"] == "GET"
 
 
@@ -339,12 +347,15 @@ def test_openapi_marks_resources_payable(client):
     r = c.get("/openapi.json")
     assert r.status_code == 200
     paths = r.json()["paths"]
+    expected = float(str(x402_verify.X402_RESOURCE_PRICE).lstrip("$"))
     for path, method in (("/api/x402/agent-watch/probe", "post"),
                          ("/api/x402/agent-watch/census", "get"),
                          ("/api/x402/trustscan/npm", "post")):
         op = paths[path][method]
         assert "402" in op["responses"], f"{path} missing 402 response"
-        assert op["x-payment-info"]["x402"]["priceUsd"] == 0.01
+        assert op["x-payment-info"]["x402"]["priceUsd"] == expected, (
+            f"{method.upper()} {path} advertises a price that is not the "
+            f"configured resource price {expected}")
         assert op["x-payment-info"]["x402"]["network"]
 
 

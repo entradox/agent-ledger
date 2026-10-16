@@ -228,8 +228,8 @@ app.include_router(proxy_router)
 # and /trust-scan). Read-only, no auth, rate-limited per IP.
 from routes_satellite import router as satellite_router
 app.include_router(satellite_router)
-# Per-call x402-payable bridges to the satellites (D-1641): $0.01 per call,
-# real Base mainnet settlement, same money discipline as the workspace mint.
+# Per-call x402-payable bridges to the satellites (D-1641): X402_RESOURCE_PRICE
+# per call, real Base mainnet settlement, same money discipline as the workspace mint.
 from routes_paid import router as paid_router
 app.include_router(paid_router)
 
@@ -2020,7 +2020,11 @@ AGENT_JSON = {
     },
     "pricing": {
         "model": "freemium",
-        "amount_usd": 0.01,
+        # DERIVED, not a literal: this field is what a machine reads to decide
+        # whether it can afford the paid path, so a stale number here is worse
+        # than in prose — a caller acting on it sends a payment the till
+        # rejects. x402_verify is imported at module top, beside this dict.
+        "amount_usd": float(str(x402_verify.X402_MINT_PRICE).lstrip("$")),
         "description": "Free tier is 3 agents per workspace, no expiry. The only "
                        "paid path is the agent rail: an agent pays via x402 itself "
                        "for a renewable 24h Pro pass ("
@@ -2304,9 +2308,10 @@ def agents_txt():
     """
     # The price must be DERIVED, never a literal: this function's own docstring
     # promises it "cannot assert a capability the API does not have", and a
-    # hardcoded "$0.01" broke exactly that promise the moment X402_MINT_PRICE was
-    # configured to anything else (reproduced: served "$0.01" while the same
-    # document, three lines later, correctly rendered the derived price).
+    # hardcoded price literal broke exactly that promise the moment
+    # X402_MINT_PRICE was configured to anything else (reproduced: the document
+    # served the stale literal while, three lines later, correctly rendering the
+    # derived price).
     import x402_verify
     caps = "\n".join(
         f"  {c['method']:5s} {c['endpoint']:38s} {c['description'].splitlines()[0]}"
@@ -2841,14 +2846,17 @@ def pricing_page():
     one moment the decision happens had no door, and /pricing 404'd besides.
 
     Facts stated here are the ones already committed in the Terms:
-    Free = 3 agents, paid = the $0.01 x402 24-hour Pro pass — the only paid path.
-    No price is invented and nothing is promised that the product cannot serve.
+    Free = 3 agents, paid = the x402 24-hour Pro pass (X402_MINT_PRICE) — the
+    only paid path. No price is invented and nothing is promised that the
+    product cannot serve.
     """
     import site_pages
     import x402_verify
     return HTMLResponse(site_pages.page(
         "Pricing — AgentLedger",
-        "Free for up to 3 agents. Paid access is a renewable $0.01 x402 24-hour Pro pass bought by the agent itself — no human checkout.",
+        "Free for up to 3 agents. Paid access is a renewable "
+        f"{x402_verify.X402_MINT_PRICE} x402 24-hour Pro pass bought by the "
+        "agent itself — no human checkout.",
         site_pages._render_pricing().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 
@@ -2884,7 +2892,9 @@ def upgrade_page():
     import x402_verify
     return HTMLResponse(site_pages.page(
         "Upgrade — AgentLedger",
-        "Lift the 3-agent cap: a renewable $0.01 x402 24-hour Pro pass, paid by the agent itself — no human checkout.",
+        "Lift the 3-agent cap: a renewable "
+        f"{x402_verify.X402_MINT_PRICE} x402 24-hour Pro pass, paid by the "
+        "agent itself — no human checkout.",
         site_pages._render_upgrade().replace("{X402_NETWORK}", x402_verify.X402_NETWORK)))
 
 

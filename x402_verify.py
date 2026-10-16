@@ -29,7 +29,12 @@ Configuration (all env, all optional — an unconfigured service degrades to
                           supported path.
     X402_NETWORK          default eip155:84532 (Base Sepolia testnet).
                           eip155:8453 = Base mainnet (needs CDP creds).
-    X402_MINT_PRICE       default $0.01 — price to mint a workspace.
+    X402_MINT_PRICE       default $0.10 — price to mint a workspace.
+    X402_RESOURCE_PRICE   default $0.10 — price per call on the three
+                          per-call payable resources below. Both prices are
+                          the SAME number on purpose: "our price" is one
+                          number, so a page cannot quote one while the till
+                          charges the other.
 
 Import never raises: any failure (SDK missing, bad config, unreachable
 facilitator at init) sets X402_ENABLED = False and `verify_payment` raises
@@ -45,7 +50,7 @@ X402_FACILITATOR_URL = os.environ.get("X402_FACILITATOR_URL", "")
 CDP_API_KEY_ID = os.environ.get("CDP_API_KEY_ID", "")
 CDP_API_KEY_SECRET = os.environ.get("CDP_API_KEY_SECRET", "")
 X402_NETWORK = os.environ.get("X402_NETWORK", "eip155:84532")
-X402_MINT_PRICE = os.environ.get("X402_MINT_PRICE", "$0.01")
+X402_MINT_PRICE = os.environ.get("X402_MINT_PRICE", "$0.10")
 
 
 def x402_mint_price_atomic(decimals: int = 6) -> int:
@@ -53,8 +58,8 @@ def x402_mint_price_atomic(decimals: int = 6) -> int:
 
     Single source of truth: every discovery document, the x402 till, and
     the MPP offer all derive from X402_MINT_PRICE rather than carrying their
-    own literal. The price is a string like "$0.01"; this strips the "$"
-    and converts to base units (1e6 for USDC 6 decimals by default).
+    own literal. X402_MINT_PRICE is a dollar-prefixed string; this strips the
+    "$" and converts to base units (1e6 for USDC 6 decimals by default).
     """
     raw = str(X402_MINT_PRICE).lstrip("$")
     try:
@@ -69,7 +74,7 @@ def x402_mint_price_atomic(decimals: int = 6) -> int:
 # cap-exceeded quote) reads one number instead of each hardcoding its own.
 X402_PRO_PASS_SECONDS = int(os.environ.get("X402_PRO_PASS_SECONDS", 24 * 3600))
 
-# What the $0.01 pass GRANTS (principal-owned pricing knob). Values:
+# What the pass GRANTS (principal-owned pricing knob). Values:
 #   "unlimited"  (default, current behaviour) — unlimited agents for the pass
 #   "starter"    — the Starter cap (workspace_engine.STARTER_AGENT_CAP, 10 agents)
 # The pass is RENEWABLE — a wallet may buy as many 24h windows as it pays for
@@ -94,10 +99,16 @@ X402_PAID_PATH = "/v1/billing/x402"
 # The traffic that actually pays here is the x402/agent-commerce fleet — it
 # finds payable routes via /.well-known/x402 + llms.txt and pays PER CALL for a
 # resource, not for a workspace mint. These routes sell the satellites'
-# per-call work at the city layer. Flat $0.01 for the first live week: it
-# matches the observed willingness-to-pay, and the point of week one is
-# measuring repeat paid calls (demand), not revenue size.
-X402_RESOURCE_PRICE = os.environ.get("X402_RESOURCE_PRICE", "$0.01")
+# per-call work at the city layer.
+#
+# The price moved 10× (D-1676, 2026-10-15, principal directive). The one-cent
+# toll from the first live week bought no demand signal: the only payer ever
+# measured is an external x402 indexer/bot sweeping cheap endpoints, so repeat
+# paid calls at one cent measured the sweep, not a willingness to pay. There is
+# no outside customer to lose, and the price is the cheapest knob to move — a
+# 10× raise re-prices the sweep without touching the free tier, the pass
+# duration, or the idempotency rules.
+X402_RESOURCE_PRICE = os.environ.get("X402_RESOURCE_PRICE", "$0.10")
 
 RESOURCE_ROUTES: dict = {
     "POST /api/x402/agent-watch/probe": {

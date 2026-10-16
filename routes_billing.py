@@ -930,7 +930,7 @@ def x402_billing(request: Request):
       re-expose it to anyone who can name the tx_hash. Same precedent as
       /v1/track and /v1/budget, which strip the minted agent_secret from
       their cached payloads for the same reason.
-    - The $0.01 pass is RENEWABLE (blueprint v2, 2026-10-11 — x402 is the only
+    - The pass is RENEWABLE (blueprint v2, 2026-10-11 — x402 is the only
       paid path on the domain). A second purchase from a known wallet resolves
       to its existing workspace with workspace_key: null (the key was already
       issued and only its hash is stored), grants a fresh pass window, and
@@ -1342,8 +1342,8 @@ def x402_billing(request: Request):
         # workspace and just extended/renewed the Pro window.
         metrics.record_onboarding("x402_repeat_paid", workspace_id, **event_kwargs)
         logging.info("x402 repeat purchase honoured: wallet %s bought another "
-                     "$0.01 pass (tx %s); workspace %s window reset",
-                     wallet, tx_hash, workspace_id)
+                     "%s pass (tx %s); workspace %s window reset",
+                     wallet, x402_verify.X402_MINT_PRICE, tx_hash, workspace_id)
 
     payload = {"workspace_id": workspace_id, "workspace_key": raw_key}
     if bound:

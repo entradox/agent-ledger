@@ -186,8 +186,22 @@ def test_mainnet_skill_names_mainnet_network_and_token(mainnet):
         f"the served skill must name {NETWORK_MAINNET}"
     assert USDC_MAINNET in body, \
         "the served skill must carry the mainnet USDC contract"
-    assert "USDC" in body and "10000" in body, \
-        "the served skill must state the asset and the atomic amount"
+    assert "USDC" in body, "the served skill must state the asset"
+    # The atomic amount, as the FULL string of the configured price.
+    #
+    # This assertion used to be `"10000" in body`, which passed by SUBSTRING LUCK
+    # once the price moved to $0.10 — 100000 contains 10000 — so it would have
+    # stayed green even if the skill dropped a zero, and it never checked that
+    # the number was the configured price at all. Assert the configured value.
+    import x402_verify
+    atomic = str(x402_verify.x402_mint_price_atomic())
+    assert atomic in body, (
+        f"the served skill must state the atomic amount {atomic} that a payer "
+        f"signs for — not a substring of some other number")
+    assert atomic == str(mainnet["live"]["amount_atomic"]), (
+        f"the served body carries {atomic} but the boot reported "
+        f"{mainnet['live']['amount_atomic']} — the skill is not following the "
+        f"running config")
 
 
 @pytest.mark.parametrize("phrase", TESTNET_ONLY_PHRASES)

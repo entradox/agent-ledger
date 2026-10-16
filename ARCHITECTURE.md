@@ -74,8 +74,11 @@ git log and scattered specs.
    settlement run through the real `x402` SDK (`x402_verify.py`); the route
    needs `X402_PAY_TO` (receiving wallet — no default) and optionally
    `X402_FACILITATOR_URL` (default `https://x402.org/facilitator`),
-   `X402_NETWORK` (default `eip155:84532`, Base Sepolia) and `X402_MINT_PRICE`
-   (default `$0.01`). Unset `X402_PAY_TO` degrades the route to 503; the
+   `X402_NETWORK` (default `eip155:84532`, Base Sepolia), `X402_MINT_PRICE`
+   (default `$0.10`) and `X402_RESOURCE_PRICE` (default `$0.10` — the same
+   number: the per-call resources and the workspace mint are one price, so no
+   surface can quote one while the till charges the other). Unset
+   `X402_PAY_TO` degrades the route to 503; the
    service still starts.
 3. **Existing `agent_secret`** — an agent claimed before this phase (or
    claimed under either path above) keeps authenticating writes with its
