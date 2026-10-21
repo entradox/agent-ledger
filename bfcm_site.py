@@ -114,7 +114,7 @@ PAGE_BFCM = """
   <h2>One required field. Forty-eight hours. No calls.</h2>
   <div class="bfcm-steps">
     <div class="bfcm-step"><span class="n">01</span><div><h3>Pay $499</h3><p>Card at checkout. You get a receipt and an order number immediately.</p></div></div>
-    <div class="bfcm-step"><span class="n">02</span><div><h3>Paste your store URL</h3><p>That is the only thing you have to give us. We read your catalogue, prices, shipping threshold, and the way you already write about your products. Four optional one-liners (your offer, your platform, your top five products, voice notes) let us honour your specifics instead of inferring them. No access to your Shopify admin, no questionnaire, no kickoff call.</p></div></div>
+    <div class="bfcm-step"><span class="n">02</span><div><h3>Paste your store URL</h3><p>That is the only thing you have to give us. We read your catalogue, prices, shipping threshold, and the way you already write about your products. Two optional one-liners at checkout (your offer, your platform) let us honour your specifics instead of inferring them; two more by reply if you want them (your top five products, voice notes). No access to your Shopify admin, no questionnaire, no kickoff call.</p></div></div>
     <div class="bfcm-step"><span class="n">03</span><div><h3>Get the drafts in 48 hours</h3><p>One document and one import-ready file: every email, every text, every checkout tweak, the calendar, and the setup checklist. Paste into Klaviyo or Shopify Email, test, schedule.</p></div></div>
   </div>
 </section>
@@ -178,10 +178,10 @@ PAGE_BFCM = """
   <div class="rows">
     <div class="step"><span class="t">product</span><span class="c">BFCM Campaign-in-a-Box</span><span class="r"><b>$499</b> one-time</span></div>
     <div class="step"><span class="t">includes</span><span class="c">5 emails · 3 sms · 3 checkout tweaks</span><span class="r">drafts only</span></div>
-    <div class="step"><span class="t">intake</span><span class="c">store_url required · 4 optional</span><span class="r">no call</span></div>
+    <div class="step"><span class="t">intake</span><span class="c">store_url required · 2 optional</span><span class="r">no call</span></div>
     <div class="step"><span class="t">delivery</span><span class="c">48h from order</span><span class="r"><b>before Nov 20</b></span></div>
   </div></div>
-  <div class="fine"><b>JSON</b><br>{"product":"bfcm-campaign-in-a-box","price_usd":499,"currency":"usd","includes":["5 emails","3 sms","3 abandoned-cart steps","2 browse-abandon steps","send calendar","setup checklist","Klaviyo-import-ready CSV"],"intake":{"required":["store_url"],"optional":["bfcm_offer","platform","top_products","voice_notes"]},"delivery_hours":48,"drafts_only":true,"refund":"full before start; after delivery only if product names, prices or offer are wrong (72h)"}</div>
+  <div class="fine"><b>JSON</b><br>{"product":"bfcm-campaign-in-a-box","price_usd":499,"currency":"usd","includes":["5 emails","3 sms","3 abandoned-cart steps","2 browse-abandon steps","send calendar","setup checklist","Klaviyo-import-ready CSV"],"intake":{"required":["store_url"],"optional":["bfcm_offer","platform"],"optional_by_reply":["top_products","voice_notes"]},"delivery_hours":48,"drafts_only":true,"refund":"full before start; after delivery only if product names, prices or offer are wrong (72h)"}</div>
 </section>
 </div>
 """
