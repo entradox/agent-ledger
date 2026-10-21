@@ -291,7 +291,10 @@ REACH_PATHS = frozenset({"/", "/start", "/status", "/llms.txt", "/server.json",
                           "/.well-known/glama.json", "/.well-known/mcp/server-card.json",
                           "/stats", "/mcp/",
                           # Product landing pages (D-1321)
-                          "/agent-ledger", "/quickstart"})
+                          "/agent-ledger", "/quickstart",
+                          # BFCM Campaign-in-a-Box (D-3942): the offer and the
+                          # sample are both pre-purchase funnel entries.
+                          "/bfcm", "/bfcm/sample"})
 
 # HTML routes deliberately NOT in REACH_PATHS, each with a reason. A route may only be
 # absent from REACH_PATHS if it appears here; otherwise the guard test goes RED. This exists
@@ -311,6 +314,7 @@ REACH_EXEMPT = {
     "/products": "umbrella stack page, reached mid-funnel, not a funnel entry",
     "/developers": "machine-readable surfaces index, not a funnel entry",
     "/changelog": "informational release log, not a funnel entry",
+    "/bfcm/thanks": "post-purchase confirmation page, reached only after checkout — not an entry point",
 }
 
 # D-1404 / item 3.5. /pricing and /upgrade are ADDED to REACH_PATHS, not exempted.
