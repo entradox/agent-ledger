@@ -11,7 +11,7 @@ import html as _html
 import os
 import re as _re
 
-BFCM_CHECKOUT_URL = os.environ.get("BFCM_CHECKOUT_URL", "").strip()
+BFCM_CHECKOUT_URL = os.environ.get("BFCM_CHECKOUT_URL", "https://buy.stripe.com/eVqcN4dir8eg2lh30keAg05").strip()
 
 SAMPLE_MD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content", "bfcm-sample.md")
 
