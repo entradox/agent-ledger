@@ -2328,6 +2328,24 @@ def city_changelog(request: Request):
     return _city_response("/changelog", request)
 
 
+@app.get("/bfcm", response_class=HTMLResponse)
+def bfcm_offer(request: Request):
+    """BFCM Campaign-in-a-Box — the $499 done-for-you campaign offer."""
+    return _city_response("/bfcm", request)
+
+
+@app.get("/bfcm/sample", response_class=HTMLResponse)
+def bfcm_sample(request: Request):
+    """The full sample pack, rendered from content/bfcm-sample.md."""
+    return _city_response("/bfcm/sample", request)
+
+
+@app.get("/bfcm/thanks", response_class=HTMLResponse)
+def bfcm_thanks(request: Request):
+    """Stripe payment-link receipt redirect target."""
+    return _city_response("/bfcm/thanks", request)
+
+
 @app.get("/agent-ledger", response_class=HTMLResponse)
 def agent_ledger_page():
     """AgentLedger's own landing page — this is the pre-D-1239 root content,

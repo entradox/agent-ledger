@@ -271,7 +271,7 @@ def _md_to_html(md: str) -> str:
         if s.startswith("## "):
             flush(); out.append("<h2>" + _md_inline(s[3:]) + "</h2>"); continue
         if s.startswith("# "):
-            flush(); out.append("<h2>" + _md_inline(s[2:]) + "</h2>"); continue
+            flush(); out.append("<h1>" + _md_inline(s[2:]) + "</h1>"); continue
         if s.strip() == "---":
             flush(); out.append("<hr>"); continue
         if quote:
