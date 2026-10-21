@@ -97,25 +97,25 @@ PAGE_BFCM = """
 <section>
   <div class="kicker"><span class="rh">// the sample</span></div>
   <h2>Read the whole pack before you pay.</h2>
-  <p class="lede">We wrote a complete campaign for an illustrative coffee roaster. Every email, every text, every checkout tweak. No form, no email address, no gate.</p>
+  <p class="lede">We wrote a complete campaign for an illustrative small-batch skincare brand. Every email, every text, every checkout tweak. No form, no email address, no gate.</p>
   <ul class="bfcm-sendlist">
-    <li><b>Email 1</b> · Early access starts at 8</li>
-    <li><b>Email 2</b> · Three bags for $18 each</li>
-    <li><b>Email 3</b> · The gift that doesn't need a size</li>
-    <li><b>Email 4</b> · Last day, and the 2lb bags are back</li>
-    <li><b>Email 5</b> · 11:59</li>
-    <li><b>Texts</b> · Friday 8am · Saturday 11:30am · Monday 4pm</li>
+    <li><b>Email 1</b> · Early access opens tonight</li>
+    <li><b>Email 2</b> · 20% off, all of it, until Monday</li>
+    <li><b>Email 3</b> · For the person whose skin hates November</li>
+    <li><b>Email 4</b> · Ends tomorrow — and the bundle maths</li>
+    <li><b>Email 5</b> · Midnight, then it's gone</li>
+    <li><b>Texts</b> · Fri 10am · Sat 5pm · Mon 9am</li>
   </ul>
   <div class="cta-row"><a class="btn btn-ghost" href="/bfcm/sample">Open the sample pack →</a></div>
 </section>
 
 <section>
   <div class="kicker"><span class="rh">// how it works</span></div>
-  <h2>One field. Forty-eight hours. No calls.</h2>
+  <h2>One required field. Forty-eight hours. No calls.</h2>
   <div class="bfcm-steps">
     <div class="bfcm-step"><span class="n">01</span><div><h3>Pay $499</h3><p>Card at checkout. You get a receipt and an order number immediately.</p></div></div>
-    <div class="bfcm-step"><span class="n">02</span><div><h3>Paste your store URL</h3><p>That is the entire intake. We read your catalogue, prices, shipping threshold, and the way you already write about your products. No access to your Shopify admin, no questionnaire, no kickoff call.</p></div></div>
-    <div class="bfcm-step"><span class="n">03</span><div><h3>Get the drafts in 48 hours</h3><p>One document and one folder: every email, every text, every checkout tweak, the calendar, and the setup checklist. Paste into Klaviyo or Shopify Email, test, schedule.</p></div></div>
+    <div class="bfcm-step"><span class="n">02</span><div><h3>Paste your store URL</h3><p>That is the only thing you have to give us. We read your catalogue, prices, shipping threshold, and the way you already write about your products. Four optional one-liners (your offer, your platform, your top five products, voice notes) let us honour your specifics instead of inferring them. No access to your Shopify admin, no questionnaire, no kickoff call.</p></div></div>
+    <div class="bfcm-step"><span class="n">03</span><div><h3>Get the drafts in 48 hours</h3><p>One document and one import-ready file: every email, every text, every checkout tweak, the calendar, and the setup checklist. Paste into Klaviyo or Shopify Email, test, schedule.</p></div></div>
   </div>
 </section>
 
@@ -136,7 +136,7 @@ PAGE_BFCM = """
 <section>
   <div class="kicker"><span class="rh">// the promise</span></div>
   <h2>If it does not fit your store, you do not pay for it.</h2>
-  <p class="lede">Read the drafts within 72 hours. If they get your product names, prices, or offer wrong, reply once and we refund in full. You keep the drafts either way. We would rather lose the $499 than have you send copy that embarrasses your store.</p>
+  <p class="lede">Full refund any time before we have started writing. Once the pack is delivered we do not refund it — you have the work. The one exception, and it is the one that matters: if the drafts get your product names, prices, or offer wrong, reply once within 72 hours and we refund in full. You keep the drafts either way. We would rather lose the $499 than have you send copy that embarrasses your store.</p>
 </section>
 
 <section class="bfcm-faq">
@@ -160,7 +160,7 @@ PAGE_BFCM = """
       <a class="btn btn-human" href="__CHECKOUT_URL__">Get my campaign — $499</a>
       <a class="btn btn-ghost" href="/bfcm/sample">Read the sample first →</a>
     </div>
-    <p class="note">Drafts only. Delivered within 48 hours. Full refund if the drafts get your products or prices wrong.</p>
+    <p class="note">Drafts only. Delivered within 48 hours. Full refund before we start; after delivery, refund only if the drafts get your products or prices wrong.</p>
   </div>
 </section>
 
@@ -171,17 +171,17 @@ PAGE_BFCM = """
 <section>
   <div class="agent-hero">
     <div class="kicker"><span class="ra">// machine-readable</span> · bfcm campaign-in-a-box</div>
-    <h1>Done-for-you BFCM campaign. $499. One field.</h1>
+    <h1>Done-for-you BFCM campaign. $499. One required field.</h1>
     <p class="lede">Human buyers only. The entry points below describe the offer; there is no agent checkout on this product.</p>
   </div>
   <div class="term"><div class="bar"><i></i><i></i><i></i><span>offer</span><span class="live">live</span></div>
   <div class="rows">
     <div class="step"><span class="t">product</span><span class="c">BFCM Campaign-in-a-Box</span><span class="r"><b>$499</b> one-time</span></div>
     <div class="step"><span class="t">includes</span><span class="c">5 emails · 3 sms · 3 checkout tweaks</span><span class="r">drafts only</span></div>
-    <div class="step"><span class="t">intake</span><span class="c">store_url</span><span class="r">1 field</span></div>
-    <div class="step"><span class="t">delivery</span><span class="c">48h from order</span><span class="r"><b>before Nov 24</b></span></div>
+    <div class="step"><span class="t">intake</span><span class="c">store_url required · 4 optional</span><span class="r">no call</span></div>
+    <div class="step"><span class="t">delivery</span><span class="c">48h from order</span><span class="r"><b>before Nov 20</b></span></div>
   </div></div>
-  <div class="fine"><b>JSON</b><br>{"product":"bfcm-campaign-in-a-box","price_usd":499,"currency":"usd","includes":["5 emails","3 sms","3 abandoned-checkout tweaks","send calendar","setup checklist"],"intake":{"required":["store_url"],"optional":[]},"delivery_hours":48,"drafts_only":true,"refund":"72h if product names or prices are wrong"}</div>
+  <div class="fine"><b>JSON</b><br>{"product":"bfcm-campaign-in-a-box","price_usd":499,"currency":"usd","includes":["5 emails","3 sms","3 abandoned-cart steps","2 browse-abandon steps","send calendar","setup checklist","Klaviyo-import-ready CSV"],"intake":{"required":["store_url"],"optional":["bfcm_offer","platform","top_products","voice_notes"]},"delivery_hours":48,"drafts_only":true,"refund":"full before start; after delivery only if product names, prices or offer are wrong (72h)"}</div>
 </section>
 </div>
 """

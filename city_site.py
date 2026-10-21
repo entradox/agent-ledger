@@ -830,7 +830,7 @@ PAGES_META = {
     "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for the five MCP products; AI Workbench installs over npx."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),
     "/changelog": ("PAGE_CHANGELOG", "Changelog — AI Agent City", "External-facing product releases across the AI Agent City suite. Human-readable and machine-readable."),
-    "/bfcm": ("PAGE_BFCM", "BFCM Campaign-in-a-Box — $499", "Five Black Friday emails, three texts, and three abandoned-checkout fixes, written for your Shopify store from its URL. Drafts delivered in 48 hours. $499."),
-    "/bfcm/sample": ("PAGE_BFCM_SAMPLE", "Sample BFCM pack — Campaign-in-a-Box", "Read the actual pack: five emails, three SMS, and three abandoned-checkout tweaks for an illustrative coffee roaster. No email required."),
+    "/bfcm": ("PAGE_BFCM", "BFCM Campaign-in-a-Box — $499", "Five Black Friday emails, three texts, and five abandoned-cart and browse-abandon fixes, written for your Shopify store from its URL. Drafts delivered in 48 hours. $499."),
+    "/bfcm/sample": ("PAGE_BFCM_SAMPLE", "Sample BFCM pack — Campaign-in-a-Box", "Read the actual pack: five emails, three SMS, and five abandoned-cart and browse-abandon steps for an illustrative small-batch skincare brand. No email required."),
     "/bfcm/thanks": ("PAGE_BFCM_THANKS", "Order received — BFCM Campaign-in-a-Box", "Your campaign is in the queue. Drafts within 48 hours."),
 }
