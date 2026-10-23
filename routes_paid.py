@@ -19,9 +19,11 @@ Money discipline, same as POST /v1/billing/x402:
 from __future__ import annotations
 
 import os
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 import metrics
 import routes_satellite
@@ -78,6 +80,47 @@ def _settle(request: Request, route_key: str):
             error_type="payment_required_error", code="payment_required")
     return result, JSONResponse(status_code=unpaid["status"], content=body,
                                 headers=dict(unpaid.get("headers") or {}))
+
+
+def _payment_offered(request: Request) -> bool:
+    """True when the caller presented an x402 payment.
+
+    Mirrors the two live header conventions in x402_verify (v2 PAYMENT-SIGNATURE,
+    v1 X-PAYMENT). Used only to order two duties correctly: an unpaid caller must
+    be told the price BEFORE its body is judged (discovery), and a caller who IS
+    paying must have its body judged BEFORE any settlement (a 422 never costs
+    the payer).
+    """
+    offered = (request.headers.get("payment-signature")
+               or request.headers.get("x-payment"))
+    return offered is not None and offered.strip() != ""
+
+
+def _challenge(request: Request, route_key: str) -> JSONResponse:
+    """Answer an unpaid request with the 402 price challenge, body unjudged.
+
+    verify_payment() only crosses the settlement boundary when a payment header
+    is present, so with no header this is a pure discovery call — nothing is
+    verified, nothing is settled.
+    """
+    _result, unpaid = _settle(request, route_key)
+    if unpaid is None:  # defensive: a request with no payment cannot verify
+        raise HTTPException(402, detail=error_envelope(
+            402, "payment required", error_type="payment_required_error",
+            code="payment_required"))
+    return unpaid
+
+
+def _invalid_body(exc: Exception) -> JSONResponse:
+    """422 in the shape these paid routes already use for bad input."""
+    msg = "invalid request body"
+    errors = getattr(exc, "errors", lambda: [])()
+    if errors:
+        first = errors[0]
+        loc = ".".join(str(p) for p in first.get("loc", ()) if p != "body")
+        detail = str(first.get("msg") or msg)
+        msg = f"{loc}: {detail}" if loc else detail
+    return JSONResponse({"ok": False, "error": msg}, status_code=422)
 
 
 def _check_recipient(result: dict) -> None:
@@ -139,11 +182,29 @@ def _fulfill(result: dict, op: str, work):
 
 # ── Agent Watch: paid probe ──────────────────────────────────────────────────
 
-@router.post("/api/x402/agent-watch/probe")
-def paid_probe(req: routes_satellite.ProbeRequest, request: Request):
+@router.post("/api/x402/agent-watch/probe",
+             openapi_extra={"requestBody": {
+                 "required": True,
+                 "content": {"application/json": {
+                     "schema": {"$ref": "#/components/schemas/ProbeRequest"}}}}})
+def paid_probe(request: Request, body: Any = Body(default=None)):
     """x402-payable endpoint probe — same upstream as the free
     /api/agent-watch/probe, minus the rate limit (the payment IS the limiter).
-    Input is validated before charging."""
+
+    Ordering is load-bearing in BOTH directions:
+      • an unpaid caller gets the 402 price challenge BEFORE its body is judged,
+        so a sweeper that posts an empty body learns the price instead of a 422
+        (measured live 2026-10-23: a bare 422 hid this listing from sweepers);
+      • a caller who has presented a payment is validated BEFORE settlement, so
+        a 422 never costs the payer.
+    """
+    if not _payment_offered(request):
+        return _challenge(request, PROBE_ROUTE)
+
+    try:
+        req = routes_satellite.ProbeRequest.model_validate(body or {})
+    except ValidationError as exc:
+        return _invalid_body(exc)
     err = routes_satellite._url_is_public(req.url)
     if err:
         return JSONResponse({"ok": False, "error": err}, status_code=422)
@@ -207,10 +268,26 @@ def paid_census(request: Request):
 
 # ── TrustScan: paid npm check ────────────────────────────────────────────────
 
-@router.post("/api/x402/trustscan/npm")
-def paid_trustscan_npm(req: routes_satellite.NpmCheckRequest, request: Request):
+@router.post("/api/x402/trustscan/npm",
+             openapi_extra={"requestBody": {
+                 "required": True,
+                 "content": {"application/json": {
+                     "schema": {"$ref": "#/components/schemas/NpmCheckRequest"}}}}})
+def paid_trustscan_npm(request: Request, body: Any = Body(default=None)):
     """x402-payable npm trust check — same verdict as the free
-    /api/trustscan/npm form, minus the rate limit."""
+    /api/trustscan/npm form, minus the rate limit.
+
+    Same two-way ordering as the probe: price first for an unpaid caller, body
+    judged before settlement for a paying one.
+    """
+    if not _payment_offered(request):
+        return _challenge(request, TRUSTSCAN_ROUTE)
+
+    try:
+        req = routes_satellite.NpmCheckRequest.model_validate(body or {})
+    except ValidationError as exc:
+        return _invalid_body(exc)
+
     name = (req.package or "").strip()
     if not name:
         return JSONResponse({"ok": False, "error": "enter a package name"},
