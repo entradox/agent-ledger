@@ -92,16 +92,59 @@ def test_trustscan_unpaid_returns_402(client, monkeypatch):
 
 def test_bad_input_is_a_free_422_never_charged(client, monkeypatch):
     """Input validation runs BEFORE charging — a bad package name is a 422 and
-    verify_payment is never even called."""
+    verify_payment is never even called.
+
+    D-3993: this protection belongs to a caller who has PRESENTED a payment.
+    An unpaid caller is told the price first (see the discovery block below) —
+    refusing it with a 422 is what hid the listing from sweepers."""
     c, _ = client
     called = {"n": 0}
     def spy(request, route_key=""):
         called["n"] += 1
         return {"verified": False, "unpaid_response": None}
     monkeypatch.setattr("x402_verify.verify_payment", spy)
-    r = c.post("/api/x402/trustscan/npm", json={"package": "EXPRESS"})
+    r = c.post("/api/x402/trustscan/npm", json={"package": "EXPRESS"},
+               headers={"X-PAYMENT": "fake"})
     assert r.status_code == 422
     assert called["n"] == 0
+
+
+# ── discovery: the price comes before the body judge ────────────────────────
+#
+# Measured live 2026-10-23 (D-3993): POST /api/x402/agent-watch/probe and
+# POST /api/x402/trustscan/npm both answered 422 to an empty body, so a sweeper
+# that probes blind learned no price and skipped the listing, while a listed
+# peer answered 402 to the same empty POST. x402's discovery contract puts the
+# challenge first; the payer's protection is that the body is judged BEFORE
+# settlement — not that an unpaid caller is refused.
+
+@pytest.mark.parametrize("path", ["/api/x402/agent-watch/probe",
+                                  "/api/x402/trustscan/npm"])
+@pytest.mark.parametrize("payload", [{}, None])
+def test_unpaid_request_gets_the_price_even_with_no_usable_body(
+        client, monkeypatch, path, payload):
+    c, _ = client
+    _unpaid(monkeypatch)
+    r = c.post(path) if payload is None else c.post(path, json=payload)
+    assert r.status_code == 402, (
+        f"{path} answered {r.status_code} to an empty body — a sweeper never "
+        f"sees a price here, so the listing cannot be discovered")
+    assert r.headers.get("payment-required") == "xyz"
+
+
+def test_probe_paid_but_invalid_body_is_422_and_never_settles(client, monkeypatch):
+    """A caller who HAS presented a payment gets its body judged before any
+    settlement: a 422 never costs the payer."""
+    c, _ = client
+    called = {"n": 0}
+    def spy(request, route_key=""):
+        called["n"] += 1
+        return {"verified": True, "payer_wallet": "0xP", "tx_hash": "0xT"}
+    monkeypatch.setattr("x402_verify.verify_payment", spy)
+    r = c.post("/api/x402/agent-watch/probe", json={},
+               headers={"X-PAYMENT": "fake"})
+    assert r.status_code == 422
+    assert called["n"] == 0, "settlement was attempted for a body we refused"
 
 
 # ── paid → resource ──────────────────────────────────────────────────────────

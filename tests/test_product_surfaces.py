@@ -46,7 +46,12 @@ def test_every_connect_surface_is_a_route_the_app_or_an_mcp_serves(client, regis
                 assert line.startswith("POST https://"), \
                     f"{p['id']} paid_call malformed"
                 path = line.split("aiagentscity.com", 1)[-1]
-                assert client.post(path).status_code in (400, 401, 402, 422), \
+                # D-3993: the route now reaches the payment rail BEFORE judging
+                # the body (that is what makes it discoverable), so on a machine
+                # with no x402 rail configured it answers the rail's own 503
+                # "not available here" instead of a body 422. Production, where
+                # the rail is configured, answers 402 to the same bare POST.
+                assert client.post(path).status_code in (400, 401, 402, 422, 503), \
                     f"{p['id']} paid_call {path} does not resolve"
                 continue
             assert line.startswith("https://"), f"{p['id']} {kind} not a URL"
