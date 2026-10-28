@@ -24,4 +24,6 @@ cdp-sdk>=1.48.0
 # It provides the server-side challenge/verify primitives used to add an
 # MPP `WWW-Authenticate: Payment` header to the existing x402 paywall.
 # Requires Python >=3.11; this service runs 3.13.
-pympp>=0.11.0
+# Pinned: 0.16.0 dropped Mpp.create, so mpp_verify._init() disables the MPP route
+# on a fresh install and two review tests go red. Unpin after the SDK migration.
+pympp==0.11.0
