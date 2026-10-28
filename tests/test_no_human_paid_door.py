@@ -28,13 +28,13 @@ PAGES = [
     "/workbench", "/agent-watch", "/trust-scan", "/perimeter-watch",
     "/cited", "/start", "/demo", "/dashboard", "/status", "/terms",
     "/privacy", "/quickstart", "/security", "/about", "/developers",
-    "/compare", "/changelog", "/llms.txt", "/pricing.md",
+    "/compare", "/llms.txt", "/pricing.md",
     "/okf/index.md", "/skill.md", "/auth.md", "/.well-known/x402.json",
     "/v1/products", "/.well-known/agent.json",
 ]
 
 # Pages allowed to carry dollar amounts in comparison context only.
-COMPETITOR_PRICE_PAGES = {"/compare", "/agent-ledger", "/changelog"}
+COMPETITOR_PRICE_PAGES = {"/compare", "/agent-ledger"}
 
 # A DOOR is a link/form field a caller could actually use to pay a human —
 # a plain-text mention of the retired endpoint (e.g. the changelog's "now

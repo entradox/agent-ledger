@@ -336,7 +336,7 @@ def _stale_price_lines(text, configured):
 # agent-facing manifests. Every one of them must state the CONFIGURED price and
 # no shipped literal.
 TEXT_PRICE_SURFACES = (
-    "/", "/products", "/manifesto", "/developers", "/changelog", "/compare",
+    "/", "/products", "/manifesto", "/developers", "/compare",
     "/agent-ledger", "/dashboard", "/demo", "/start", "/terms",
     "/pricing", "/upgrade", "/pricing.md",
     "/agents.txt", "/skill.md", "/llms.txt",

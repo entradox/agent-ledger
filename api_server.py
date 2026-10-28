@@ -313,7 +313,6 @@ REACH_EXEMPT = {
     "/trust-scan": "different product's landing page — instrument when it gets a funnel",
     "/products": "umbrella stack page, reached mid-funnel, not a funnel entry",
     "/developers": "machine-readable surfaces index, not a funnel entry",
-    "/changelog": "informational release log, not a funnel entry",
     "/bfcm/thanks": "post-purchase confirmation page, reached only after checkout — not an entry point",
 }
 
@@ -2451,7 +2450,6 @@ def sitemap_xml():
         ("/quickstart",   "0.7", "weekly"),
         ("/compare",      "0.8", "weekly"),
         ("/manifesto",    "0.7", "monthly"),
-        ("/changelog",    "0.7", "weekly"),
         ("/skill.md",     "0.7", "weekly"),
         ("/auth.md",   "0.6", "monthly"),
         ("/status",       "0.6", "daily"),
@@ -2586,10 +2584,10 @@ def city_developers(request: Request):
     return _city_response("/developers", request)
 
 
-@app.get("/changelog", response_class=HTMLResponse)
-def city_changelog(request: Request):
-    """External-facing product releases only (two surfaces)."""
-    return _city_response("/changelog", request)
+@app.get("/changelog", response_class=RedirectResponse, include_in_schema=False)
+def city_changelog_retired():
+    """Release log retired: it published internal engineering notes. No content is served."""
+    return RedirectResponse("/", status_code=301)
 
 
 @app.get("/bfcm", response_class=HTMLResponse)
