@@ -100,7 +100,7 @@ def test_every_html_page_declares_a_canonical(client):
     import api_server
     missing, checked = [], 0
     for path in _html_get_paths():
-        r = client.get(path)
+        r = client.get(path, follow_redirects=False)
         if r.status_code != 200:
             continue
         if "text/html" not in r.headers.get("content-type", ""):
@@ -120,7 +120,7 @@ def test_canonical_names_the_public_host_never_the_railway_origin(client):
     """A canonical pointing at the railway host is worse than none at all."""
     offenders = []
     for path in _html_get_paths():
-        r = client.get(path)
+        r = client.get(path, follow_redirects=False)
         if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
             continue
         m = CANONICAL_RE.search(r.text)
@@ -140,7 +140,7 @@ def test_canonical_names_the_pages_own_path(client):
     """Catches the copy-paste bug: every page claiming to be the homepage."""
     wrong = []
     for path in _html_get_paths():
-        r = client.get(path)
+        r = client.get(path, follow_redirects=False)
         if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
             continue
         m = CANONICAL_RE.search(r.text)
@@ -261,7 +261,7 @@ def test_indexable_pages_are_not_missing_from_the_sitemap(client):
     listed = {u.split(PUBLIC_HOST, 1)[-1] for u in re.findall(r"<loc>([^<]+)</loc>", r.text)}
     must_be_listed = {
         "/", "/products", "/agent-ledger", "/pricing", "/upgrade", "/demo",
-        "/start", "/quickstart", "/developers", "/compare", "/changelog",
+        "/start", "/quickstart", "/developers", "/compare",
         "/manifesto", "/status", "/docs",
         # satellite product landing pages — each is a real destination
         "/perimeter-watch", "/agent-watch", "/cited", "/trust-scan",
@@ -350,7 +350,7 @@ def test_the_indexnow_route_did_not_shadow_a_real_surface(client):
     real .txt surface still answers as itself.
     """
     for path in ["/llms.txt", "/robots.txt"]:
-        r = client.get(path)
+        r = client.get(path, follow_redirects=False)
         assert r.status_code == 200, f"{path} -> {r.status_code}"
         import api_server
         assert r.text.strip() != api_server.INDEXNOW_KEY, \

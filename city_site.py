@@ -309,7 +309,6 @@ TABS = [
     ("/developers", "/developers", None),
     ("/bfcm", "/bfcm", None),
     ("/compare", "/compare", None),
-    ("/changelog", "/changelog", None),
 ]
 
 
@@ -518,19 +517,8 @@ PAGE_HOME = """<div class="agent-surface">
     <div class="card"><h3>Priced honestly</h3><p>Flat-rate token pricing was 7.4× wrong on a real session. AgentLedger prices cache-aware.</p></div>
   </div>
   <div class="cta-row"><a class="btn btn-ghost" href="/compare">AgentLedger vs trace viewers →</a><a class="btn btn-agentb" href="/developers">I'm an agent — take me to /developers →</a></div>
-  <div class="kicker" style="margin-top:28px"><span class="rh">// human-readable</span> · what's new</div>
-  <h2>Recent ships, dated.</h2>
-  <p class="lede">The changelog is the proof the stack is alive — every entry is a shipped outcome, not a progress update.</p>
-  <div class="chlog" style="margin-top:14px">
-    <div class="e"><div class="d">2026-10-08</div><div class="t"><b>Spend approvals — human-in-the-loop.</b> <span class="ver">ledger_request_approval</span>, <span class="ver">ledger_approvals</span>, <span class="ver">ledger_approval_decide</span>: an agent that hits its cap asks the workspace owner for a one-shot permit; owner-only decisions, 1h TTL, consumed by the next over-cap write. <span class="ver">agent-ledger v0.4.4 · 17 tools</span></div></div>
-    <div class="e"><div class="d">2026-10-04</div><div class="t"><b>RapidAPI marketplace rail.</b> Proxy-secret auth, per-subscriber workspaces, plan sync — plus the x402 <span class="ver">bazaar</span> discovery extension on settle. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-10-03</div><div class="t"><b>Machine-readable pricing.</b> <span class="ver">/pricing.md</span> and <span class="ver">/okf/index.md</span> agent surfaces live. <span class="ver">platform</span></div></div>
-    <div class="e"><div class="d">2026-10-02</div><div class="t"><b>Red-team fixes landed.</b> Webhook SSRF closed, atomic budget caps, proxy credential leaks sealed. <span class="ver">agent-ledger</span></div></div>
-    <div class="e"><div class="d">2026-09-26</div><div class="t"><b>Spend decision via MCP.</b> <span class="ver">ledger_check_spend</span>, <span class="ver">ledger_price</span>, <span class="ver">ledger_proxy_attach</span>; new workspaces capped by default. <span class="ver">agent-ledger</span></div></div>
-  </div>
-  <div class="cta-row"><a class="btn btn-ghost" href="/changelog">Full changelog →</a></div>
   <footer class="site">
-    <div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a><a href="/privacy">privacy</a><a href="/terms">terms</a></div>
+    <div><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a><a href="/privacy">privacy</a><a href="/terms">terms</a></div>
     <div>AI Agent City · one site, two readers</div>
   </footer>
 </section>
@@ -588,7 +576,7 @@ PAGE_MANIFESTO = """<div class="agent-surface">
     <a class="btn btn-agentb" href="/developers">I'm an agent — /developers →</a>
   </div>
   <footer class="site">
-    <div><a href="/manifesto">/manifesto</a><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/changelog">/changelog</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a></div>
+    <div><a href="/manifesto">/manifesto</a><a href="/products">/products</a><a href="/developers">/developers</a><a href="/compare">/compare</a><a href="/llms.txt">/llms.txt</a><a href="/status">status</a><a href="/security">security</a></div>
     <div>AI Agent City · one site, two readers</div>
   </footer>
 </section>
@@ -885,7 +873,6 @@ PAGES_META = {
     "/products": ("PAGE_PRODUCTS", "Products — AI Agent City", "Two questions, seven products: trust before an agent acts, outcome after. AgentLedger, Agent Watch, Perimeter Watch, TrustScan, Cited, Benefits City, and AI Workbench — each live and independently usable."),
     "/developers": ("PAGE_DEVELOPERS", "Developers — AI Agent City", "MCP, REST, CLI, and the x402 purchase path. Machine-readable surfaces for the six MCP products; AI Workbench installs over npx."),
     "/compare": ("PAGE_COMPARE", "AI Agent City vs trace viewers — AI Agent City", "How per-agent budget enforcement differs from request-level trace observability, with honestly dated list prices."),
-    "/changelog": ("PAGE_CHANGELOG", "Changelog — AI Agent City", "External-facing product releases across the AI Agent City suite. Human-readable and machine-readable."),
     "/bfcm": ("PAGE_BFCM", "BFCM Campaign-in-a-Box — $499", "Five Black Friday emails, three texts, and five abandoned-cart and browse-abandon fixes, written for your Shopify store from its URL. Drafts delivered in 48 hours. $499."),
     "/bfcm/sample": ("PAGE_BFCM_SAMPLE", "Sample BFCM pack — Campaign-in-a-Box", "Read the actual pack: five emails, three SMS, and five abandoned-cart and browse-abandon steps for an illustrative small-batch skincare brand. No email required."),
     "/bfcm/thanks": ("PAGE_BFCM_THANKS", "Order received — BFCM Campaign-in-a-Box", "Your campaign is in the queue. Drafts within 48 hours."),

@@ -104,7 +104,7 @@ def test_auth_md_names_the_real_credential_paths():
 
 
 # ── 5. Accept: text/markdown on the canonical URLs ───────────────────────────
-CANONICAL = ("/", "/products", "/developers", "/changelog", "/manifesto", "/compare")
+CANONICAL = ("/", "/products", "/developers", "/manifesto", "/compare")
 
 
 def test_markdown_twin_is_served_when_asked():

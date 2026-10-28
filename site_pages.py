@@ -177,7 +177,7 @@ text-align:center;color:var(--muted);font-size:12.5px}}
 @media(max-width:560px){{.kv{{grid-template-columns:1fr}}.kv dt{{padding-top:8px}}}}
 </style></head><body>
 <div class="topbar"><a class="wm" href="/">AI AGENT CITY</a>
-<nav><a href="/products">products</a><a href="/developers">developers</a><a href="/changelog">changelog</a></nav></div>
+<nav><a href="/products">products</a><a href="/developers">developers</a></nav></div>
 <div class="wrap">
 {body}
 </div>
@@ -716,8 +716,7 @@ Refunds, billing and privacy/deletion requests go to the same address.</p>
 <p>We aim to answer within two business days.</p>
 
 <h2>Public record</h2>
-<p><a href="/changelog">Changelog</a> — every ship, dated ·
-<a href="/status">Live status</a> ·
+<p><a href="/status">Live status</a> ·
 <a href="/security">Security &amp; data handling</a> ·
 <a href="/terms">Terms</a> ·
 <a href="/privacy">Privacy</a></p>
@@ -735,7 +734,7 @@ def _render_about() -> str:
         block = (
             "<p>It is built and run by its founder directly — engineering, support and "
             "billing all reach the same person. Every product on this site was written "
-            "here, and the changelog is the record of it.</p>")
+            "here.</p>")
     return ABOUT.replace("{founder_block}", block)
 
 
